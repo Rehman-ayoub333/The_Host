@@ -8,6 +8,7 @@ from google.genai import types
 
 import config
 import prompts
+import tools
 
 
 def build_live_config(now: datetime) -> types.LiveConnectConfig:
@@ -16,6 +17,7 @@ def build_live_config(now: datetime) -> types.LiveConnectConfig:
         system_instruction=types.Content(
             parts=[types.Part(text=prompts.build_system_instruction(now))]
         ),
+        tools=[types.Tool(function_declarations=tools.TOOL_DECLARATIONS)],
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(
