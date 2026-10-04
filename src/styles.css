@@ -6,7 +6,7 @@
 
 /*
  * BITE & POUR · NEXA design system
- * Gold = brand identity. Cyan = NEXA intelligence. Cyan never overpowers gold.
+ * Black is the canvas; champagne gold marks identity and meaningful activity.
  */
 
 @theme inline {
@@ -42,8 +42,8 @@
   --color-gold: var(--gold);
   --color-gold-bright: var(--gold-bright);
   --color-gold-dim: var(--gold-dim);
-  --color-nexa: var(--nexa);
-  --color-nexa-dim: var(--nexa-dim);
+  --color-ivory: var(--ivory);
+  --color-champagne: var(--champagne);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-surface: var(--surface);
@@ -55,45 +55,45 @@
 :root {
   --radius: 0.375rem;
 
-  --background: oklch(0.155 0.01 255);
-  --surface: oklch(0.2 0.012 255);
-  --surface-2: oklch(0.235 0.014 255);
-  --foreground: oklch(0.94 0.03 85);
-  --muted-foreground: oklch(0.72 0.022 85);
+  --background: #070706;
+  --surface: #12110e;
+  --surface-2: #181612;
+  --foreground: #f4ebdd;
+  --ivory: #f4ebdd;
+  --muted-foreground: #a9a294;
 
-  --gold: oklch(0.77 0.13 88);
-  --gold-bright: oklch(0.86 0.12 92);
-  --gold-dim: oklch(0.47 0.08 88);
-  --nexa: oklch(0.83 0.12 205);
-  --nexa-dim: oklch(0.5 0.08 210);
-  --success: oklch(0.78 0.15 158);
-  --warning: oklch(0.8 0.14 70);
+  --gold: #c9a227;
+  --champagne: #d8b85a;
+  --gold-bright: #e7d39a;
+  --gold-dim: #887035;
+  --success: #83a184;
+  --warning: #d8b85a;
 
-  --line: oklch(0.77 0.13 88 / 0.14);
-  --line-strong: oklch(0.77 0.13 88 / 0.32);
+  --line: rgb(212 175 55 / 0.18);
+  --line-strong: rgb(212 175 55 / 0.34);
 
   --card: var(--surface);
   --card-foreground: var(--foreground);
   --popover: var(--surface);
   --popover-foreground: var(--foreground);
   --primary: var(--gold);
-  --primary-foreground: oklch(0.16 0.02 80);
+  --primary-foreground: #0d0c0a;
   --secondary: var(--surface-2);
   --secondary-foreground: var(--foreground);
   --muted: var(--surface-2);
   --accent: var(--surface-2);
   --accent-foreground: var(--foreground);
-  --destructive: oklch(0.65 0.2 25);
+  --destructive: #be786d;
   --destructive-foreground: var(--foreground);
   --border: var(--line);
   --input: var(--surface-2);
   --ring: var(--gold);
 
-  --gradient-gold: linear-gradient(180deg, var(--gold-bright), var(--gold) 55%, var(--gold-dim));
-  --gradient-panel: linear-gradient(180deg, oklch(0.205 0.013 255 / 0.92), oklch(0.17 0.011 255 / 0.92));
-  --shadow-panel: 0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 20px 40px -24px oklch(0 0 0 / 0.8);
-  --glow-nexa: 0 0 24px oklch(0.83 0.12 205 / 0.35);
-  --glow-gold: 0 0 24px oklch(0.77 0.13 88 / 0.3);
+  --gradient-gold: linear-gradient(135deg, var(--gold-bright), var(--champagne) 60%, var(--gold));
+  --gradient-panel: var(--surface);
+  --shadow-panel: 0 12px 32px -26px rgb(0 0 0 / 0.75);
+  --glow-gold: 0 0 24px rgb(216 184 90 / 0.12);
+
 }
 
 @layer base {
@@ -108,13 +108,10 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
-    background-image:
-      radial-gradient(1200px 600px at 70% -10%, oklch(0.83 0.12 205 / 0.05), transparent 60%),
-      radial-gradient(900px 500px at 0% 0%, oklch(0.77 0.13 88 / 0.05), transparent 60%);
-    background-attachment: fixed;
+    background-image: none;
   }
   ::selection {
-    background: oklch(0.77 0.13 88 / 0.3);
+    background: rgb(216 184 90 / 0.25);
   }
 }
 
@@ -170,11 +167,11 @@
 }
 
 @utility glow-nexa {
-  text-shadow: 0 0 18px oklch(0.83 0.12 205 / 0.55);
+  text-shadow: 0 0 16px rgb(216 184 90 / 0.2);
 }
 
 @utility glow-gold {
-  text-shadow: 0 0 18px oklch(0.77 0.13 88 / 0.45);
+  text-shadow: 0 0 16px rgb(216 184 90 / 0.18);
 }
 
 @utility hairline-gold {
@@ -185,39 +182,39 @@
 
 @utility scan-grid {
   background-image:
-    linear-gradient(oklch(0.83 0.12 205 / 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(0.83 0.12 205 / 0.06) 1px, transparent 1px);
+    linear-gradient(rgb(216 184 90 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(216 184 90 / 0.035) 1px, transparent 1px);
   background-size: 32px 32px;
 }
 
 /* ---------- NEXA orb ---------- */
 .nexa-orb {
-  --c: var(--gold);
-  --c2: var(--gold-bright);
+  --c: var(--gold-dim);
+  --c2: var(--champagne);
   --spin: 40s;
   --breath: 5s;
 }
 .nexa-orb[data-tone="ai"] {
-  --c: var(--nexa);
-  --c2: oklch(0.93 0.07 200);
-  --spin: 18s;
+  --c: var(--champagne);
+  --c2: var(--gold-bright);
+  --spin: 16s;
   --breath: 3s;
 }
 .nexa-orb[data-tone="think"] {
-  --c: var(--nexa);
-  --c2: var(--gold-bright);
-  --spin: 4s;
+  --c: var(--gold);
+  --c2: var(--champagne);
+  --spin: 8s;
   --breath: 1.6s;
 }
 .nexa-orb[data-tone="warn"] {
   --c: var(--destructive);
-  --c2: oklch(0.8 0.12 40);
+  --c2: var(--foreground);
   --spin: 10s;
   --breath: 1.2s;
 }
 .nexa-orb[data-tone="off"] {
-  --c: oklch(0.45 0.01 255);
-  --c2: oklch(0.6 0.01 255);
+  --c: var(--gold-dim);
+  --c2: var(--muted-foreground);
   --spin: 120s;
   --breath: 9s;
 }
@@ -360,3 +357,14 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Restraint: the live presence becomes clearer only when an event occurs. */
+.nexa-orb[data-tone="off"] { opacity: .42; }
+.nexa-orb[data-tone="brand"] { opacity: .76; }
+.nexa-orb[data-tone="ai"] { opacity: 1; }
+.nexa-orb[data-tone="think"] { --c: var(--gold); }
+.nexa-orb[data-tone="memory"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 28s; }
+.nexa-orb[data-tone="ready"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 32s; }
+.nexa-orb[data-tone="voice"] { --c: var(--champagne); --c2: var(--ivory); --spin: 20s; }
+.nexa-orb[data-tone="scan"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 12s; }
+.nexa-orb[data-tone="order"] { --c: var(--gold); --c2: var(--champagne); --spin: 24s; }
