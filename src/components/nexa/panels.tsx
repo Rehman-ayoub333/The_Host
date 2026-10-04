@@ -155,7 +155,7 @@ export function VisionPanel({ className, tall }: { className?: string; tall?: bo
       }
     >
       <div className="grid h-full grid-cols-1 lg:grid-cols-[1fr_200px]">
-        <div className={cn("relative overflow-hidden bg-background", tall ? "aspect-video lg:aspect-auto lg:min-h-[520px]" : "aspect-video")}>
+        <div className={cn("relative overflow-hidden bg-background", tall ? "aspect-video lg:aspect-auto lg:min-h-[520px]" : "aspect-video lg:aspect-auto lg:min-h-[380px]")}>
           {frameUrl && <img src={frameUrl} alt="Booth camera feed" className="absolute inset-0 h-full w-full object-cover" />}
           {localCam && !frameUrl && <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 h-full w-full -scale-x-100 object-cover" />}
           {!hasFeed && (

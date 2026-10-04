@@ -61,6 +61,7 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       const others = s.visitors.filter((v) => v.id !== e.visitor.id);
       return n({
         state: "remembering",
+        detail: null,
         focusVisitorId: e.visitor.id,
         visitors: [e.visitor, ...others],
         activity: log(s, "memory", "Visitor recognized", `${e.visitor.name} · visit ${e.visitor.visits}`),
@@ -82,6 +83,7 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
     case "agent_speaking":
       return n({
         state: "speaking",
+        detail: null,
         caption: { speaker: "nexa", text: e.text },
         transcript: [...s.transcript, { id: uid(), speaker: "nexa" as const, text: e.text, ts: now }].slice(-40),
         activity: log(s, "voice", "Responding", `“${e.text}”`),

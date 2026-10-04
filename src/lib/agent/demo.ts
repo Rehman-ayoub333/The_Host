@@ -32,7 +32,7 @@ type Step = { at: number; step?: number; ev: () => AgentEvent | LocalAction };
 const script = (): Step[] => [
   { at: 0, step: 0, ev: () => ({ type: "agent_state_changed", state: "seeing", detail: "Scanning booth" }) },
   { at: 400, ev: () => ({ type: "vision_update", frameUrl: visionDemo, detections }) },
-  { at: 2600, ev: () => ({ type: "person_detected", detection: detections[0] }) },
+  { at: 2600, ev: () => ({ type: "person_detected", detection: detections[0]! }) },
 
   { at: 5200, step: 1, ev: () => ({ type: "speech_started" }) },
   { at: 6400, ev: () => ({ type: "speech_transcript", text: "I want a chicken burger…" }) },

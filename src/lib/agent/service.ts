@@ -19,8 +19,8 @@ export interface AgentConfig {
 
 export function getAgentConfig(): AgentConfig {
   const env = {
-    apiUrl: (import.meta.env.VITE_AGENT_API_URL as string | undefined) ?? "",
-    wsUrl: (import.meta.env.VITE_AGENT_WS_URL as string | undefined) ?? "",
+    apiUrl: (import.meta.env["VITE_AGENT_API_URL"] as string | undefined) ?? "",
+    wsUrl: (import.meta.env["VITE_AGENT_WS_URL"] as string | undefined) ?? "",
   };
   if (typeof window === "undefined") return env;
   try {

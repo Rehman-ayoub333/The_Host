@@ -87,7 +87,7 @@ export interface Activity {
   id: string;
   kind: ActivityKind;
   title: string;
-  detail?: string;
+  detail?: string | undefined;
   ts: number;
 }
 
