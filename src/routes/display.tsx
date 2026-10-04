@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Maximize, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import comboImg from "@/assets/order-combo.jpg";
 import { AIOrb } from "@/components/nexa/AIOrb";
 import { BrandMark } from "@/components/nexa/Brand";
@@ -15,6 +16,8 @@ export const Route = createFileRoute("/display")({
       { name: "description", content: "The public face of NEXA, the AI host at the Bite & Pour booth." },
       { property: "og:title", content: "NEXA Live Display — Bite & Pour" },
       { property: "og:description", content: "Meet NEXA: the AI host that sees, hears, thinks, speaks and remembers." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: SMDDisplay,
@@ -40,53 +43,52 @@ function SMDDisplay() {
 
   let headline: string = meta.verb;
   if (memoryStates && focus) headline = state === "welcoming" ? `Welcome back, ${focus.name}!` : `I remember you, ${focus.name}`;
-  if (state === "idle") headline = "Hello! I'm NEXA";
+  if (state === "idle") headline = "Ready when you are.";
   if (state === "order_ready" && order) headline = `Order #${order.number} is ready`;
 
-  const toneText = meta.tone === "brand" ? "text-gold glow-gold" : meta.tone === "warn" ? "text-destructive" : meta.tone === "off" ? "text-muted-foreground" : "text-champagne glow-gold";
+  const toneText = meta.tone === "warn" ? "text-destructive" : meta.tone === "off" ? "text-muted-foreground" : "text-foreground";
 
   return (
-    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_45%,oklch(0.83_0.12_205/0.08),transparent_70%)]" />
-      <div className="pointer-events-none absolute inset-6 rounded-xl border border-line" />
-      <div className="pointer-events-none absolute inset-6 panel-corners rounded-xl" />
+    <div className="relative flex min-h-screen w-full flex-col overflow-hidden bg-background">
+      <div className="pointer-events-none absolute inset-3 border border-line sm:inset-6" />
 
-      <button
+       <Button variant="ghost" size="icon"
         onClick={() => document.documentElement.requestFullscreen?.().catch(() => undefined)}
-        className="absolute right-10 top-10 z-10 rounded-md p-2 text-muted-foreground/40 transition-colors hover:text-gold"
+         className="absolute right-7 top-7 z-10 text-muted-foreground transition-colors hover:text-gold sm:right-10 sm:top-10"
         aria-label="Enter full screen"
       >
         <Maximize className="h-5 w-5" />
-      </button>
-      {mode === "demo" && <span className="absolute left-10 top-10 font-mono text-xs uppercase tracking-widest text-warning/70">Demo</span>}
+       </Button>
+       {mode === "demo" && <span className="absolute left-7 top-7 font-mono text-xs uppercase text-warning sm:left-10 sm:top-10">Demo data</span>}
 
-      <header className="relative pt-12">
-        <BrandMark size="lg" />
+       <header className="relative pt-12 sm:pt-14">
+         <BrandMark size="lg" tagline />
       </header>
 
-      <main className={cn("relative flex flex-1 items-center justify-center gap-[6vw] px-12 transition-all duration-700", showSide ? "flex-row" : "flex-col")}>
-        <div className="flex flex-col items-center">
-          <div className={cn("transition-all duration-700", showSide ? "w-[min(38vh,30vw)]" : "w-[min(46vh,60vw)]")}>
+       <main className={cn("relative flex flex-1 items-center justify-center gap-4 px-7 py-6 transition-all duration-700 sm:gap-10 sm:px-12 lg:gap-[6vw]", showSide ? "flex-col lg:flex-row" : "flex-col")}>
+         <div className="flex min-w-0 flex-col items-center">
+           <div className={cn("transition-all duration-700", showSide ? "w-[min(34vh,55vw)] lg:w-[min(38vh,30vw)]" : "w-[min(42vh,68vw)]")}>
             <AIOrb state={state} />
           </div>
-          <p key={state} className={cn("animate-rise mt-6 text-center text-[clamp(2rem,4.6vw,4.5rem)] font-semibold leading-tight tracking-tight", toneText)}>
+           <p className="font-mono text-xs uppercase text-champagne">NEXA · Your AI host</p>
+           <p key={state} className={cn("animate-rise mt-3 text-center font-display text-4xl font-semibold leading-tight sm:text-6xl lg:text-7xl", toneText)}>
             {headline}
           </p>
           <p className="mt-2 min-h-8 text-center text-[clamp(1rem,1.8vw,1.6rem)] text-muted-foreground">
-            {state === "idle" ? "Your AI host · How can I help you?" : state === "offline" ? "Back in a moment" : detail && !memoryStates ? detail : ""}
+             {state === "idle" ? "See · Hear · Speak · Remember" : state === "offline" ? "Back in a moment" : detail && !memoryStates ? detail : ""}
           </p>
           {voice && caption && (
             <p key={caption.text} className="animate-rise mt-6 max-w-[60vw] text-center text-[clamp(1.25rem,2.6vw,2.4rem)] font-medium leading-snug text-foreground">
               “{caption.text}”
             </p>
           )}
-          <VoiceWaveform active={voice} bars={56} className={cn("mt-6 h-14 w-[min(40vw,520px)] transition-opacity", voice ? "opacity-100" : "opacity-30")} />
+           <VoiceWaveform active={voice} tone={state === "speaking" ? "ivory" : "gold"} bars={56} className={cn("mt-6 h-14 w-[min(70vw,520px)] transition-opacity", voice ? "opacity-100" : "opacity-30")} />
         </div>
 
         {orderStates && order && (
-          <div key={order.id} className="panel panel-corners animate-rise w-[min(32vw,460px)] overflow-hidden">
+           <div key={order.id} className="animate-rise w-full max-w-[460px] border-t border-line-strong pt-5 text-center lg:w-[min(32vw,460px)] lg:border-l lg:border-t-0 lg:pl-8">
             <img src={comboImg} alt="" width={1024} height={768} className="aspect-[4/3] w-full object-cover" />
-            <div className="p-7 text-center">
+             <div className="p-4 text-center sm:p-7">
               <p className="font-mono text-sm uppercase tracking-[0.3em] text-muted-foreground">Order #{order.number}</p>
               <p className="mt-2 text-[clamp(1.2rem,2vw,2rem)] font-semibold text-gold">{order.items.map((i) => i.name).join(" + ")}</p>
               {order.status === "ready" ? (
@@ -112,7 +114,7 @@ function SMDDisplay() {
         )}
 
         {memoryStates && focus && !orderStates && (
-          <div className="panel panel-corners animate-rise w-[min(30vw,420px)] p-10 text-center">
+           <div className="animate-rise w-full max-w-[420px] border-t border-line-strong p-5 text-center lg:w-[min(30vw,420px)] lg:border-l lg:border-t-0 lg:p-10">
             <div className="mx-auto grid h-28 w-28 place-items-center rounded-full border-2 border-gold bg-gradient-to-br from-gold/30 to-surface-2 font-display text-6xl font-semibold text-gold shadow-[var(--glow-gold)]">
               {focus.name.slice(0, 1)}
             </div>
