@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Maximize, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import comboImg from "@/assets/order-combo.jpg";
 import { AIOrb } from "@/components/nexa/AIOrb";
 import { BrandMark } from "@/components/nexa/Brand";
 import { VoiceWaveform } from "@/components/nexa/VoiceWaveform";
@@ -87,7 +86,6 @@ function SMDDisplay() {
 
         {orderStates && order && (
            <div key={order.id} className="animate-rise w-full max-w-[460px] border-t border-line-strong pt-5 text-center lg:w-[min(32vw,460px)] lg:border-l lg:border-t-0 lg:pl-8">
-            <img src={comboImg} alt="" width={1024} height={768} className="aspect-[4/3] w-full object-cover" />
              <div className="p-4 text-center sm:p-7">
               <p className="font-mono text-sm uppercase tracking-[0.3em] text-muted-foreground">Order #{order.number}</p>
               <p className="mt-2 text-[clamp(1.2rem,2vw,2rem)] font-semibold text-gold">{order.items.map((i) => i.name).join(" + ")}</p>

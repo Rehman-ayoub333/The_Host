@@ -13,3 +13,4 @@
 - All agent data flows through `src/lib/agent/store.ts` (event reducer) fed by `src/lib/agent/service.ts` (WebSocket/REST); components never fetch directly — keeps the external agent swappable.
 - Demo mode (`src/lib/agent/demo.ts`) pushes scripted events through the same reducer and is always visibly labelled — the UI must never invent live data.
 - Dashboard and `/display` (SMD screen) sync across windows via BroadcastChannel — so one operator window drives the public screen.
+- Brand-state presentation uses shared semantic CSS tokens and `STATE_META` tones; preserve a black/champagne-gold/ivory visual language so UI state never implies a separate neon AI identity.

@@ -9,6 +9,8 @@ export const Route = createFileRoute("/")({
       { name: "description", content: "Monitor NEXA live: vision, voice, orders, visitors and system health at the Bite & Pour booth." },
       { property: "og:title", content: "NEXA Command Center — Bite & Pour" },
       { property: "og:description", content: "The operator view of NEXA, the AI host that sees, hears, thinks, speaks and remembers." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: CommandCenter,

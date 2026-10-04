@@ -9,6 +9,8 @@ export const Route = createFileRoute("/vision")({
       { name: "description", content: "NEXA's camera feed with detections and the visitor currently in focus." },
       { property: "og:title", content: "Live Vision — NEXA" },
       { property: "og:description", content: "See the booth through NEXA's eyes." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: () => (

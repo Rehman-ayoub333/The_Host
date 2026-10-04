@@ -3,6 +3,7 @@ import { useAgent } from "@/lib/agent/store";
 import { DEMO_STEPS, startDemo, stopDemo } from "@/lib/agent/demo";
 import { cn } from "@/lib/utils";
 import { AIOrb } from "./AIOrb";
+import { Button } from "@/components/ui/button";
 import { BrandMark } from "./Brand";
 
 export function DemoIntro({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -10,9 +11,9 @@ export function DemoIntro({ open, onClose }: { open: boolean; onClose: () => voi
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-background/85 p-6 backdrop-blur-md animate-in fade-in" role="dialog" aria-modal="true" aria-label="Demo mode">
       <div className="panel panel-corners relative w-full max-w-xl overflow-hidden p-10 text-center">
-        <button onClick={onClose} className="absolute right-4 top-4 text-muted-foreground transition-colors hover:text-foreground" aria-label="Close">
+        <Button variant="ghost" size="icon" onClick={onClose} className="absolute right-4 top-4 text-muted-foreground transition-colors hover:text-foreground" aria-label="Close">
           <X className="h-5 w-5" />
-        </button>
+        </Button>
         <BrandMark size="md" />
         <div className="mx-auto my-6 w-44">
           <AIOrb state="idle" />
@@ -23,7 +24,7 @@ export function DemoIntro({ open, onClose }: { open: boolean; onClose: () => voi
         <p className="mx-auto mt-5 max-w-sm text-sm text-muted-foreground">
           A guided one-minute walkthrough of a real visitor interaction. Every screen shows a <span className="text-warning">Demo data</span> label while it runs.
         </p>
-        <button
+        <Button
           onClick={() => {
             startDemo();
             onClose();
@@ -31,7 +32,7 @@ export function DemoIntro({ open, onClose }: { open: boolean; onClose: () => voi
           className="group mt-8 inline-flex items-center gap-3 rounded-md bg-gold px-8 py-3.5 text-sm font-bold uppercase tracking-[0.25em] text-primary-foreground shadow-[var(--glow-gold)] transition-all hover:bg-gold-bright "
         >
           <Play className="h-4 w-4 fill-current" /> Start Demo
-        </button>
+        </Button>
         <p className="mt-4 flex items-center justify-center gap-2 text-xs text-muted-foreground">
           <MonitorPlay className="h-3.5 w-3.5" /> Open the SMD display in another window — it follows along.
         </p>
@@ -68,13 +69,13 @@ export function DemoStepper() {
         </ol>
         <div className="ml-1 flex shrink-0 gap-1 border-l border-line pl-3">
           {done && (
-            <button onClick={startDemo} className="flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-semibold text-gold hover:bg-gold/10">
+             <Button variant="ghost" size="sm" onClick={startDemo} className="flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-semibold text-gold hover:bg-gold/10">
               <RotateCcw className="h-3.5 w-3.5" /> Replay
-            </button>
+             </Button>
           )}
-          <button onClick={() => stopDemo()} className="flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-surface-2 hover:text-foreground">
+           <Button variant="ghost" size="sm" onClick={() => stopDemo()} className="flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-surface-2 hover:text-foreground">
             <Square className="h-3 w-3 fill-current" /> Exit demo
-          </button>
+           </Button>
         </div>
       </div>
     </div>
