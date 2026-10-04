@@ -10,13 +10,13 @@ export function Panel({
   bodyClassName,
   corners,
 }: {
-  title?: string;
-  icon?: ReactNode;
-  action?: ReactNode;
+  title?: string | undefined;
+  icon?: ReactNode | undefined;
+  action?: ReactNode | undefined;
   children: ReactNode;
-  className?: string;
-  bodyClassName?: string;
-  corners?: boolean;
+  className?: string | undefined;
+  bodyClassName?: string | undefined;
+  corners?: boolean | undefined;
 }) {
   return (
     <section className={cn("panel flex min-w-0 flex-col", corners && "panel-corners", className)}>
