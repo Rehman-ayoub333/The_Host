@@ -17,7 +17,7 @@ export function MenuCarousel({ className }: { className?: string }) {
     return () => clearInterval(t);
   }, []);
 
-  const item = MENU_ITEMS[index];
+  const item = MENU_ITEMS[index] ?? MENU_ITEMS[0]!;
 
   return (
     <div className={cn("flex flex-col items-center text-center", className)}>
