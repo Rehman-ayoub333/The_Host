@@ -1,6 +1,8 @@
 import json
+import sqlite3
 from types import SimpleNamespace
 
+import httpx
 import tools
 import summaries
 
@@ -87,6 +89,31 @@ def test_web_search_parses_instant_answer_and_handles_empty_query(campus_data, m
     assert empty["source"] == "web"
     assert empty["found"] is False
     assert empty["error"] == "What should I look up?"
+
+
+def test_web_search_handles_network_failure(campus_data, monkeypatch):
+    def fail_request(*args, **kwargs):
+        raise httpx.ConnectError("network unavailable")
+
+    monkeypatch.setattr(tools.httpx, "get", fail_request)
+
+    result = tools.web_search("photosynthesis")
+
+    assert result["source"] == "web"
+    assert result["found"] is False
+    assert result["error"] == "Web lookup is unavailable right now."
+
+
+def test_timetable_tool_handles_sqlite_failure(campus_data, monkeypatch):
+    def fail_query(*args, **kwargs):
+        raise sqlite3.OperationalError("database unavailable")
+
+    monkeypatch.setattr(tools.data, "query_timetable_data", fail_query)
+
+    result = tools.query_timetable(day="Monday")
+
+    assert result["source"] == "real"
+    assert result["error"] == "The timetable lookup failed."
 
 
 def test_registries_have_exact_tool_order():

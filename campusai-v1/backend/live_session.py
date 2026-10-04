@@ -162,6 +162,9 @@ class LiveSession:
                     continue
                 text = text_message.text.strip()[:config.MAX_TEXT_INPUT_CHARS]
                 if text:
+                    if self.awaiting_confirmation:
+                        self.awaiting_confirmation = False
+                        await self._send_state("listening")
                     await self.session.send_realtime_input(text=text)
             else:
                 log.warning("ignored unknown browser message type: %s", message_type)
@@ -237,6 +240,7 @@ class LiveSession:
             args = function_call.args or {}
             if function_call.name == "signal_confirmation_request":
                 self.awaiting_confirmation = True
+                await self._send_state("waiting_confirmation")
                 result = tools.signal_confirmation_request(**args)
             else:
                 await self._send_state("thinking")

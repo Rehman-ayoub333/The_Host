@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager, closing
 from time import monotonic
 from uuid import uuid4
 
-from fastapi import FastAPI, Query, WebSocket
+from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.staticfiles import StaticFiles
 
 import config
@@ -81,7 +81,10 @@ def records(limit: int = Query(default=config.RECORDS_DEFAULT_LIMIT)):
         return {"records": result}
     except Exception as exc:
         log.warning("failed to load recent records: %s", type(exc).__name__)
-        return {"records": [], "error": "Recent records are unavailable."}
+        raise HTTPException(
+            status_code=503,
+            detail="Recent records are unavailable.",
+        ) from exc
 
 
 @app.websocket("/ws/session")
