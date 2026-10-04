@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { AIOrb } from "@/components/nexa/AIOrb";
 import { BrandMark } from "@/components/nexa/Brand";
 import { VoiceWaveform } from "@/components/nexa/VoiceWaveform";
+import { MenuCarousel } from "@/components/nexa/MenuCarousel";
 import { useAgent } from "@/lib/agent/store";
 import { STATE_META, fmtAgo, fmtCountdown, useNow } from "@/lib/agent/ui";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ function SMDDisplay() {
   const focus = visitors.find((v) => v.id === focusId);
   const order = orders.find((o) => ["confirming", "preparing", "ready"].includes(o.status) && (!focusId || o.visitorId === focusId)) ?? orders[0];
 
+  const idle = state === "idle";
   const orderStates = ["taking_order", "order_confirmed", "order_preparing", "order_ready"].includes(state);
   const memoryStates = state === "remembering" || state === "welcoming";
   const voice = state === "listening" || state === "speaking";
@@ -65,17 +67,23 @@ function SMDDisplay() {
       </header>
 
        <main className={cn("relative flex flex-1 items-center justify-center gap-4 px-7 py-6 transition-all duration-700 sm:gap-10 sm:px-12 lg:gap-[6vw]", showSide ? "flex-col lg:flex-row" : "flex-col")}>
-         <div className="flex min-w-0 flex-col items-center">
-           <div className={cn("transition-all duration-700", showSide ? "w-[min(34vh,55vw)] lg:w-[min(38vh,30vw)]" : "w-[min(42vh,68vw)]")}>
-            <AIOrb state={state} />
-          </div>
-            <p className="font-mono text-xs uppercase text-champagne">NEXA · Your AI host</p>
-           <p key={state} className={cn("animate-rise mt-3 text-center font-display text-4xl font-semibold leading-tight sm:text-6xl lg:text-7xl", toneText)}>
-            {headline}
-          </p>
-          <p className="mt-2 min-h-8 text-center text-[clamp(1rem,1.8vw,1.6rem)] text-muted-foreground">
-             {state === "idle" ? "See · Hear · Speak · Remember" : state === "offline" ? "Please speak with a host" : detail && !memoryStates ? detail : ""}
-          </p>
+          <div className="flex min-w-0 flex-col items-center">
+            <div className={cn("transition-all duration-700", idle ? "w-[min(22vh,40vw)]" : showSide ? "w-[min(34vh,55vw)] lg:w-[min(38vh,30vw)]" : "w-[min(42vh,68vw)]")}>
+             <AIOrb state={state} />
+           </div>
+             <p className="font-mono text-xs uppercase text-champagne">NEXA · Your AI host</p>
+            {idle ? (
+              <MenuCarousel className="mt-4" />
+            ) : (
+              <>
+                <p key={state} className={cn("animate-rise mt-3 text-center font-display text-4xl font-semibold leading-tight sm:text-6xl lg:text-7xl", toneText)}>
+                  {headline}
+                </p>
+                <p className="mt-2 min-h-8 text-center text-[clamp(1rem,1.8vw,1.6rem)] text-muted-foreground">
+                  {state === "offline" ? "Please speak with a host" : detail && !memoryStates ? detail : ""}
+                </p>
+              </>
+            )}
           {voice && caption && (
             <p key={caption.text} className="animate-rise mt-6 max-w-[60vw] text-center text-[clamp(1.25rem,2.6vw,2.4rem)] font-medium leading-snug text-foreground">
               “{caption.text}”
