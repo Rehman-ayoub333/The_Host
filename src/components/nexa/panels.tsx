@@ -66,20 +66,20 @@ export function CorePanel({ className }: { className?: string }) {
       </div>
 
       <div className="relative px-5 pb-5 text-center">
-        <p className={cn("label-caps", meta.tone === "brand" ? "text-gold" : meta.tone === "warn" ? "text-destructive" : "text-nexa")}>
+        <p className={cn("label-caps", meta.tone === "brand" ? "text-gold" : meta.tone === "warn" ? "text-destructive" : "text-champagne")}>
           Current state
         </p>
-        <p key={state} className={cn("animate-rise mt-1 text-2xl font-semibold", meta.tone === "brand" ? "text-gold glow-gold" : meta.tone === "off" ? "text-muted-foreground" : "text-nexa glow-nexa")}>
+        <p key={state} className={cn("animate-rise mt-1 text-2xl font-semibold", meta.tone === "brand" ? "text-gold glow-gold" : meta.tone === "off" ? "text-muted-foreground" : "text-champagne glow-gold")}>
           {meta.label}
         </p>
         <p className="mt-1 min-h-5 text-sm text-muted-foreground">{detail ?? (state === "offline" ? "Waiting for the agent to connect" : meta.verb)}</p>
 
         <div className="mt-4 rounded-md border border-line bg-background/40 px-4 py-3">
-          <VoiceWaveform active={voice} tone={state === "speaking" ? "nexa" : "nexa"} bars={48} className="h-8" />
+          <VoiceWaveform active={voice} tone={state === "speaking" ? "ivory" : "gold"} bars={48} className="h-8" />
           <p className="mt-2 min-h-10 text-sm leading-snug">
             {caption ? (
               <>
-                <span className={cn("mr-2 font-mono text-[0.6rem] uppercase tracking-widest", caption.speaker === "nexa" ? "text-nexa" : "text-gold")}>
+                <span className={cn("mr-2 font-mono text-[0.6rem] uppercase tracking-widest", caption.speaker === "nexa" ? "text-champagne" : "text-gold")}>
                   {caption.speaker === "nexa" ? "NEXA" : "Visitor"}
                 </span>
                 <span className="text-foreground/90">“{caption.text}”</span>
@@ -166,7 +166,7 @@ export function VisionPanel({ className, tall }: { className?: string; tall?: bo
           {hasFeed && (
             <>
               <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_60%,var(--background))] opacity-70" />
-              <div className="pointer-events-none absolute inset-x-0 h-1/3 animate-scan bg-gradient-to-b from-transparent via-nexa/10 to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 h-1/3 animate-scan bg-gradient-to-b from-transparent via-champagne/10 to-transparent" />
             </>
           )}
           {frameUrl &&
@@ -175,10 +175,10 @@ export function VisionPanel({ className, tall }: { className?: string; tall?: bo
               return (
                 <div
                   key={d.id}
-                  className={cn("absolute border transition-all duration-700", isPerson ? "border-nexa shadow-[var(--glow-nexa)]" : "border-gold/60 border-dashed")}
+                  className={cn("absolute border transition-all duration-700", isPerson ? "border-champagne shadow-[var(--glow-gold)]" : "border-gold/60 border-dashed")}
                   style={{ left: `${d.box[0] * 100}%`, top: `${d.box[1] * 100}%`, width: `${d.box[2] * 100}%`, height: `${d.box[3] * 100}%` }}
                 >
-                  <span className={cn("absolute -top-5 left-[-1px] whitespace-nowrap px-1.5 py-0.5 font-mono text-[0.6rem] font-semibold", isPerson ? "bg-nexa text-background" : "bg-gold/80 text-background")}>
+                  <span className={cn("absolute -top-5 left-[-1px] whitespace-nowrap px-1.5 py-0.5 font-mono text-[0.6rem] font-semibold", isPerson ? "bg-champagne text-background" : "bg-gold/80 text-background")}>
                     {d.label} {Math.round(d.confidence * 100)}%
                   </span>
                 </div>
@@ -206,7 +206,7 @@ export function VisionPanel({ className, tall }: { className?: string; tall?: bo
                 {detections.map((d) => (
                   <li key={d.id} className="flex items-center justify-between text-xs">
                     <span className="flex items-center gap-2 text-foreground/90">
-                      {d.label === "Person" ? <UserRound className="h-3.5 w-3.5 text-nexa" /> : <ScanFace className="h-3.5 w-3.5 text-gold-dim" />}
+                      {d.label === "Person" ? <UserRound className="h-3.5 w-3.5 text-champagne" /> : <ScanFace className="h-3.5 w-3.5 text-gold-dim" />}
                       {d.label}
                     </span>
                     <span className="font-mono text-muted-foreground">{Math.round(d.confidence * 100)}%</span>
@@ -259,7 +259,7 @@ export function Avatar({ name, size = "sm" }: { name: string; size?: "sm" | "lg"
 /* ------------------------------------------------------------------ */
 
 const STATUS_STYLE: Record<Order["status"], string> = {
-  confirming: "text-nexa",
+  confirming: "text-champagne",
   preparing: "text-warning",
   ready: "text-success",
   completed: "text-muted-foreground",
@@ -288,7 +288,7 @@ export function OrderCard({ order, now }: { order: Order; now: number }) {
       <p className="mt-1.5 text-xs text-muted-foreground">{order.items.map((i) => `${i.qty > 1 ? `${i.qty}× ` : ""}${i.name}`).join(" · ")}</p>
       {order.status !== "completed" && order.status !== "cancelled" && (
         <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-surface-2">
-          <div className={cn("h-full rounded-full transition-all duration-1000", order.status === "ready" ? "bg-success" : "bg-gradient-to-r from-nexa-dim to-nexa")} style={{ width: `${pct}%` }} />
+          <div className={cn("h-full rounded-full transition-all duration-1000", order.status === "ready" ? "bg-success" : "bg-gradient-to-r from-gold-dim to-champagne")} style={{ width: `${pct}%` }} />
         </div>
       )}
     </div>
@@ -360,7 +360,7 @@ export function ActivityPanel({ className, limit = 7 }: { className?: string; li
             const Icon = KIND_ICON[a.kind];
             return (
               <li key={a.id} className="animate-rise relative flex gap-3">
-                <span className={cn("relative z-10 grid h-8 w-8 shrink-0 place-items-center rounded-full border bg-surface", a.kind === "error" ? "border-destructive/50 text-destructive" : a.kind === "memory" || a.kind === "order" ? "border-gold/40 text-gold" : "border-nexa/40 text-nexa")}>
+                <span className={cn("relative z-10 grid h-8 w-8 shrink-0 place-items-center rounded-full border bg-surface", a.kind === "error" ? "border-destructive/50 text-destructive" : a.kind === "memory" || a.kind === "order" ? "border-gold/40 text-gold" : "border-champagne/40 text-champagne")}>
                   <Icon className="h-3.5 w-3.5" />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -402,7 +402,7 @@ export function VisitorsPanel({ className, limit = 4 }: { className?: string; li
                   {v.lastOrder ?? "No orders"} · {fmtAgo(v.lastVisit, now)}
                 </p>
               </div>
-              <span className={cn("rounded-sm border px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider", v.returning ? "border-gold/40 text-gold" : "border-nexa/40 text-nexa")}>
+              <span className={cn("rounded-sm border px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider", v.returning ? "border-gold/40 text-gold" : "border-champagne/40 text-champagne")}>
                 {v.returning ? "Returning" : "New"}
               </span>
             </li>
@@ -454,8 +454,8 @@ export function TranscriptPanel({ className }: { className?: string }) {
         <div className="space-y-2.5">
           {transcript.slice(-4).map((l) => (
             <div key={l.id} className={cn("animate-rise flex gap-2", l.speaker === "nexa" && "flex-row-reverse text-right")}>
-              <span className={cn("mt-0.5 font-mono text-[0.58rem] uppercase tracking-widest", l.speaker === "nexa" ? "text-nexa" : "text-gold")}>{l.speaker === "nexa" ? "NEXA" : "Guest"}</span>
-              <p className={cn("max-w-[85%] rounded-md border px-3 py-2 text-sm", l.speaker === "nexa" ? "border-nexa/25 bg-nexa/5" : "border-line bg-background/40")}>{l.text}</p>
+              <span className={cn("mt-0.5 font-mono text-[0.58rem] uppercase tracking-widest", l.speaker === "nexa" ? "text-champagne" : "text-gold")}>{l.speaker === "nexa" ? "NEXA" : "Guest"}</span>
+              <p className={cn("max-w-[85%] rounded-md border px-3 py-2 text-sm", l.speaker === "nexa" ? "border-champagne/25 bg-champagne/5" : "border-line bg-background/40")}>{l.text}</p>
             </div>
           ))}
         </div>

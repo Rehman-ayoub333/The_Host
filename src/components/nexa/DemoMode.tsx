@@ -17,7 +17,7 @@ export function DemoIntro({ open, onClose }: { open: boolean; onClose: () => voi
         <div className="mx-auto my-6 w-44">
           <AIOrb state="idle" />
         </div>
-        <p className="label-caps text-nexa">Demo Mode</p>
+        <p className="label-caps text-champagne">Demo Mode</p>
         <h2 className="mt-2 font-display text-5xl font-semibold tracking-wide text-foreground">NEXA AI Host</h2>
         <p className="mt-3 text-sm tracking-[0.3em] text-gold">SEE • HEAR • THINK • SPEAK • REMEMBER</p>
         <p className="mx-auto mt-5 max-w-sm text-sm text-muted-foreground">
@@ -28,7 +28,7 @@ export function DemoIntro({ open, onClose }: { open: boolean; onClose: () => voi
             startDemo();
             onClose();
           }}
-          className="group mt-8 inline-flex items-center gap-3 rounded-md bg-gold px-8 py-3.5 text-sm font-bold uppercase tracking-[0.25em] text-primary-foreground shadow-[var(--glow-gold)] transition-all hover:bg-gold-bright hover:shadow-[0_0_40px_oklch(0.77_0.13_88/0.5)]"
+          className="group mt-8 inline-flex items-center gap-3 rounded-md bg-gold px-8 py-3.5 text-sm font-bold uppercase tracking-[0.25em] text-primary-foreground shadow-[var(--glow-gold)] transition-all hover:bg-gold-bright "
         >
           <Play className="h-4 w-4 fill-current" /> Start Demo
         </button>
@@ -56,10 +56,10 @@ export function DemoStepper() {
               key={label}
               className={cn(
                 "flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-[0.7rem] font-semibold uppercase tracking-wider transition-all duration-500",
-                i === step ? "bg-nexa/15 text-nexa" : i < step ? "text-gold" : "text-muted-foreground/60",
+                i === step ? "bg-champagne/15 text-champagne" : i < step ? "text-gold" : "text-muted-foreground/60",
               )}
             >
-              <span className={cn("grid h-4 w-4 place-items-center rounded-full border font-mono text-[0.55rem]", i === step ? "border-nexa" : i < step ? "border-gold bg-gold text-primary-foreground" : "border-muted-foreground/40")}>
+              <span className={cn("grid h-4 w-4 place-items-center rounded-full border font-mono text-[0.55rem]", i === step ? "border-champagne" : i < step ? "border-gold bg-gold text-primary-foreground" : "border-muted-foreground/40")}>
                 {i + 1}
               </span>
               {label}

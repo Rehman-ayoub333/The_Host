@@ -43,7 +43,7 @@ function SMDDisplay() {
   if (state === "idle") headline = "Hello! I'm NEXA";
   if (state === "order_ready" && order) headline = `Order #${order.number} is ready`;
 
-  const toneText = meta.tone === "brand" ? "text-gold glow-gold" : meta.tone === "warn" ? "text-destructive" : meta.tone === "off" ? "text-muted-foreground" : "text-nexa glow-nexa";
+  const toneText = meta.tone === "brand" ? "text-gold glow-gold" : meta.tone === "warn" ? "text-destructive" : meta.tone === "off" ? "text-muted-foreground" : "text-champagne glow-gold";
 
   return (
     <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background">
@@ -99,13 +99,13 @@ function SMDDisplay() {
                   <p className="mt-1 text-sm uppercase tracking-widest text-muted-foreground">Preparing · remaining</p>
                   <div className="mx-auto mt-4 h-1.5 w-3/4 overflow-hidden rounded-full bg-surface-2">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-nexa-dim to-nexa transition-all duration-1000"
+                      className="h-full rounded-full bg-gradient-to-r from-gold-dim to-champagne transition-all duration-1000"
                       style={{ width: `${order.readyAt && order.prepSeconds && now ? Math.min(100, 100 - ((order.readyAt - now) / (order.prepSeconds * 1000)) * 100) : 5}%` }}
                     />
                   </div>
                 </>
               ) : (
-                <p className="mt-4 text-xl text-nexa">Confirming…</p>
+                <p className="mt-4 text-xl text-champagne">Confirming…</p>
               )}
             </div>
           </div>

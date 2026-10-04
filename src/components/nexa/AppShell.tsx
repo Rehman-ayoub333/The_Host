@@ -145,7 +145,7 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
             {subtitle && <p className="hidden truncate text-xs text-muted-foreground sm:block">{subtitle}</p>}
           </div>
           <div className="hidden items-center gap-2 rounded-md border border-line bg-surface/60 px-3 py-1.5 md:flex">
-            <span className={cn("h-1.5 w-1.5 rounded-full", meta.tone === "off" ? "bg-muted-foreground" : meta.tone === "brand" ? "bg-gold" : meta.tone === "warn" ? "bg-destructive" : "bg-nexa", meta.tone !== "off" && "animate-blink")} />
+            <span className={cn("h-1.5 w-1.5 rounded-full", meta.tone === "off" ? "bg-muted-foreground" : meta.tone === "brand" ? "bg-gold" : meta.tone === "warn" ? "bg-destructive" : "bg-champagne", meta.tone !== "off" && "animate-blink")} />
             <span className="label-caps !text-[0.6rem]">NEXA</span>
             <span className="text-xs font-semibold">{meta.label}</span>
           </div>
