@@ -18,17 +18,17 @@ function CommandCenter() {
   return (
     <AppShell title="Command Center" subtitle="Monitor everything NEXA sees, hears and does — in real time.">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <CorePanel className="xl:col-span-4" />
-        <VisionPanel className="xl:col-span-8" />
-        <OrdersPanel className="md:col-span-1 xl:col-span-4" />
-        <ActivityPanel className="xl:col-span-4" />
-        <div className="grid gap-4 xl:col-span-4">
-          <VisitorsPanel />
+        <CorePanel className="xl:col-span-5" />
+        <VisionPanel className="xl:col-span-7" />
+        <div className="xl:col-span-12">
+          <StateStrip />
         </div>
+        <OrdersPanel className="xl:col-span-5" />
+        <ActivityPanel className="xl:col-span-4" />
+        <VisitorsPanel className="xl:col-span-3" />
         <TranscriptPanel className="xl:col-span-5" />
         <AnalyticsPanel className="xl:col-span-4" />
         <SystemPanel className="xl:col-span-3" />
-        <StateStrip className="xl:col-span-12" />
       </div>
     </AppShell>
   );

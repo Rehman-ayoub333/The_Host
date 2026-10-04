@@ -19,6 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useAgent } from "@/lib/agent/store";
+import { Button } from "@/components/ui/button";
 import { STATE_META } from "@/lib/agent/ui";
 import { cn } from "@/lib/utils";
 import { BrandMark } from "./Brand";
@@ -62,6 +63,7 @@ function Sidebar({ onDemo, onNavigate }: { onDemo: () => void; onNavigate?: () =
           </div>
         ))}
       </div>
+      <p className="label-caps px-6 pb-2 pt-3">Explore</p>
       <nav className="flex-1 space-y-0.5 px-3">
         {NAV.map(({ to, label, icon: Icon }) => (
           <Link
@@ -78,12 +80,12 @@ function Sidebar({ onDemo, onNavigate }: { onDemo: () => void; onNavigate?: () =
         ))}
       </nav>
       <div className="space-y-2 px-4 pb-4">
-        <button
+        <Button
           onClick={onDemo}
           className="flex w-full items-center justify-center gap-2 rounded-md bg-gold px-4 py-3 text-xs font-bold uppercase tracking-[0.22em] text-primary-foreground shadow-[var(--glow-gold)] transition-colors hover:bg-gold-bright"
         >
           <Play className="h-3.5 w-3.5 fill-current" /> Demo Mode
-        </button>
+        </Button>
         <a
           href="/display"
           target="_blank"
@@ -99,7 +101,7 @@ function Sidebar({ onDemo, onNavigate }: { onDemo: () => void; onNavigate?: () =
           <span className={live ? "text-success" : "text-muted-foreground"}>{mode === "demo" ? "Demo running" : live ? "Online" : "Agent not connected"}</span>
         </p>
         <p className="mt-2 text-sm font-semibold tracking-wide">NEXA AI</p>
-        <p className="text-[0.68rem] text-muted-foreground">Booth #4 · Business Gala</p>
+        {mode === "demo" && <p className="text-[0.68rem] text-muted-foreground">Demo scenario · Booth #4</p>}
       </div>
     </div>
   );
@@ -121,9 +123,9 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setNavOpen(false)} />
           <aside className="absolute inset-y-0 left-0 w-72 border-r border-line bg-background animate-in slide-in-from-left">
-            <button className="absolute right-3 top-3 text-muted-foreground" onClick={() => setNavOpen(false)} aria-label="Close menu">
+             <Button variant="ghost" size="icon" className="absolute right-3 top-3 text-muted-foreground" onClick={() => setNavOpen(false)} aria-label="Close menu">
               <X className="h-5 w-5" />
-            </button>
+             </Button>
             <Sidebar
               onDemo={() => {
                 setNavOpen(false);
@@ -137,11 +139,12 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex items-center gap-4 border-b border-line bg-background/75 px-4 py-3 backdrop-blur-md sm:px-6">
-          <button className="text-muted-foreground lg:hidden" onClick={() => setNavOpen(true)} aria-label="Open menu">
+          <Button variant="ghost" size="icon" className="text-muted-foreground lg:hidden" onClick={() => setNavOpen(true)} aria-label="Open menu">
             <Menu className="h-5 w-5" />
-          </button>
+          </Button>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg font-semibold tracking-wide">{title}</h1>
+            <p className="hidden text-[0.6rem] font-semibold uppercase text-gold sm:block">Bite &amp; Pour · AI Control Center</p>
+            <h1 className="truncate text-lg font-semibold">{title}</h1>
             {subtitle && <p className="hidden truncate text-xs text-muted-foreground sm:block">{subtitle}</p>}
           </div>
           <div className="hidden items-center gap-2 rounded-md border border-line bg-surface/60 px-3 py-1.5 md:flex">
@@ -149,9 +152,9 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
             <span className="label-caps !text-[0.6rem]">NEXA</span>
             <span className="text-xs font-semibold">{meta.label}</span>
           </div>
-          <button onClick={() => setDemoOpen(true)} className="rounded-md bg-gold px-3 py-2 text-[0.65rem] font-bold uppercase tracking-[0.2em] text-primary-foreground transition-colors hover:bg-gold-bright lg:hidden">
+          <Button onClick={() => setDemoOpen(true)} className="rounded-md bg-gold px-3 py-2 text-[0.65rem] font-bold uppercase text-primary-foreground transition-colors hover:bg-gold-bright lg:hidden">
             Demo
-          </button>
+          </Button>
         </header>
         <main className="flex-1 p-4 pb-28 sm:p-6 sm:pb-28">{children}</main>
       </div>
