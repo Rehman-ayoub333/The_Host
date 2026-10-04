@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AgentStateName } from "./types";
 
-export type OrbTone = "brand" | "ai" | "think" | "warn" | "off";
+export type OrbTone = "brand" | "scan" | "voice" | "think" | "memory" | "order" | "ready" | "warn" | "off";
 
 export interface StateMeta {
   label: string;
@@ -12,18 +12,18 @@ export interface StateMeta {
 
 export const STATE_META: Record<AgentStateName, StateMeta> = {
   idle: { label: "Idle", verb: "Ready to welcome you", tone: "brand", rings: "none" },
-  seeing: { label: "Seeing", verb: "Seeing…", tone: "ai", rings: "pulse" },
-  person_detected: { label: "Person Detected", verb: "Welcome!", tone: "ai", rings: "pulse" },
-  listening: { label: "Listening", verb: "Listening…", tone: "ai", rings: "wave" },
+  seeing: { label: "Seeing", verb: "Seeing…", tone: "scan", rings: "pulse" },
+  person_detected: { label: "Person Detected", verb: "Welcome!", tone: "scan", rings: "pulse" },
+  listening: { label: "Listening", verb: "Listening…", tone: "voice", rings: "wave" },
   thinking: { label: "Thinking", verb: "Thinking…", tone: "think", rings: "think" },
-  speaking: { label: "Speaking", verb: "Speaking", tone: "ai", rings: "wave" },
-  taking_order: { label: "Taking Order", verb: "Taking your order", tone: "ai", rings: "pulse" },
-  order_confirmed: { label: "Order Confirmed", verb: "Order confirmed", tone: "brand", rings: "pulse" },
-  order_preparing: { label: "Preparing", verb: "Preparing your order", tone: "brand", rings: "none" },
-  order_ready: { label: "Order Ready", verb: "Your order is ready", tone: "brand", rings: "pulse" },
-  remembering: { label: "Remembering", verb: "I remember you", tone: "brand", rings: "particles" },
-  welcoming: { label: "Welcoming", verb: "Welcome back", tone: "brand", rings: "particles" },
-  engaging: { label: "Engaging", verb: "Here for you", tone: "ai", rings: "none" },
+  speaking: { label: "Speaking", verb: "Speaking", tone: "voice", rings: "wave" },
+  taking_order: { label: "Taking Order", verb: "Taking your order", tone: "order", rings: "pulse" },
+  order_confirmed: { label: "Order Confirmed", verb: "Order confirmed", tone: "order", rings: "pulse" },
+  order_preparing: { label: "Preparing", verb: "Preparing your order", tone: "order", rings: "none" },
+  order_ready: { label: "Order Ready", verb: "Your order is ready", tone: "ready", rings: "pulse" },
+  remembering: { label: "Remembering", verb: "I remember you", tone: "memory", rings: "particles" },
+  welcoming: { label: "Welcoming", verb: "Welcome back", tone: "memory", rings: "particles" },
+  engaging: { label: "Engaging", verb: "Here for you", tone: "voice", rings: "none" },
   multitasking: { label: "Multi-tasking", verb: "Handling several things", tone: "think", rings: "think" },
   error: { label: "Needs Help", verb: "One moment — calling a host", tone: "warn", rings: "pulse" },
   offline: { label: "Offline", verb: "NEXA is resting", tone: "off", rings: "none" },

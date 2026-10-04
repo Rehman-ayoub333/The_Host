@@ -3,12 +3,12 @@ import { cn } from "@/lib/utils";
 export function VoiceWaveform({
   active,
   bars = 40,
-  tone = "nexa",
+  tone = "gold",
   className,
 }: {
   active: boolean;
   bars?: number;
-  tone?: "nexa" | "gold";
+  tone?: "ivory" | "gold";
   className?: string;
 }) {
   return (
@@ -18,7 +18,7 @@ export function VoiceWaveform({
         return (
           <span
             key={i}
-            className={cn("wave-bar w-[2px] rounded-full", tone === "nexa" ? "bg-nexa" : "bg-gold")}
+            className={cn("wave-bar w-[2px] rounded-full", tone === "ivory" ? "bg-ivory" : "bg-champagne")}
             style={{
               height: `${30 + center * 70}%`,
               opacity: 0.35 + center * 0.65,
