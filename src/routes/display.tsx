@@ -61,7 +61,7 @@ function SMDDisplay() {
        {mode === "demo" && <span className="absolute left-7 top-7 font-mono text-xs uppercase text-warning sm:left-10 sm:top-10">Demo data</span>}
 
        <header className="relative pt-12 sm:pt-14">
-         <BrandMark size="lg" tagline />
+          <BrandMark size="md" tagline />
       </header>
 
        <main className={cn("relative flex flex-1 items-center justify-center gap-4 px-7 py-6 transition-all duration-700 sm:gap-10 sm:px-12 lg:gap-[6vw]", showSide ? "flex-col lg:flex-row" : "flex-col")}>
@@ -69,7 +69,7 @@ function SMDDisplay() {
            <div className={cn("transition-all duration-700", showSide ? "w-[min(34vh,55vw)] lg:w-[min(38vh,30vw)]" : "w-[min(42vh,68vw)]")}>
             <AIOrb state={state} />
           </div>
-           <p className="font-mono text-xs uppercase text-champagne">NEXA · Your AI host</p>
+            <p className="font-mono text-xs uppercase text-champagne">NEXA · Your AI host</p>
            <p key={state} className={cn("animate-rise mt-3 text-center font-display text-4xl font-semibold leading-tight sm:text-6xl lg:text-7xl", toneText)}>
             {headline}
           </p>
@@ -126,8 +126,8 @@ function SMDDisplay() {
       </main>
 
       <footer className="relative pb-12 text-center">
-        <p className="font-display text-2xl font-semibold tracking-[0.35em] text-foreground">NEXA</p>
-         <p className="mt-1 text-xs uppercase text-gold/80">See · Hear · Think · Speak · Remember</p>
+         <p className="font-display text-2xl font-semibold text-foreground">NEXA</p>
+          <p className="mt-1 text-xs uppercase text-gold/80">See · Hear · Think · Speak · Remember</p>
       </footer>
     </div>
   );
