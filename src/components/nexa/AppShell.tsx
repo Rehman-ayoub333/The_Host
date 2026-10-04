@@ -3,20 +3,16 @@ import { Link } from "@tanstack/react-router";
 import {
   Activity,
   Bookmark,
-  Brain,
   ChartNoAxesColumn,
   Eye,
   Home,
   Menu,
-  MessageSquare,
-  Mic,
   MonitorPlay,
   Play,
   Settings,
   ShoppingBag,
   Users,
   X,
-  Zap,
 } from "lucide-react";
 import { useAgent } from "@/lib/agent/store";
 import { Button } from "@/components/ui/button";
@@ -27,24 +23,11 @@ import { StatusDot } from "./Panel";
 import { DemoIntro, DemoStepper } from "./DemoMode";
 
 const NAV = [
-  { to: "/", label: "Command Center", icon: Home },
-  { to: "/vision", label: "Live Vision", icon: Eye },
-  { to: "/orders", label: "Orders", icon: ShoppingBag },
-  { to: "/visitors", label: "Visitors", icon: Users },
-  { to: "/memory", label: "Memory", icon: Bookmark },
-  { to: "/activity", label: "AI Activity", icon: Activity },
-  { to: "/analytics", label: "Analytics", icon: ChartNoAxesColumn },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { label: "Core", items: [{ to: "/", label: "Command Center", icon: Home }, { to: "/vision", label: "Live Vision", icon: Eye }] },
+  { label: "Experience", items: [{ to: "/orders", label: "Orders", icon: ShoppingBag }, { to: "/visitors", label: "Visitors", icon: Users }, { to: "/memory", label: "Memory", icon: Bookmark }] },
+  { label: "Insight", items: [{ to: "/activity", label: "AI Activity", icon: Activity }, { to: "/analytics", label: "Analytics", icon: ChartNoAxesColumn }] },
+  { label: "System", items: [{ to: "/settings", label: "Settings", icon: Settings }] },
 ] as const;
-
-const CAPS = [
-  { icon: Eye, label: "Sees" },
-  { icon: Mic, label: "Hears" },
-  { icon: MessageSquare, label: "Speaks" },
-  { icon: Brain, label: "Thinks" },
-  { icon: Bookmark, label: "Remembers" },
-  { icon: Zap, label: "Acts" },
-];
 
 function Sidebar({ onDemo, onNavigate }: { onDemo: () => void; onNavigate?: () => void }) {
   const connection = useAgent((s) => s.connection);
@@ -56,27 +39,26 @@ function Sidebar({ onDemo, onNavigate }: { onDemo: () => void; onNavigate?: () =
         <BrandMark size="md" tagline />
       </div>
       <div className="mx-6 hairline-gold" />
-      <div className="grid grid-cols-6 gap-1 px-5 py-4">
-        {CAPS.map(({ icon: Icon, label }) => (
-          <div key={label} title={label} className="grid aspect-square place-items-center rounded-full border border-line text-gold/80">
-            <Icon className="h-3.5 w-3.5" />
+      <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-5">
+        {NAV.map((group) => (
+          <div key={group.label}>
+            <p className="label-caps px-3 pb-2">{group.label}</p>
+            <div className="space-y-0.5">
+              {group.items.map(({ to, label, icon: Icon }) => (
+                <Link
+                  key={to}
+                  to={to}
+                  onClick={onNavigate}
+                  activeOptions={{ exact: to === "/" }}
+                  className="group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-surface-2/60 hover:text-foreground"
+                  activeProps={{ className: "!text-gold bg-gold/10 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-gold" }}
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </Link>
+              ))}
+            </div>
           </div>
-        ))}
-      </div>
-      <p className="label-caps px-6 pb-2 pt-3">Explore</p>
-      <nav className="flex-1 space-y-0.5 px-3">
-        {NAV.map(({ to, label, icon: Icon }) => (
-          <Link
-            key={to}
-            to={to}
-            onClick={onNavigate}
-            activeOptions={{ exact: to === "/" }}
-            className="group relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-surface-2/60 hover:text-foreground"
-            activeProps={{ className: "!text-gold bg-gold/10 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-gold" }}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </Link>
         ))}
       </nav>
       <div className="space-y-2 px-4 pb-4">
