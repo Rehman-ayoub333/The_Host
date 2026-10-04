@@ -22,7 +22,7 @@ export function DemoIntro({ open, onClose }: { open: boolean; onClose: () => voi
         <h2 className="mt-2 font-display text-5xl font-semibold tracking-wide text-foreground">NEXA AI Host</h2>
         <p className="mt-3 text-sm tracking-[0.3em] text-gold">SEE • HEAR • THINK • SPEAK • REMEMBER</p>
         <p className="mx-auto mt-5 max-w-sm text-sm text-muted-foreground">
-          A guided one-minute walkthrough of a real visitor interaction. Every screen shows a <span className="text-warning">Demo data</span> label while it runs.
+          A guided one-minute example of a visitor interaction. Every screen shows a <span className="text-warning">Demo data</span> label while it runs.
         </p>
         <Button
           onClick={() => {
