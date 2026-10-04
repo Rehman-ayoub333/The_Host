@@ -25,6 +25,7 @@ import { useAgent } from "@/lib/agent/store";
 import { STATE_META, fmtAgo, fmtClock, fmtCountdown, useNow } from "@/lib/agent/ui";
 import type { ActivityKind, AgentStateName, Order, SystemComponent } from "@/lib/agent/types";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { AIOrb } from "./AIOrb";
 import { VoiceWaveform } from "./VoiceWaveform";
 import { DemoTag, EmptyState, Panel, StatusDot } from "./Panel";
@@ -45,8 +46,8 @@ export function CorePanel({ className }: { className?: string }) {
   const voice = state === "listening" || state === "speaking";
 
   return (
-    <section className={cn("panel panel-corners relative flex flex-col overflow-hidden", className)}>
-      <div className="pointer-events-none absolute inset-0 scan-grid opacity-40 [mask-image:radial-gradient(circle_at_50%_45%,black,transparent_70%)]" />
+    <section className={cn("panel panel-corners relative flex flex-col overflow-hidden border-line-strong bg-surface", className)}>
+      <div className="pointer-events-none absolute inset-0 scan-grid opacity-20 [mask-image:radial-gradient(circle_at_50%_45%,black,transparent_70%)]" />
       <header className="relative flex items-center justify-between px-5 pt-4">
         <div>
           <p className="label-caps">AI Host</p>
@@ -61,7 +62,7 @@ export function CorePanel({ className }: { className?: string }) {
         </div>
       </header>
 
-      <div className="relative mx-auto w-[min(100%,340px)] py-2">
+      <div className="relative mx-auto w-[min(100%,400px)] py-2">
         <AIOrb state={state} />
       </div>
 
@@ -69,7 +70,7 @@ export function CorePanel({ className }: { className?: string }) {
         <p className={cn("label-caps", meta.tone === "brand" ? "text-gold" : meta.tone === "warn" ? "text-destructive" : "text-champagne")}>
           Current state
         </p>
-        <p key={state} className={cn("animate-rise mt-1 text-2xl font-semibold", meta.tone === "brand" ? "text-gold glow-gold" : meta.tone === "off" ? "text-muted-foreground" : "text-champagne glow-gold")}>
+        <p key={state} className={cn("animate-rise mt-1 font-display text-4xl font-semibold", meta.tone === "off" ? "text-muted-foreground" : "text-champagne")}>
           {meta.label}
         </p>
         <p className="mt-1 min-h-5 text-sm text-muted-foreground">{detail ?? (state === "offline" ? "Waiting for the agent to connect" : meta.verb)}</p>
@@ -147,9 +148,9 @@ export function VisionPanel({ className, tall }: { className?: string; tall?: bo
             <StatusDot status={frameUrl ? "live" : camera} /> Camera {frameUrl ? "on" : camera}
           </span>
           {!frameUrl && (
-            <button onClick={toggleLocal} className="rounded-sm border border-line px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-gold transition-colors hover:border-gold hover:bg-gold/10">
+             <Button variant="outline" size="sm" onClick={toggleLocal} className="h-7 rounded-sm border-line px-2 text-[0.65rem] font-semibold uppercase text-gold transition-colors hover:border-gold hover:bg-gold/10">
               {localCam ? "Stop preview" : "Local preview"}
-            </button>
+             </Button>
           )}
         </div>
       }
@@ -163,7 +164,7 @@ export function VisionPanel({ className, tall }: { className?: string; tall?: bo
               <EmptyState icon={<CameraOff className="h-7 w-7" />} title="No vision feed" hint={camErr ?? "Frames appear here once the agent streams its camera. Use Local preview to check framing."} />
             </div>
           )}
-          {hasFeed && (
+           {frameUrl && (
             <>
               <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_60%,var(--background))] opacity-70" />
               <div className="pointer-events-none absolute inset-x-0 h-1/3 animate-scan bg-gradient-to-b from-transparent via-champagne/10 to-transparent" />
@@ -189,9 +190,9 @@ export function VisionPanel({ className, tall }: { className?: string; tall?: bo
               Local preview · no AI detections
             </span>
           )}
-          {hasFeed && (
+           {frameUrl && (
             <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-sm bg-background/70 px-2 py-1 font-mono text-[0.6rem] uppercase tracking-widest text-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-blink" /> Rec · {fmtClock(now)}
+               <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-blink" /> Live · {fmtClock(now)}
             </span>
           )}
         </div>
@@ -314,9 +315,9 @@ export function OrdersPanel({ className, limit = 3 }: { className?: string; limi
             ["all", "All"],
           ] as const
         ).map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)} className={cn("flex-1 rounded-sm px-2 py-1 text-xs font-medium transition-colors", tab === k ? "bg-gold/15 text-gold" : "text-muted-foreground hover:text-foreground")}>
+           <Button key={k} variant="ghost" size="sm" onClick={() => setTab(k)} className={cn("h-7 flex-1 rounded-sm px-2 text-xs font-medium transition-colors", tab === k ? "bg-gold/15 text-gold" : "text-muted-foreground hover:text-foreground")}>
             {l}
-          </button>
+           </Button>
         ))}
       </div>
       {list.length === 0 ? (
