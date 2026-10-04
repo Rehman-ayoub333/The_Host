@@ -9,6 +9,8 @@ export const Route = createFileRoute("/visitors")({
       { name: "description", content: "New and returning visitors recognized by NEXA's memory system." },
       { property: "og:title", content: "Visitors — NEXA" },
       { property: "og:description", content: "Who NEXA has met at the Bite & Pour booth." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: () => (

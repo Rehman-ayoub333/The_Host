@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Plug } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { AppShell } from "@/components/nexa/AppShell";
 import { Panel } from "@/components/nexa/Panel";
 import { SystemPanel } from "@/components/nexa/panels";
@@ -52,9 +53,9 @@ function SettingsPage() {
               <input className={field} value={wsUrl} onChange={(e) => setWsUrl(e.target.value)} placeholder="wss://agent.example.com/events" />
             </label>
             <div className="flex items-center gap-4">
-              <button type="submit" className="rounded-md bg-gold px-5 py-2.5 text-xs font-bold uppercase tracking-[0.2em] text-primary-foreground transition-colors hover:bg-gold-bright">
+              <Button type="submit" className="rounded-md bg-gold px-5 py-2.5 text-xs font-bold uppercase text-primary-foreground transition-colors hover:bg-gold-bright">
                 Save &amp; connect
-              </button>
+              </Button>
               <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Status · {connection}</span>
             </div>
             <p className="text-xs text-muted-foreground">

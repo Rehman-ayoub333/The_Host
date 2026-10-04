@@ -9,6 +9,8 @@ export const Route = createFileRoute("/analytics")({
       { name: "description", content: "Orders, visitors and popular items, calculated from live booth data." },
       { property: "og:title", content: "Analytics — NEXA" },
       { property: "og:description", content: "How the Bite & Pour booth is performing today." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: () => (

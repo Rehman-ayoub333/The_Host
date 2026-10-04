@@ -9,6 +9,8 @@ export const Route = createFileRoute("/activity")({
       { name: "description", content: "A real-time log of everything NEXA perceives, decides and does." },
       { property: "og:title", content: "AI Activity — NEXA" },
       { property: "og:description", content: "NEXA's live event timeline." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: () => (

@@ -1,0 +1,3 @@
+- [x] Restyle the shared palette and state visuals in black, champagne gold, and ivory.
+- [x] Rework dashboard hierarchy, navigation, and public display while retaining agent/demo behavior.
+- [x] Verify all screens, demo sync, and responsive presentation; complete page metadata.

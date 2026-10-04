@@ -9,6 +9,8 @@ export const Route = createFileRoute("/memory")({
       { name: "description", content: "Preferences and notes NEXA remembers about returning guests." },
       { property: "og:title", content: "Memory — NEXA" },
       { property: "og:description", content: "What NEXA remembers, so every visit feels personal." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: () => (

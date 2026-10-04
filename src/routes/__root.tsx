@@ -14,6 +14,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { initCrossWindowSync } from "../lib/agent/store";
 import { connectAgent } from "../lib/agent/service";
+import { Button } from "@/components/ui/button";
 
 function NotFoundComponent() {
   return (
@@ -45,7 +46,7 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
         <h1 className="text-xl font-semibold tracking-tight text-foreground">This page didn't load</h1>
         <p className="mt-2 text-sm text-muted-foreground">Something went wrong on our end. You can try refreshing or head back home.</p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
-          <button
+           <Button
             onClick={() => {
               router.invalidate();
               reset();
@@ -53,7 +54,7 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Try again
-          </button>
+           </Button>
           <a href="/" className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent">
             Go home
           </a>
@@ -70,7 +71,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "NEXA — AI Host of Bite & Pour" },
       { name: "description", content: "NEXA, the AI host of the Bite & Pour booth: sees, hears, thinks, speaks and remembers." },
-      { name: "theme-color", content: "#0A0D12" },
+      { name: "theme-color", content: "#070706" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

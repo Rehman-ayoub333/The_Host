@@ -9,6 +9,8 @@ export const Route = createFileRoute("/orders")({
       { name: "description", content: "Every order NEXA has taken, with live preparation countdowns." },
       { property: "og:title", content: "Orders — NEXA" },
       { property: "og:description", content: "Live order tracking at the Bite & Pour booth." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: () => (
