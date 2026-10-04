@@ -126,7 +126,9 @@ export function createRobot(mountEl) {
 
     const pulse = state === "thinking"
       ? 0.975 + 0.125 * Math.sin((2 * Math.PI * now) / 600)
-      : 1;
+      : state === "waiting_confirmation"
+        ? 0.96 + 0.08 * Math.sin((2 * Math.PI * now) / 2000)
+        : 1;
     for (const eye of eyeInners) {
       eye.style.transform = `scale(${pulse}, ${pulse * blinkScale})`;
     }
@@ -136,7 +138,7 @@ export function createRobot(mountEl) {
       micS = lerp(micS, clamp(getMicAmp(), 0, 1), 0.25);
       glowRadius = 16 + 8 * micS;
     } else if (state === "waiting_confirmation" || state === "connecting") {
-      glowRadius = 16 + 4 * (0.5 + 0.5 * Math.sin((2 * Math.PI * now) / 2000));
+      glowRadius = 16 + 8 * (0.5 + 0.5 * Math.sin((2 * Math.PI * now) / 2000));
     } else if (state === "noticed") {
       glowRadius = 19;
     }
