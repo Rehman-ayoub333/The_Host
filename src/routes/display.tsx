@@ -74,7 +74,7 @@ function SMDDisplay() {
             {headline}
           </p>
           <p className="mt-2 min-h-8 text-center text-[clamp(1rem,1.8vw,1.6rem)] text-muted-foreground">
-             {state === "idle" ? "See · Hear · Speak · Remember" : state === "offline" ? "Back in a moment" : detail && !memoryStates ? detail : ""}
+             {state === "idle" ? "See · Hear · Speak · Remember" : state === "offline" ? "Please speak with a host" : detail && !memoryStates ? detail : ""}
           </p>
           {voice && caption && (
             <p key={caption.text} className="animate-rise mt-6 max-w-[60vw] text-center text-[clamp(1.25rem,2.6vw,2.4rem)] font-medium leading-snug text-foreground">
@@ -127,7 +127,7 @@ function SMDDisplay() {
 
       <footer className="relative pb-12 text-center">
         <p className="font-display text-2xl font-semibold tracking-[0.35em] text-foreground">NEXA</p>
-        <p className="mt-1 text-xs uppercase tracking-[0.5em] text-gold/80">See · Hear · Think · Speak · Remember</p>
+         <p className="mt-1 text-xs uppercase text-gold/80">See · Hear · Think · Speak · Remember</p>
       </footer>
     </div>
   );

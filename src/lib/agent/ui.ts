@@ -26,7 +26,7 @@ export const STATE_META: Record<AgentStateName, StateMeta> = {
   engaging: { label: "Engaging", verb: "Here for you", tone: "voice", rings: "none" },
   multitasking: { label: "Multi-tasking", verb: "Handling several things", tone: "think", rings: "think" },
   error: { label: "Needs Help", verb: "One moment — calling a host", tone: "warn", rings: "pulse" },
-  offline: { label: "Offline", verb: "NEXA is resting", tone: "off", rings: "none" },
+  offline: { label: "Offline", verb: "NEXA is unavailable", tone: "off", rings: "none" },
 };
 
 /** Ticking clock that is SSR-safe (0 until hydrated). */

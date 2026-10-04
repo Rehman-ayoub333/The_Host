@@ -166,10 +166,6 @@
   color: transparent;
 }
 
-@utility glow-nexa {
-  text-shadow: 0 0 16px rgb(216 184 90 / 0.2);
-}
-
 @utility glow-gold {
   text-shadow: 0 0 16px rgb(216 184 90 / 0.18);
 }
@@ -193,12 +189,6 @@
   --c2: var(--champagne);
   --spin: 40s;
   --breath: 5s;
-}
-.nexa-orb[data-tone="ai"] {
-  --c: var(--champagne);
-  --c2: var(--gold-bright);
-  --spin: 16s;
-  --breath: 3s;
 }
 .nexa-orb[data-tone="think"] {
   --c: var(--gold);
@@ -361,7 +351,6 @@
 /* Restraint: the live presence becomes clearer only when an event occurs. */
 .nexa-orb[data-tone="off"] { opacity: .42; }
 .nexa-orb[data-tone="brand"] { opacity: .76; }
-.nexa-orb[data-tone="ai"] { opacity: 1; }
 .nexa-orb[data-tone="think"] { --c: var(--gold); }
 .nexa-orb[data-tone="memory"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 28s; }
 .nexa-orb[data-tone="ready"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 32s; }
