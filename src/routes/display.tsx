@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { AIOrb } from "@/components/nexa/AIOrb";
 import { BrandMark } from "@/components/nexa/Brand";
 import { VoiceWaveform } from "@/components/nexa/VoiceWaveform";
+import { MenuCarousel } from "@/components/nexa/MenuCarousel";
 import { useAgent } from "@/lib/agent/store";
 import { STATE_META, fmtAgo, fmtCountdown, useNow } from "@/lib/agent/ui";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ function SMDDisplay() {
   const focus = visitors.find((v) => v.id === focusId);
   const order = orders.find((o) => ["confirming", "preparing", "ready"].includes(o.status) && (!focusId || o.visitorId === focusId)) ?? orders[0];
 
+  const idle = state === "idle";
   const orderStates = ["taking_order", "order_confirmed", "order_preparing", "order_ready"].includes(state);
   const memoryStates = state === "remembering" || state === "welcoming";
   const voice = state === "listening" || state === "speaking";
