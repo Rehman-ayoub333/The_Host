@@ -1,3 +1,6 @@
 - [x] Restyle the shared palette and state visuals in black, champagne gold, and ivory.
 - [x] Rework dashboard hierarchy, navigation, and public display while retaining agent/demo behavior.
 - [x] Verify all screens, demo sync, and responsive presentation; complete page metadata.
+- [x] Frontend-owned idle menu carousel on the SMD display (IDLE → MENU → MENU → MENU), never AI-generated.
+- [x] Re-verify typecheck and build after the menu carousel fix; remove unused assets.
+- [ ] Swap placeholder menu items/prices in `src/lib/menu.ts` for the real Bite & Pour menu (waiting on the user).
