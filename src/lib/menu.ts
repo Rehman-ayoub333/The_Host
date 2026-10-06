@@ -1,7 +1,7 @@
 /**
  * Bite & Pour menu — owned by the FRONTEND, not the AI.
  *
- * The SMD display cycles these items while NEXA is idle
+ * The SMD display cycles these items while THE HOST is idle
  * (IDLE → MENU → MENU → MENU). The agent never generates or
  * narrates the menu; it only references items when taking orders.
  *

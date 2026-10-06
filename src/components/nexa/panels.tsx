@@ -35,7 +35,7 @@ const useTag = () => useAgent((s) => (s.mode === "demo" ? "demo" : s.sample ? "s
 const TagFor = ({ tag }: { tag: "demo" | "sample" | null }) => (tag === "demo" ? <DemoTag /> : tag === "sample" ? <SampleTag /> : null);
 
 /* ------------------------------------------------------------------ */
-/* NEXA core                                                           */
+/* THE HOST core                                                           */
 /* ------------------------------------------------------------------ */
 
 export function CorePanel({ className }: { className?: string }) {
@@ -54,7 +54,7 @@ export function CorePanel({ className }: { className?: string }) {
       <header className="relative flex items-center justify-between px-5 pt-4">
         <div>
           <p className="label-caps">AI Host</p>
-          <h2 className="font-display text-3xl font-semibold tracking-wide text-foreground">NEXA</h2>
+          <h2 className="font-display text-3xl font-semibold tracking-wide text-foreground">THE HOST</h2>
         </div>
         <div className="flex items-center gap-2">
           {tag && <TagFor tag={tag} />}
@@ -84,7 +84,7 @@ export function CorePanel({ className }: { className?: string }) {
             {caption ? (
               <>
                 <span className={cn("mr-2 font-mono text-[0.6rem] uppercase tracking-widest", caption.speaker === "nexa" ? "text-champagne" : "text-gold")}>
-                  {caption.speaker === "nexa" ? "NEXA" : "Visitor"}
+                  {caption.speaker === "nexa" ? "THE HOST" : "Visitor"}
                 </span>
                 <span className="text-foreground/90">“{caption.text}”</span>
               </>
@@ -326,7 +326,7 @@ export function OrdersPanel({ className, limit = 3 }: { className?: string; limi
         ))}
       </div>
       {list.length === 0 ? (
-        <EmptyState icon={<ChefHat className="h-6 w-6" />} title="No orders yet" hint="Orders appear the moment NEXA confirms one." />
+        <EmptyState icon={<ChefHat className="h-6 w-6" />} title="No orders yet" hint="Orders appear the moment THE HOST confirms one." />
       ) : (
         <div className="space-y-2">
           {list.map((o) => (
@@ -360,7 +360,7 @@ export function ActivityPanel({ className, limit = 7 }: { className?: string; li
   return (
     <Panel title="AI Activity" icon={<ActivityIcon className="h-4 w-4" />} className={className} action={tag ? <TagFor tag={tag} /> : undefined}>
       {activity.length === 0 ? (
-        <EmptyState icon={<Radio className="h-6 w-6" />} title="Quiet for now" hint="Every event NEXA reports is logged here in real time." />
+        <EmptyState icon={<Radio className="h-6 w-6" />} title="Quiet for now" hint="Every event THE HOST reports is logged here in real time." />
       ) : (
         <ol className="relative space-y-3 before:absolute before:bottom-2 before:left-[15px] before:top-2 before:w-px before:bg-line">
           {activity.slice(0, limit).map((a) => {
@@ -429,7 +429,7 @@ export function MemoryPanel({ className, limit = 4 }: { className?: string; limi
   return (
     <Panel title="Memory" icon={<Bookmark className="h-4 w-4" />} className={className} action={tag ? <TagFor tag={tag} /> : undefined}>
       {memory.length === 0 ? (
-        <EmptyState icon={<Sparkles className="h-6 w-6" />} title="No memories stored" hint="NEXA only shows what its memory system has actually saved." />
+        <EmptyState icon={<Sparkles className="h-6 w-6" />} title="No memories stored" hint="THE HOST only shows what its memory system has actually saved." />
       ) : (
         <ul className="space-y-2">
           {memory.slice(0, limit).map((m) => (
@@ -464,7 +464,7 @@ export function TranscriptPanel({ className }: { className?: string }) {
         <div className="space-y-2.5">
           {transcript.slice(-4).map((l) => (
             <div key={l.id} className={cn("animate-rise flex gap-2", l.speaker === "nexa" && "flex-row-reverse text-right")}>
-              <span className={cn("mt-0.5 font-mono text-[0.58rem] uppercase tracking-widest", l.speaker === "nexa" ? "text-champagne" : "text-gold")}>{l.speaker === "nexa" ? "NEXA" : "Guest"}</span>
+              <span className={cn("mt-0.5 font-mono text-[0.58rem] uppercase tracking-widest", l.speaker === "nexa" ? "text-champagne" : "text-gold")}>{l.speaker === "nexa" ? "THE HOST" : "Guest"}</span>
               <p className={cn("max-w-[85%] rounded-md border px-3 py-2 text-sm", l.speaker === "nexa" ? "border-champagne/25 bg-champagne/5" : "border-line bg-background/40")}>{l.text}</p>
             </div>
           ))}
@@ -584,7 +584,7 @@ export function StateStrip({ className }: { className?: string }) {
     <section className={cn("panel overflow-hidden", className)}>
       <header className="flex items-center justify-between border-b border-line px-4 py-2.5">
         <p className="text-sm font-semibold">
-          NEXA visual states <span className="ml-2 text-xs font-normal text-muted-foreground">— mirrored live on the SMD screen</span>
+          THE HOST visual states <span className="ml-2 text-xs font-normal text-muted-foreground">— mirrored live on the SMD screen</span>
         </p>
       </header>
       <div className="grid grid-cols-3 gap-px bg-line sm:grid-cols-5 lg:grid-cols-9">

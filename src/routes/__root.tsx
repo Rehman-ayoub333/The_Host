@@ -69,8 +69,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "NEXA — AI Host of Bite & Pour" },
-      { name: "description", content: "NEXA, the AI host of the Bite & Pour booth: sees, hears, thinks, speaks and remembers." },
+      { title: "THE HOST — AI Host of Bite & Pour" },
+      { name: "description", content: "THE HOST, the AI host of the Bite & Pour booth: sees, hears, thinks, speaks and remembers." },
       { name: "theme-color", content: "#070706" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
