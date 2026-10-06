@@ -28,9 +28,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AIOrb } from "./AIOrb";
 import { VoiceWaveform } from "./VoiceWaveform";
-import { DemoTag, EmptyState, Panel, StatusDot } from "./Panel";
+import { DemoTag, SampleTag, EmptyState, Panel, StatusDot } from "./Panel";
 
 const useIsDemo = () => useAgent((s) => s.mode === "demo");
+const useTag = () => useAgent((s) => (s.mode === "demo" ? "demo" : s.sample ? "sample" : null));
+const TagFor = ({ tag }: { tag: "demo" | "sample" | null }) => (tag === "demo" ? <DemoTag /> : tag === "sample" ? <SampleTag /> : null);
 
 /* ------------------------------------------------------------------ */
 /* NEXA core                                                           */
@@ -42,6 +44,7 @@ export function CorePanel({ className }: { className?: string }) {
   const caption = useAgent((s) => s.caption);
   const connection = useAgent((s) => s.connection);
   const isDemo = useIsDemo();
+  const tag = useTag();
   const meta = STATE_META[state];
   const voice = state === "listening" || state === "speaking";
 
@@ -54,7 +57,7 @@ export function CorePanel({ className }: { className?: string }) {
           <h2 className="font-display text-3xl font-semibold tracking-wide text-foreground">NEXA</h2>
         </div>
         <div className="flex items-center gap-2">
-          {isDemo && <DemoTag />}
+          {tag && <TagFor tag={tag} />}
           <span className="flex items-center gap-2 rounded-sm border border-line bg-background/40 px-2 py-1 font-mono text-[0.62rem] uppercase tracking-widest text-muted-foreground">
             <StatusDot status={isDemo || connection === "connected" ? "live" : connection === "connecting" ? "degraded" : "unknown"} />
             {isDemo ? "Demo" : connection}
@@ -106,6 +109,7 @@ export function VisionPanel({ className, tall }: { className?: string; tall?: bo
   const focusId = useAgent((s) => s.focusVisitorId);
   const visitors = useAgent((s) => s.visitors);
   const isDemo = useIsDemo();
+  const tag = useTag();
   const focus = visitors.find((v) => v.id === focusId);
   const now = useNow(1000);
 
@@ -143,7 +147,7 @@ export function VisionPanel({ className, tall }: { className?: string; tall?: bo
       bodyClassName="p-0"
       action={
         <div className="flex items-center gap-3">
-          {isDemo && <DemoTag />}
+          {tag && <TagFor tag={tag} />}
           <span className="flex items-center gap-1.5 font-mono text-[0.62rem] uppercase tracking-widest text-muted-foreground">
             <StatusDot status={frameUrl ? "live" : camera} /> Camera {frameUrl ? "on" : camera}
           </span>
@@ -299,6 +303,7 @@ export function OrderCard({ order, now }: { order: Order; now: number }) {
 export function OrdersPanel({ className, limit = 3 }: { className?: string; limit?: number }) {
   const orders = useAgent((s) => s.orders);
   const isDemo = useIsDemo();
+  const tag = useTag();
   const now = useNow(1000);
   const [tab, setTab] = useState<"active" | "completed" | "all">("active");
   const active = orders.filter((o) => ["confirming", "preparing", "ready"].includes(o.status));
@@ -306,7 +311,7 @@ export function OrdersPanel({ className, limit = 3 }: { className?: string; limi
   const list = (tab === "active" ? active : tab === "completed" ? completed : orders).slice(0, limit);
 
   return (
-    <Panel title="Orders" icon={<ShoppingBag className="h-4 w-4" />} className={className} action={isDemo ? <DemoTag /> : undefined}>
+    <Panel title="Orders" icon={<ShoppingBag className="h-4 w-4" />} className={className} action={tag ? <TagFor tag={tag} /> : undefined}>
       <div className="mb-3 flex gap-1 rounded-md bg-background/50 p-1">
         {(
           [
@@ -351,8 +356,9 @@ const KIND_ICON: Record<ActivityKind, typeof Eye> = {
 export function ActivityPanel({ className, limit = 7 }: { className?: string; limit?: number }) {
   const activity = useAgent((s) => s.activity);
   const isDemo = useIsDemo();
+  const tag = useTag();
   return (
-    <Panel title="AI Activity" icon={<ActivityIcon className="h-4 w-4" />} className={className} action={isDemo ? <DemoTag /> : undefined}>
+    <Panel title="AI Activity" icon={<ActivityIcon className="h-4 w-4" />} className={className} action={tag ? <TagFor tag={tag} /> : undefined}>
       {activity.length === 0 ? (
         <EmptyState icon={<Radio className="h-6 w-6" />} title="Quiet for now" hint="Every event NEXA reports is logged here in real time." />
       ) : (
@@ -387,9 +393,10 @@ export function ActivityPanel({ className, limit = 7 }: { className?: string; li
 export function VisitorsPanel({ className, limit = 4 }: { className?: string; limit?: number }) {
   const visitors = useAgent((s) => s.visitors);
   const isDemo = useIsDemo();
+  const tag = useTag();
   const now = useNow(30000);
   return (
-    <Panel title="Visitors" icon={<Users className="h-4 w-4" />} className={className} action={isDemo ? <DemoTag /> : undefined}>
+    <Panel title="Visitors" icon={<Users className="h-4 w-4" />} className={className} action={tag ? <TagFor tag={tag} /> : undefined}>
       {visitors.length === 0 ? (
         <EmptyState icon={<Users className="h-6 w-6" />} title="No visitors yet" hint="Visitors are listed when the agent's memory reports them." />
       ) : (
@@ -417,9 +424,10 @@ export function VisitorsPanel({ className, limit = 4 }: { className?: string; li
 export function MemoryPanel({ className, limit = 4 }: { className?: string; limit?: number }) {
   const memory = useAgent((s) => s.memory);
   const isDemo = useIsDemo();
+  const tag = useTag();
   const now = useNow(30000);
   return (
-    <Panel title="Memory" icon={<Bookmark className="h-4 w-4" />} className={className} action={isDemo ? <DemoTag /> : undefined}>
+    <Panel title="Memory" icon={<Bookmark className="h-4 w-4" />} className={className} action={tag ? <TagFor tag={tag} /> : undefined}>
       {memory.length === 0 ? (
         <EmptyState icon={<Sparkles className="h-6 w-6" />} title="No memories stored" hint="NEXA only shows what its memory system has actually saved." />
       ) : (
@@ -447,8 +455,9 @@ export function TranscriptPanel({ className }: { className?: string }) {
   const transcript = useAgent((s) => s.transcript);
   const state = useAgent((s) => s.state);
   const isDemo = useIsDemo();
+  const tag = useTag();
   return (
-    <Panel title="Voice Interaction" icon={<AudioLines className="h-4 w-4" />} className={className} action={isDemo ? <DemoTag /> : undefined}>
+    <Panel title="Voice Interaction" icon={<AudioLines className="h-4 w-4" />} className={className} action={tag ? <TagFor tag={tag} /> : undefined}>
       {transcript.length === 0 ? (
         <EmptyState icon={<Mic className="h-6 w-6" />} title="No conversation yet" hint="Transcripts stream in from the agent's speech pipeline." />
       ) : (
@@ -511,6 +520,7 @@ export function AnalyticsPanel({ className }: { className?: string }) {
   const orders = useAgent((s) => s.orders);
   const visitors = useAgent((s) => s.visitors);
   const isDemo = useIsDemo();
+  const tag = useTag();
   const counts = new Map<string, number>();
   orders.forEach((o) => o.items.forEach((i) => counts.set(i.name, (counts.get(i.name) ?? 0) + i.qty)));
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
@@ -518,7 +528,7 @@ export function AnalyticsPanel({ className }: { className?: string }) {
   const returning = visitors.filter((v) => v.returning).length;
 
   return (
-    <Panel title="Analytics" icon={<ChartNoAxesColumn className="h-4 w-4" />} className={className} action={isDemo ? <DemoTag /> : undefined}>
+    <Panel title="Analytics" icon={<ChartNoAxesColumn className="h-4 w-4" />} className={className} action={tag ? <TagFor tag={tag} /> : undefined}>
       <div className="grid grid-cols-3 gap-2">
         {[
           ["Orders", orders.length],

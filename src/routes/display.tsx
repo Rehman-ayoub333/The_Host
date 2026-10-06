@@ -103,7 +103,7 @@ function SMDDisplay() {
                 </p>
               ) : order.status === "preparing" ? (
                 <>
-                  <p className="mt-4 font-mono text-5xl text-foreground">{order.readyAt && now ? fmtCountdown(order.readyAt - now) : "--:--"}</p>
+                  <p className="mt-4 font-mono text-5xl text-foreground">{order.readyAt && now ? fmtCountdown(Math.max(0, order.readyAt - now)) : "--:--"}</p>
                   <p className="mt-1 text-sm uppercase tracking-widest text-muted-foreground">Preparing · remaining</p>
                   <div className="mx-auto mt-4 h-1.5 w-3/4 overflow-hidden rounded-full bg-surface-2">
                     <div

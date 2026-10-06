@@ -133,5 +133,6 @@ export interface AgentSnapshot {
   system: Record<SystemComponent, ComponentStatus>;
   lastError: string | null;
   demoStep: number | null;
+  sample: boolean;
   updatedAt: number;
 }
