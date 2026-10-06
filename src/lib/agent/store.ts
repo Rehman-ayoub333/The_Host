@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { sampleData } from "./sample";
 import type { Activity, ActivityKind, AgentEvent, AgentSnapshot, LocalAction } from "./types";
 
 export const initialSnapshot: AgentSnapshot = {
@@ -18,6 +19,7 @@ export const initialSnapshot: AgentSnapshot = {
   system: { camera: "unknown", microphone: "unknown", speaker: "unknown", agent: "unknown", internet: "unknown" },
   lastError: null,
   demoStep: null,
+  sample: false,
   updatedAt: 0,
 };
 
@@ -33,19 +35,27 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
   const n = (patch: Partial<AgentSnapshot>): AgentSnapshot => ({ ...s, ...patch, updatedAt: now });
 
   switch (e.type) {
-    case "@connection":
-      return n({
+    case "@connection": {
+      if (e.connection === "connected" && s.sample)
+        return { ...initialSnapshot, connection: "connected", state: "idle", sample: false, updatedAt: now };
+      const next = n({
         connection: e.connection,
         state: e.connection === "connected" ? (s.state === "offline" ? "idle" : s.state) : s.mode === "demo" ? s.state : "offline",
       });
+      if (e.connection !== "connected" && next.mode === "live" && !next.sample) return { ...next, ...sampleData(now), sample: true };
+      return next;
+    }
     case "@mode":
-      return n({ mode: e.mode });
+      if (e.mode === "live" && s.connection !== "connected") return { ...n({ mode: "live" }), ...sampleData(now), sample: true };
+      return n({ mode: e.mode, sample: e.mode === "demo" ? false : s.sample });
     case "@demo_step":
       return n({ demoStep: e.step });
     case "@hydrate":
       return n(e.snapshot);
-    case "@reset":
-      return { ...initialSnapshot, connection: s.connection, state: s.connection === "connected" ? "idle" : "offline", updatedAt: now };
+    case "@reset": {
+      const base = { ...initialSnapshot, connection: s.connection, state: s.connection === "connected" ? ("idle" as const) : ("offline" as const), updatedAt: now };
+      return s.connection === "connected" ? base : { ...base, ...sampleData(now), sample: true };
+    }
 
     case "agent_state_changed":
       return n({ state: e.state, detail: e.detail ?? null });

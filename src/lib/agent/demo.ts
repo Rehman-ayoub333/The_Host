@@ -93,6 +93,7 @@ function seed() {
     type: "@hydrate",
     snapshot: {
       mode: "demo",
+      sample: false,
       state: "idle",
       detail: null,
       caption: null,
