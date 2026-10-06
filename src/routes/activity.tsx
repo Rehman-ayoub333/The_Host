@@ -5,10 +5,10 @@ import { ActivityPanel, CorePanel, TranscriptPanel } from "@/components/nexa/pan
 export const Route = createFileRoute("/activity")({
   head: () => ({
     meta: [
-      { title: "AI Activity — NEXA · Bite & Pour" },
-      { name: "description", content: "A real-time log of everything NEXA perceives, decides and does." },
-      { property: "og:title", content: "AI Activity — NEXA" },
-      { property: "og:description", content: "NEXA's live event timeline." },
+      { title: "AI Activity — THE HOST · Bite & Pour" },
+      { name: "description", content: "A real-time log of everything THE HOST perceives, decides and does." },
+      { property: "og:title", content: "AI Activity — THE HOST" },
+      { property: "og:description", content: "THE HOST's live event timeline." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

@@ -82,7 +82,7 @@ function Sidebar({ onDemo, onNavigate }: { onDemo: () => void; onNavigate?: () =
           <StatusDot status={live ? "live" : "unknown"} />
           <span className={live ? "text-success" : "text-muted-foreground"}>{mode === "demo" ? "Demo running" : live ? "Online" : "Agent not connected"}</span>
         </p>
-        <p className="mt-2 text-sm font-semibold tracking-wide">NEXA AI</p>
+        <p className="mt-2 text-sm font-semibold tracking-wide">THE HOST</p>
         {mode === "demo" && <p className="text-[0.68rem] text-muted-foreground">Demo scenario · Booth #4</p>}
       </div>
     </div>
@@ -131,7 +131,7 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
           </div>
           <div className="hidden items-center gap-2 rounded-md border border-line bg-surface/60 px-3 py-1.5 md:flex">
             <span className={cn("h-1.5 w-1.5 rounded-full", meta.tone === "off" ? "bg-muted-foreground" : meta.tone === "brand" ? "bg-gold" : meta.tone === "warn" ? "bg-destructive" : "bg-champagne", meta.tone !== "off" && "animate-blink")} />
-            <span className="label-caps !text-[0.6rem]">NEXA</span>
+            <span className="label-caps !text-[0.6rem]">THE HOST</span>
             <span className="text-xs font-semibold">{meta.label}</span>
           </div>
           <Button onClick={() => setDemoOpen(true)} className="rounded-md bg-gold px-3 py-2 text-[0.65rem] font-bold uppercase text-primary-foreground transition-colors hover:bg-gold-bright lg:hidden">

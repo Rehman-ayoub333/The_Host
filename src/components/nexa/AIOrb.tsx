@@ -4,13 +4,13 @@ import { cn } from "@/lib/utils";
 
 const BARS = 64;
 
-/** NEXA's core. Every ring and motion maps to a meaning in the agent state. */
+/** THE HOST's core. Every ring and motion maps to a meaning in the agent state. */
 export function AIOrb({ state, className }: { state: AgentStateName; className?: string }) {
   const meta = STATE_META[state];
   const rings = meta.rings;
 
   return (
-    <div className={cn("nexa-orb relative aspect-square", className)} data-tone={meta.tone} aria-label={`NEXA is ${meta.label}`} role="img">
+    <div className={cn("nexa-orb relative aspect-square", className)} data-tone={meta.tone} aria-label={`THE HOST is ${meta.label}`} role="img">
       <svg viewBox="0 0 400 400" className="absolute inset-0 h-full w-full overflow-visible">
         <defs>
           <radialGradient id="orb-core" cx="50%" cy="45%" r="55%">

@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * BITE & POUR · NEXA design system
+ * BITE & POUR · THE HOST design system
  * Black is the canvas; champagne gold marks identity and meaningful activity.
  */
 
@@ -183,7 +183,7 @@
   background-size: 32px 32px;
 }
 
-/* ---------- NEXA orb ---------- */
+/* ---------- THE HOST orb ---------- */
 .nexa-orb {
   --c: var(--gold-dim);
   --c2: var(--champagne);

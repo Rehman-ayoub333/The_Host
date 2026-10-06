@@ -12,10 +12,10 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/display")({
   head: () => ({
     meta: [
-      { title: "NEXA — Live Display · Bite & Pour" },
-      { name: "description", content: "The public face of NEXA, the AI host at the Bite & Pour booth." },
-      { property: "og:title", content: "NEXA Live Display — Bite & Pour" },
-      { property: "og:description", content: "Meet NEXA: the AI host that sees, hears, thinks, speaks and remembers." },
+      { title: "THE HOST — Live Display · Bite & Pour" },
+      { name: "description", content: "The public face of THE HOST, the AI host at the Bite & Pour booth." },
+      { property: "og:title", content: "THE HOST Live Display — Bite & Pour" },
+      { property: "og:description", content: "Meet THE HOST: the AI host that sees, hears, thinks, speaks and remembers." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -71,7 +71,7 @@ function SMDDisplay() {
             <div className={cn("transition-all duration-700", idle ? "w-[min(22vh,40vw)]" : showSide ? "w-[min(34vh,55vw)] lg:w-[min(38vh,30vw)]" : "w-[min(42vh,68vw)]")}>
              <AIOrb state={state} />
            </div>
-             <p className="font-mono text-xs uppercase text-champagne">NEXA · Your AI host</p>
+             <p className="font-mono text-xs uppercase text-champagne">THE HOST · Your AI host</p>
             {idle ? (
               <MenuCarousel className="mt-4" />
             ) : (
@@ -134,7 +134,7 @@ function SMDDisplay() {
       </main>
 
       <footer className="relative pb-12 text-center">
-         <p className="font-display text-2xl font-semibold text-foreground">NEXA</p>
+         <p className="font-display text-2xl font-semibold text-foreground">THE HOST</p>
           <p className="mt-1 text-xs uppercase text-gold/80">See · Hear · Think · Speak · Remember</p>
       </footer>
     </div>

@@ -5,10 +5,10 @@ import { MemoryPanel, VisitorsPanel } from "@/components/nexa/panels";
 export const Route = createFileRoute("/memory")({
   head: () => ({
     meta: [
-      { title: "Memory — NEXA · Bite & Pour" },
-      { name: "description", content: "Preferences and notes NEXA remembers about returning guests." },
-      { property: "og:title", content: "Memory — NEXA" },
-      { property: "og:description", content: "What NEXA remembers, so every visit feels personal." },
+      { title: "Memory — THE HOST · Bite & Pour" },
+      { name: "description", content: "Preferences and notes THE HOST remembers about returning guests." },
+      { property: "og:title", content: "Memory — THE HOST" },
+      { property: "og:description", content: "What THE HOST remembers, so every visit feels personal." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

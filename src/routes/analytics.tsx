@@ -5,9 +5,9 @@ import { AnalyticsPanel, OrdersPanel, VisitorsPanel } from "@/components/nexa/pa
 export const Route = createFileRoute("/analytics")({
   head: () => ({
     meta: [
-      { title: "Analytics — NEXA · Bite & Pour" },
+      { title: "Analytics — THE HOST · Bite & Pour" },
       { name: "description", content: "Orders, visitors and popular items, calculated from live booth data." },
-      { property: "og:title", content: "Analytics — NEXA" },
+      { property: "og:title", content: "Analytics — THE HOST" },
       { property: "og:description", content: "How the Bite & Pour booth is performing today." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

@@ -7,7 +7,7 @@ const ROTATE_MS = 6000;
 /**
  * Idle menu carousel for the SMD display.
  * Purely frontend-owned: cycles MENU_ITEMS on a timer,
- * independent of the agent. Rendered only while NEXA is idle.
+ * independent of the agent. Rendered only while THE HOST is idle.
  */
 export function MenuCarousel({ className }: { className?: string }) {
   const [index, setIndex] = useState(0);

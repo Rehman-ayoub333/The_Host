@@ -11,10 +11,10 @@ import { useAgent } from "@/lib/agent/store";
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
-      { title: "Settings — NEXA · Bite & Pour" },
-      { name: "description", content: "Connect the NEXA control center to the external AI agent." },
-      { property: "og:title", content: "Settings — NEXA" },
-      { property: "og:description", content: "Agent connection settings for the NEXA control center." },
+      { title: "Settings — THE HOST · Bite & Pour" },
+      { name: "description", content: "Connect the THE HOST control center to the external AI agent." },
+      { property: "og:title", content: "Settings — THE HOST" },
+      { property: "og:description", content: "Agent connection settings for the THE HOST control center." },
     ],
   }),
   component: SettingsPage,
@@ -33,7 +33,7 @@ function SettingsPage() {
   const field = "mt-1.5 w-full rounded-md border border-line bg-input px-3 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-gold";
 
   return (
-    <AppShell title="Settings" subtitle="Point the control center at the NEXA agent.">
+    <AppShell title="Settings" subtitle="Point the control center at the THE HOST agent.">
       <div className="grid gap-4 xl:grid-cols-12">
         <Panel title="Agent connection" icon={<Plug className="h-4 w-4" />} className="xl:col-span-8">
           <form

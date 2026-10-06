@@ -83,6 +83,9 @@ const script = (): Step[] => [
   { at: 57600, ev: () => ({ type: "agent_speaking", text: "Ahmed, your order #027 is ready. Enjoy!" }) },
   { at: 61500, ev: () => ({ type: "agent_speech_finished" }) },
   { at: 62000, ev: () => ({ type: "@demo_step", step: DEMO_STEPS.length }) },
+  // Visitor walks away — THE HOST returns to idle so the menu carousel resumes.
+  { at: 64000, ev: () => ({ type: "vision_update", detections: [] }) },
+  { at: 64500, ev: () => ({ type: "agent_state_changed", state: "idle" }) },
 ];
 
 let timers: ReturnType<typeof setTimeout>[] = [];

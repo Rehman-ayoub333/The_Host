@@ -1,5 +1,5 @@
 /**
- * Contract between the NEXA frontend and the external agent.
+ * Contract between the THE HOST frontend and the external agent.
  * The backend emits AgentEvents; the frontend never reasons on its own.
  */
 

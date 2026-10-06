@@ -1,5 +1,5 @@
 /**
- * Integration layer for the external NEXA agent.
+ * Integration layer for the external THE HOST agent.
  * Components never call the network directly — everything goes through here.
  *
  * Configure with env vars (public, no secrets):
