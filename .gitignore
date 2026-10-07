@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+*.db
+.vscode/
+host-spec/
+HOST-HANDOFF-BRIEFING.md
+THE_HOST_Proposal.docx
+NEW-CHAT-START-HERE.md
