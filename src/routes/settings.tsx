@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Plug } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AppShell } from "@/components/nexa/AppShell";
-import { Panel } from "@/components/nexa/Panel";
-import { SystemPanel } from "@/components/nexa/panels";
+import { AppShell } from "@/components/host/AppShell";
+import { Panel } from "@/components/host/Panel";
+import { SystemPanel } from "@/components/host/panels";
 import { connectAgent, getAgentConfig, saveAgentConfig } from "@/lib/agent/service";
 import { useAgent } from "@/lib/agent/store";
 

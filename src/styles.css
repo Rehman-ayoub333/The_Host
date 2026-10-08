@@ -184,60 +184,60 @@
 }
 
 /* ---------- THE HOST orb ---------- */
-.nexa-orb {
+.host-orb {
   --c: var(--gold-dim);
   --c2: var(--champagne);
   --spin: 40s;
   --breath: 5s;
 }
-.nexa-orb[data-tone="think"] {
+.host-orb[data-tone="think"] {
   --c: var(--gold);
   --c2: var(--champagne);
   --spin: 8s;
   --breath: 1.6s;
 }
-.nexa-orb[data-tone="warn"] {
+.host-orb[data-tone="warn"] {
   --c: var(--destructive);
   --c2: var(--foreground);
   --spin: 10s;
   --breath: 1.2s;
 }
-.nexa-orb[data-tone="off"] {
+.host-orb[data-tone="off"] {
   --c: var(--gold-dim);
   --c2: var(--muted-foreground);
   --spin: 120s;
   --breath: 9s;
 }
-.nexa-orb .spin {
+.host-orb .spin {
   transform-origin: 200px 200px;
   animation: orb-spin var(--spin) linear infinite;
 }
-.nexa-orb .spin-rev {
+.host-orb .spin-rev {
   transform-origin: 200px 200px;
   animation: orb-spin var(--spin) linear infinite reverse;
 }
-.nexa-orb .spin-slow {
+.host-orb .spin-slow {
   transform-origin: 200px 200px;
   animation: orb-spin calc(var(--spin) * 3) linear infinite;
 }
-.nexa-orb .breath {
+.host-orb .breath {
   transform-origin: 200px 200px;
   animation: orb-breath var(--breath) ease-in-out infinite;
 }
-.nexa-orb .bar {
+.host-orb .bar {
   transform-box: fill-box;
   transform-origin: 50% 100%;
   animation: orb-bar 0.9s ease-in-out infinite;
 }
-.nexa-orb .pulse-ring {
+.host-orb .pulse-ring {
   transform-origin: 200px 200px;
   animation: orb-pulse 2.4s ease-out infinite;
 }
-.nexa-orb .orbit {
+.host-orb .orbit {
   transform-origin: 200px 200px;
   animation: orb-spin 6s linear infinite;
 }
-.nexa-orb * {
+.host-orb * {
   transition:
     stroke 0.8s ease,
     fill 0.8s ease,
@@ -349,11 +349,11 @@
 }
 
 /* Restraint: the live presence becomes clearer only when an event occurs. */
-.nexa-orb[data-tone="off"] { opacity: .42; }
-.nexa-orb[data-tone="brand"] { opacity: .76; }
-.nexa-orb[data-tone="think"] { --c: var(--gold); }
-.nexa-orb[data-tone="memory"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 28s; }
-.nexa-orb[data-tone="ready"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 32s; }
-.nexa-orb[data-tone="voice"] { --c: var(--champagne); --c2: var(--ivory); --spin: 20s; }
-.nexa-orb[data-tone="scan"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 12s; }
-.nexa-orb[data-tone="order"] { --c: var(--gold); --c2: var(--champagne); --spin: 24s; }
+.host-orb[data-tone="off"] { opacity: .42; }
+.host-orb[data-tone="brand"] { opacity: .76; }
+.host-orb[data-tone="think"] { --c: var(--gold); }
+.host-orb[data-tone="memory"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 28s; }
+.host-orb[data-tone="ready"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 32s; }
+.host-orb[data-tone="voice"] { --c: var(--champagne); --c2: var(--ivory); --spin: 20s; }
+.host-orb[data-tone="scan"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 12s; }
+.host-orb[data-tone="order"] { --c: var(--gold); --c2: var(--champagne); --spin: 24s; }

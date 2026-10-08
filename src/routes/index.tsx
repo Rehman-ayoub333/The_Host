@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AppShell } from "@/components/nexa/AppShell";
-import { ActivityPanel, AnalyticsPanel, CorePanel, OrdersPanel, StateStrip, SystemPanel, TranscriptPanel, VisionPanel, VisitorsPanel } from "@/components/nexa/panels";
+import { AppShell } from "@/components/host/AppShell";
+import { ActivityPanel, AnalyticsPanel, CorePanel, OrdersPanel, StateStrip, SystemPanel, TranscriptPanel, VisionPanel, VisitorsPanel } from "@/components/host/panels";
 
 export const Route = createFileRoute("/")({
   head: () => ({
