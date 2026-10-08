@@ -457,6 +457,47 @@ def test_typed_text_is_echoed_once_as_a_final_visitor_line():
     validate(ws)
 
 
+def test_typed_text_closes_both_buffers_agent_first():
+    """16 section 2a item 8: both buffers are flushed before the typed line."""
+    session, ws = listening(
+        [
+            {"type": "websocket.receive", "text": json.dumps({"type": "text_input", "text": "two burgers"})},
+            {"type": "websocket.disconnect"},
+        ]
+    )
+    session.transcripts["agent"] = "Sure thing"
+    session.transcripts["visitor"] = "I want"
+
+    asyncio.run(session._uplink())
+
+    assert transcripts(ws) == [
+        {"role": "agent", "text": "Sure thing", "final": True},
+        {"role": "visitor", "text": "I want", "final": True},
+        {"role": "visitor", "text": "two burgers", "final": True},
+    ]
+    assert session.transcripts == {"visitor": "", "agent": ""}
+    validate(ws)
+
+
+def test_a_partial_spoken_line_is_closed_before_the_typed_line():
+    session, ws = listening(
+        [
+            {"type": "websocket.receive", "text": json.dumps({"type": "text_input", "text": "two burgers"})},
+            {"type": "websocket.disconnect"},
+        ]
+    )
+
+    feed(session, [message(content(visitor="I want"))])
+    asyncio.run(session._uplink())
+
+    assert transcripts(ws) == [
+        {"role": "visitor", "text": "I want", "final": False},
+        {"role": "visitor", "text": "I want", "final": True},
+        {"role": "visitor", "text": "two burgers", "final": True},
+    ]
+    validate(ws)
+
+
 # ------------------------------------------------------------ (g) interrupted
 
 
@@ -485,6 +526,24 @@ def test_interrupted_flushes_the_buffers_and_returns_to_the_resting_state():
         {"role": "agent", "text": "Let me just", "final": True},
     ]
     assert session.transcripts == {"visitor": "", "agent": ""}
+    validate(ws)
+
+
+def test_an_interrupted_greeting_is_not_greeted_a_second_time():
+    """16 section 2a item 5: greeted is set at the first turn_complete OR interrupted."""
+    session, ws = listening()
+
+    feed(
+        session,
+        [
+            message(content(audio=b"\x01")),
+            message(content(interrupted=True)),
+            message(content(audio=b"\x02")),
+        ],
+    )
+
+    assert states(ws) == ["LISTENING", "GREETING", "LISTENING", "SPEAKING"]
+    assert session.greeted is True
     validate(ws)
 
 

@@ -242,7 +242,8 @@ def cancel_order(order_id, reason=None) -> dict:
                 {"source": "order", "error": "That order can't be cancelled here any more."},
             )
         result = data.update_order_status(
-            oid, "CANCELLED", reason=" ".join(str(reason or "").split())[:120]
+            # No reason given: NULL, not "".
+            oid, "CANCELLED", reason=(" ".join(str(reason or "").split())[:120] or None)
         )
         if not result["ok"]:
             return _finish(

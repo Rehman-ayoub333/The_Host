@@ -282,7 +282,10 @@ class LiveSession:
                     continue
                 text = text_message.text.strip()[:config.MAX_TEXT_INPUT_CHARS]
                 if text:
+                    # Both buffers close first, agent then visitor, so a partial
+                    # spoken line is never overwritten by the typed one.
                     await self._flush_transcript("agent")
+                    await self._flush_transcript("visitor")
                     await self._emit_transcript("visitor", text, True)
                     await self.session.send_realtime_input(text=text)
             else:
@@ -331,7 +334,6 @@ class LiveSession:
                 )
 
             if server_content.turn_complete:
-                self.greeted = True
                 await self._end_of_turn()
 
         if message.tool_call:
@@ -341,6 +343,9 @@ class LiveSession:
 
     async def _end_of_turn(self) -> None:
         """16 section 2a item 6 and 07 section 2 rule 1."""
+        # The opening greeting is over at the first turn_complete OR interrupted
+        # (16 section 2a item 5), so a greeting talked over is not greeted again.
+        self.greeted = True
         await self._flush_transcripts()
         pending = self.ctx["pending_order_id"]
         if pending:

@@ -243,6 +243,21 @@ def test_cancel_order_before_ready_only(ctx):
     }
 
 
+def test_cancel_order_without_a_reason_stores_null(ctx):
+    """09 section 6: no reason given means NULL, never an empty string."""
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    tools.cancel_order(order_id)
+    assert data.get_order(order_id)["cancel_reason"] is None
+
+    blank = tools.build_order([{"name": "Club Sandwich"}])["order_id"]
+    tools.cancel_order(blank, reason="   ")
+    assert data.get_order(blank)["cancel_reason"] is None
+
+    given = tools.build_order([{"name": "Patty Burger"}])["order_id"]
+    tools.cancel_order(given, reason="changed mind")
+    assert data.get_order(given)["cancel_reason"] == "changed mind"
+
+
 def test_get_order_status_with_an_id_is_scoped_to_the_owner(ctx):
     order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
     tools.confirm_order(order_id)
