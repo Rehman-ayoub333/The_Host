@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CampusAI</title>
+  <title>THE HOST</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body data-state="booth_off">
   <header class="topbar">
-    <div class="brand"><span class="brand-name">CampusAI</span><span class="brand-tag">See. Hear. Understand. Act.</span></div>
+    <div class="brand"><span class="brand-name">THE HOST</span><span class="brand-tag">Bite &amp; Pour · voice page</span></div>
     <div class="operator">
       <label class="switch"><input type="checkbox" id="autoGreet" checked><span>Auto-greet</span></label>
     </div>
@@ -21,10 +21,10 @@
       <div id="hints" class="hints">
         <p class="hints-title">Try saying:</p>
         <ul>
-          <li>“What classes are on Monday?”</li>
-          <li>“Is Lab 2 free at 3 pm on Monday?”</li>
-          <li>“Report a broken projector in Room 12.”</li>
-          <li>“What is photosynthesis?”</li>
+          <li>“What do you recommend?”</li>
+          <li>“I’d like to order something.”</li>
+          <li>“Is my order ready?”</li>
+          <li>“Remember me, my name is …”</li>
         </ul>
         <p class="hints-foot">Or hold something up and press “Show It Something”.</p>
       </div>
@@ -39,23 +39,17 @@
         <button id="textSend" class="btn" type="submit" disabled>Send</button>
       </form>
       <div class="camera"><video id="preview" autoplay playsinline muted></video></div>
-      <p id="privacy" class="privacy">Camera: used on this device only to notice when someone is nearby — nothing is recorded or stored. Voice, and any photo you choose to show, are sent to Google’s Gemini service (free-tier terms apply). Please don’t show anything sensitive.</p>
+      <p id="privacy" class="privacy">Camera: used on this device only to notice when someone is nearby — nothing is recorded or stored. Voice, and any photo you choose to show, are sent to Google’s Gemini service. Please don’t show anything sensitive.</p>
     </section>
 
     <section class="right" aria-label="Conversation and activity">
       <div class="panel"><h2>Conversation</h2><div id="transcript" class="transcript" aria-live="polite"></div></div>
-      <div class="panel"><h2>Agent activity</h2><ul id="activityLog" class="activity"></ul></div>
     </section>
   </main>
 
-  <section class="panel records" aria-label="Recent actions">
-    <h2>Recent actions</h2>
-    <table id="recordsTable"><thead><tr><th>Time</th><th>Action</th><th>Result</th><th>Source</th></tr></thead><tbody></tbody></table>
-  </section>
-
   <div id="startOverlay" class="overlay">
     <div class="overlay-card">
-      <h1>CampusAI</h1>
+      <h1>THE HOST</h1>
       <p>Operator: click once to switch on the camera and microphone and start the booth.</p>
       <button id="startBtn" class="btn primary large" type="button">Start Booth</button>
       <p id="startNote" class="start-note" aria-live="polite"></p>

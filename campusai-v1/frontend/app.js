@@ -22,8 +22,6 @@ const els = {
   statusLabel: document.getElementById("statusLabel"),
   hints: document.getElementById("hints"),
   transcript: document.getElementById("transcript"),
-  activityLog: document.getElementById("activityLog"),
-  recordsBody: document.querySelector("#recordsTable tbody"),
   startOverlay: document.getElementById("startOverlay"),
   startBtn: document.getElementById("startBtn"),
   startNote: document.getElementById("startNote"),
@@ -37,7 +35,8 @@ const STATE_LABELS = {
   connecting: "Connecting…",
   listening: "Listening…",
   thinking: "Thinking…",
-  waiting_confirmation: "Waiting for your answer…",
+  taking_order: "Taking the order…",
+  needs_help: "Calling a team member…",
   speaking: "Speaking…",
   error: "Something went wrong. Please try again.",
 };
@@ -46,17 +45,23 @@ const ACTIVE_STATES = new Set([
   "connecting",
   "listening",
   "thinking",
-  "waiting_confirmation",
+  "taking_order",
+  "needs_help",
   "speaking",
 ]);
-const RECORD_NAMES = {
-  query_timetable: "Timetable search",
-  check_room_availability: "Room check",
-  create_complaint: "Complaint",
-  get_complaint_status: "Complaint status",
-  list_recent_complaints: "Recent complaints",
-  web_search: "Web lookup",
+const BACKEND_STATE_MAP = {
+  LISTENING: "listening",
+  THINKING: "thinking",
+  SEEING: "thinking",
+  REMEMBERING: "thinking",
+  SPEAKING: "speaking",
+  GREETING: "speaking",
+  RECOMMENDING: "speaking",
+  ANNOUNCING: "speaking",
+  TAKING_ORDER: "taking_order",
+  NEEDS_HELP: "needs_help",
 };
+const ROBOT_VISUAL = { taking_order: "waiting_confirmation", needs_help: "thinking" };
 
 let ws = null;
 let state = "booth_off";
@@ -84,7 +89,7 @@ function isSessionActive() {
 function setState(nextState, errorMessage = "") {
   state = nextState;
   document.body.dataset.state = nextState;
-  robot.setState(nextState);
+  robot.setState(ROBOT_VISUAL[nextState] || nextState);
   els.statusLabel.textContent = nextState === "error"
     ? (errorMessage || STATE_LABELS.error)
     : (STATE_LABELS[nextState] || "Ready");
@@ -92,11 +97,11 @@ function setState(nextState, errorMessage = "") {
   els.talkBtn.hidden = nextState !== "idle";
   els.doneBtn.hidden = !ACTIVE_STATES.has(nextState);
   els.snapBtn.disabled = !cameraAvailable || ![
-    "listening", "thinking", "waiting_confirmation", "speaking",
+    "listening", "thinking", "taking_order", "needs_help", "speaking",
   ].includes(nextState);
   els.snapBtn.title = cameraAvailable ? "" : "Camera not available";
   const textEnabled = [
-    "listening", "thinking", "waiting_confirmation", "speaking",
+    "listening", "thinking", "taking_order", "needs_help", "speaking",
   ].includes(nextState);
   els.textInput.disabled = !textEnabled;
   els.textSend.disabled = !textEnabled;
@@ -115,10 +120,10 @@ function showToast(text, ms = 5000) {
 
 function makeTranscriptLine(role, text) {
   const line = document.createElement("div");
-  line.className = `line line-${role}`;
+  line.className = `line line-${role === "visitor" ? "user" : "agent"}`;
   const who = document.createElement("span");
   who.className = "who";
-  who.textContent = role === "user" ? "You:" : "CampusAI:";
+  who.textContent = role === "visitor" ? "You:" : `${C.AGENT_LABEL}:`;
   const textNode = document.createElement("span");
   textNode.className = "txt";
   textNode.textContent = text;
@@ -128,122 +133,24 @@ function makeTranscriptLine(role, text) {
   return textNode;
 }
 
-function appendTranscript(role, text) {
-  if (lastLine && lastLine.role === role) {
-    lastLine.txtEl.textContent += text;
+function appendTranscript(role, text, final) {
+  if (lastLine && lastLine.role === role && lastLine.final === false) {
+    lastLine.txtEl.textContent = text;
   } else {
-    lastLine = {
-      role,
-      txtEl: makeTranscriptLine(role, text.trimStart()),
-    };
+    lastLine = { role, txtEl: makeTranscriptLine(role, text), final };
   }
+  lastLine.final = final;
   els.transcript.scrollTop = els.transcript.scrollHeight;
 }
 
-function addTranscriptLine(role, text) {
-  makeTranscriptLine(role, text);
-  lastLine = null;
-}
-
-function sourceLabel(source) {
-  if (source === "real") return "Real";
-  if (source === "demo") return "Demo";
-  if (source === "web") return "Web";
-  return "Demo";
-}
-
-function sourceClass(source) {
-  return `tag-${source === "real" || source === "demo" || source === "web" ? source : "demo"}`;
-}
-
-function makeSourceTag(source) {
-  const tag = document.createElement("span");
-  tag.className = `tag ${sourceClass(source)}`;
-  tag.textContent = sourceLabel(source);
-  return tag;
-}
-
-function upsertActivity(message) {
-  let item;
-  if (message.status === "running") {
-    item = document.createElement("li");
-    item.className = "running";
-    item.dataset.tool = message.tool;
-    const time = document.createElement("span");
-    time.className = "time";
-    time.textContent = new Date().toLocaleTimeString("en-GB", { hour12: false });
-    const summary = document.createElement("span");
-    summary.className = "summary";
-    summary.textContent = message.summary || "Working…";
-    item.append(time, summary, makeSourceTag(message.source));
-    els.activityLog.prepend(item);
-  } else {
-    item = Array.from(els.activityLog.children).find(
-      (entry) => entry.classList.contains("running") && entry.dataset.tool === message.tool,
-    );
-    if (item) {
-      const summary = item.querySelector(".summary");
-      summary.textContent = message.summary || "Done";
-      item.querySelector(".tag")?.replaceWith(makeSourceTag(message.source));
-      item.classList.remove("running");
-      item.classList.add("done");
-    } else {
-      item = document.createElement("li");
-      item.className = "done";
-      item.dataset.tool = message.tool;
-      const time = document.createElement("span");
-      time.className = "time";
-      time.textContent = new Date().toLocaleTimeString("en-GB", { hour12: false });
-      const summary = document.createElement("span");
-      summary.className = "summary";
-      summary.textContent = message.summary || "Done";
-      item.append(time, summary, makeSourceTag(message.source));
-      els.activityLog.prepend(item);
-    }
-  }
-  while (els.activityLog.children.length > C.ACTIVITY_LOG_MAX_LINES) {
-    els.activityLog.lastElementChild.remove();
-  }
-}
-
-async function refreshRecords() {
-  try {
-    const response = await fetch(`/api/records?limit=${C.RECORDS_LIMIT}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json();
-    const rows = payload.records;
-    if (!Array.isArray(rows)) throw new Error("Invalid records response");
-    const fragment = document.createDocumentFragment();
-    for (const record of rows) {
-      const row = document.createElement("tr");
-      const time = document.createElement("td");
-      time.textContent = record.timestamp.slice(11, 19);
-      const action = document.createElement("td");
-      action.textContent = RECORD_NAMES[record.tool] || record.tool;
-      const result = document.createElement("td");
-      result.textContent = record.summary;
-      const source = document.createElement("td");
-      source.append(makeSourceTag(record.source));
-      row.append(time, action, result, source);
-      fragment.append(row);
-    }
-    els.recordsBody.replaceChildren(fragment);
-  } catch (error) {
-    console.error("Failed to refresh recent actions:", error);
-  }
-}
-
 function handleControl(message) {
-  if (message.type === "state") {
+  if (message.type === "agent_state_changed") {
     if (!isSessionActive()) return;
-    setState(message.value);
-  } else if (message.type === "transcript") {
+    const local = BACKEND_STATE_MAP[message.state];
+    if (local) setState(local);
+  } else if (message.type === "speech_transcript") {
     lastActivity = now();
-    appendTranscript(message.role, message.text);
-  } else if (message.type === "tool_event") {
-    lastActivity = now();
-    upsertActivity(message);
-    if (message.status === "done") refreshRecords();
+    appendTranscript(message.role, message.text, Boolean(message.final));
   } else if (message.type === "interrupted") {
     audio.flushPlayback();
   } else if (message.type === "error") {
@@ -407,7 +314,6 @@ async function startBooth() {
   els.startOverlay.hidden = true;
   els.startOverlay.style.display = "none";
   setState("idle");
-  refreshRecords();
   if (notes.length) showToast(notes.join(" "), 8000);
 }
 
@@ -449,7 +355,6 @@ els.textForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = els.textInput.value.trim();
   if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-  addTranscriptLine("user", text);
   ws.send(JSON.stringify({ type: "text_input", text }));
   els.textInput.value = "";
   lastActivity = now();
