@@ -77,6 +77,7 @@ let presenceAvailable = false;
 let autoGreetEnabled = els.autoGreet.checked;
 let cameraStream = null;
 let lastLine = null;
+const vision = { sentPresent: null, sentPeople: null, sentAt: 0, warned: false, timer: null };
 
 function now() {
   return Date.now();
@@ -141,6 +142,38 @@ function appendTranscript(role, text, final) {
   }
   lastLine.final = final;
   els.transcript.scrollTop = els.transcript.scrollHeight;
+}
+
+function reportVision(force) {
+  const payload = {
+    present: presence.state === "present",
+    people: Math.min(presence.people, 50),
+    objects: [],
+  };
+  const changed = payload.people !== vision.sentPeople;
+  const due = Date.now() - vision.sentAt >= C.VISION_REPORT_MS;
+  if (!force && !(changed && due)) return;
+
+  vision.sentPresent = payload.present;
+  vision.sentPeople = payload.people;
+  vision.sentAt = Date.now();
+  fetch("/api/vision", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+    .then((response) => {
+      if (!response.ok && !vision.warned) {
+        vision.warned = true;
+        console.warn(`Presence reporting failed: HTTP ${response.status}`);
+      }
+    })
+    .catch(() => {
+      if (!vision.warned) {
+        vision.warned = true;
+        console.warn("Presence reporting is unavailable.");
+      }
+    });
 }
 
 function handleControl(message) {
@@ -249,6 +282,7 @@ function fail(message) {
 }
 
 function onArrival() {
+  reportVision(true);
   robot.perkAntenna();
   if (
     autoGreetEnabled
@@ -264,6 +298,7 @@ function onArrival() {
 }
 
 function onAbsent() {
+  reportVision(true);
   armed = true;
 }
 
@@ -301,6 +336,8 @@ async function startBooth() {
     try {
       await presence.init(els.preview, { onArrival, onAbsent, onFace });
       presenceAvailable = true;
+      reportVision(true);
+      vision.timer = setInterval(() => reportVision(false), C.VISION_REPORT_MS);
     } catch (error) {
       console.error(error);
       presenceAvailable = false;
@@ -363,6 +400,7 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && isSessionActive()) endSession("user");
 });
 window.addEventListener("beforeunload", () => {
+  clearInterval(vision.timer);
   endingByUs = true;
   if (ws && ws.readyState === WebSocket.OPEN) ws.close();
   audio.stopMic();

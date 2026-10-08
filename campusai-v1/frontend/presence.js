@@ -6,6 +6,7 @@ let intervalId = null;
 let currentState = "absent";
 let consecutive = 0;
 let lastFaceAt = 0;
+let lastPeople = 0;
 let errorLogged = false;
 let callbacks = {
   onArrival() {},
@@ -25,12 +26,15 @@ function tick() {
     const now = performance.now();
     const result = detector.detectForVideo(videoEl, now);
     let largest = null;
+    let people = 0;
 
     for (const detection of result.detections) {
       const box = detection.boundingBox;
       if (!box || box.width / videoEl.videoWidth < C.MIN_FACE_WIDTH_RATIO) continue;
+      people += 1;
       if (!largest || box.width > largest.width) largest = box;
     }
+    lastPeople = people;
 
     const face = largest
       ? {
@@ -65,6 +69,10 @@ function tick() {
 export const presence = {
   get state() {
     return currentState;
+  },
+
+  get people() {
+    return lastPeople;
   },
 
   async init(video, handlers = {}) {
@@ -109,6 +117,7 @@ export const presence = {
     videoEl = null;
     consecutive = 0;
     lastFaceAt = 0;
+    lastPeople = 0;
     if (currentState === "present") {
       currentState = "absent";
       callbacks.onAbsent();
