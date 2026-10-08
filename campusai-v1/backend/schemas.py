@@ -1,19 +1,72 @@
-from pydantic import BaseModel
 from typing import Literal, Optional
 
+from pydantic import BaseModel
 
-class ControlMessage(BaseModel):
-    """Backend -> browser JSON messages."""
 
-    type: Literal["state", "transcript", "tool_event", "interrupted", "error"]
-    value: Optional[str] = None
-    role: Optional[Literal["user", "agent"]] = None
-    text: Optional[str] = None
-    tool: Optional[str] = None
-    status: Optional[Literal["running", "done"]] = None
-    summary: Optional[str] = None
-    source: Optional[Literal["real", "demo", "web"]] = None
-    message: Optional[str] = None
+AGENT_STATES = (
+    "IDLE",
+    "GREETING",
+    "SEEING",
+    "LISTENING",
+    "THINKING",
+    "SPEAKING",
+    "RECOMMENDING",
+    "TAKING_ORDER",
+    "ANNOUNCING",
+    "REMEMBERING",
+    "NEEDS_HELP",
+)
+
+
+class EventEnvelope(BaseModel):
+    """The common envelope every event carries (03 section 3)."""
+
+    event_id: int
+    timestamp: str
+    session_id: Optional[str] = None
+
+
+class AgentStateChangedEvent(EventEnvelope):
+    type: Literal["agent_state_changed"]
+    state: Literal[
+        "IDLE",
+        "GREETING",
+        "SEEING",
+        "LISTENING",
+        "THINKING",
+        "SPEAKING",
+        "RECOMMENDING",
+        "TAKING_ORDER",
+        "ANNOUNCING",
+        "REMEMBERING",
+        "NEEDS_HELP",
+    ]
+
+
+class SpeechTranscriptEvent(EventEnvelope):
+    type: Literal["speech_transcript"]
+    role: Literal["visitor", "agent"]
+    text: str
+    final: bool
+
+
+class InterruptedEvent(EventEnvelope):
+    type: Literal["interrupted"]
+
+
+class ErrorEvent(EventEnvelope):
+    type: Literal["error"]
+    message: str
+    recoverable: bool
+
+
+class OperationalModeMessage(BaseModel):
+    """07 section 5. Its emitter arrives with health.py in Phase 3."""
+
+    type: Literal["operational_mode_changed"]
+    mode: Literal["ONLINE", "DEGRADED", "RECOVERING", "OFFLINE", "PAUSED", "OPERATOR_TAKEOVER"]
+    reason: str
+    timestamp: str
 
 
 class VisionFrameMessage(BaseModel):

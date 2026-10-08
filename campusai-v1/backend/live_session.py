@@ -4,6 +4,7 @@ import contextlib
 import json
 import logging
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
 from google import genai
@@ -11,13 +12,33 @@ from google.genai import types
 from pydantic import ValidationError
 
 import config
+import data
+import event_bus
 import prompts
 import schemas
-import summaries
 import tools
 
 
 log = logging.getLogger(__name__)
+
+# The audio socket carries only these four event types (03 section 2).
+AUDIO_SOCKET_EVENTS = frozenset(
+    {"agent_state_changed", "speech_transcript", "interrupted", "error"}
+)
+
+# 07 section 2 rule 2: while a draft is pending these never replace TAKING_ORDER.
+HELD_WHILE_ORDERING = frozenset({"THINKING", "SPEAKING", "GREETING", "RECOMMENDING"})
+
+# 16 section 2a item 3: the state each tool call announces before it runs.
+TOOL_STATES = {
+    "remember_visitor": "REMEMBERING",
+    "recommend_item": "RECOMMENDING",
+    "request_operator_help": "NEEDS_HELP",
+}
+
+# 16 section 2a item 11: the source tag a tool result falls back to.
+MENU_TOOLS = ("check_item_availability", "get_business_info")
+UNSOURCED_TOOLS = ("recommend_item", "signal_confirmation_request")
 
 
 def build_live_config(now: datetime) -> types.LiveConnectConfig:
@@ -46,10 +67,84 @@ class LiveSession:
         self.session = None
         self.stack = None
         self.tasks = []
-        self.awaiting_confirmation = False
+        self.ctx = {
+            "session_id": uuid4().hex[:8],
+            "visitor_name": None,
+            "pending_order_id": None,
+            "awaiting_confirmation": False,
+        }
         self.first_audio_sent = False
+        self.greeted = False
+        self.recommended_this_turn = False
+        self.transcripts = {"visitor": "", "agent": ""}
         self.last_state = None
         self.closed = False
+
+    # ---------------------------------------------------------------- sending
+
+    async def _send_control(self, event: dict) -> None:
+        if "session_id" not in event:
+            event["session_id"] = self.ctx["session_id"]
+        event_bus.stamp(event)
+        if event["type"] in AUDIO_SOCKET_EVENTS and not self.closed:
+            try:
+                await self.ws.send_text(json.dumps(event))
+            except Exception:
+                self.closed = True
+                for task in self.tasks:
+                    if not task.done():
+                        task.cancel()
+        event_bus.publish(event)
+
+    async def _send_state(self, value: str) -> None:
+        if value != self.last_state:
+            log.info("state %s session %s", value, self.ctx["session_id"])
+            await self._send_control({"type": "agent_state_changed", "state": value})
+            self.last_state = value
+
+    async def _maybe_send_state(self, value: str) -> None:
+        """07 section 2 rule 2: hold TAKING_ORDER through the order exchange."""
+        if self.ctx["pending_order_id"] and value in HELD_WHILE_ORDERING:
+            return
+        await self._send_state(value)
+
+    def resting_state(self) -> str:
+        return "TAKING_ORDER" if self.ctx["pending_order_id"] else "LISTENING"
+
+    def _first_audio_state(self) -> str:
+        # 07 section 2 rule 3. The ANNOUNCING branch arrives in Phase 3.
+        if not self.greeted:
+            return "GREETING"
+        if self.recommended_this_turn:
+            return "RECOMMENDING"
+        return "SPEAKING"
+
+    # ------------------------------------------------------------ transcripts
+
+    async def _emit_transcript(self, role: str, text: str, final: bool) -> None:
+        await self._send_control(
+            {"type": "speech_transcript", "role": role, "text": text, "final": final}
+        )
+
+    async def _flush_transcript(self, role: str) -> None:
+        text = self.transcripts[role]
+        if not text:
+            return
+        self.transcripts[role] = ""
+        await self._emit_transcript(role, text, True)
+
+    async def _flush_transcripts(self) -> None:
+        for role in ("visitor", "agent"):
+            await self._flush_transcript(role)
+
+    async def _on_transcript_fragment(self, role: str, fragment: str) -> None:
+        """03 section 4: the other speaker's line is finalised first; text is the whole line."""
+        other = "agent" if role == "visitor" else "visitor"
+        await self._flush_transcript(other)
+        self.transcripts[role] += fragment
+        await self._emit_transcript(role, self.transcripts[role], False)
+
+    # --------------------------------------------------------------- lifecycle
 
     async def _start(self):
         client = genai.Client(api_key=config.GEMINI_API_KEY)
@@ -63,7 +158,7 @@ class LiveSession:
             ),
             timeout=config.CONNECT_TIMEOUT_S,
         )
-        await self._send_state("listening")
+        await self._send_state("LISTENING")
         await self.session.send_realtime_input(
             text=(
                 prompts.GREETING_PRESENCE
@@ -105,8 +200,32 @@ class LiveSession:
             message = "I couldn't reach my brain in time. Please try again."
         else:
             message = "Something went wrong. Please try again."
-        await self._send_state("error")
-        await self._send_control(schemas.ControlMessage(type="error", message=message))
+        await self._send_state("NEEDS_HELP")
+        await self._send_control(
+            {"type": "error", "message": message, "recoverable": True}
+        )
+
+    async def stop(self):
+        for task in self.tasks:
+            if not task.done():
+                task.cancel()
+        if self.tasks:
+            await asyncio.gather(*self.tasks, return_exceptions=True)
+        if self.stack is not None:
+            try:
+                await self.stack.aclose()
+            except Exception:
+                log.exception("failed to close Gemini Live session")
+            self.stack = None
+        self.ctx["awaiting_confirmation"] = False
+        await self._send_state("IDLE")
+        self.closed = True
+        try:
+            await self.ws.close()
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------ uplink
 
     async def _uplink(self):
         while not self.closed:
@@ -153,6 +272,7 @@ class LiveSession:
                 await self.session.send_realtime_input(
                     video=types.Blob(data=image_bytes, mime_type="image/jpeg")
                 )
+                await self._send_state("SEEING")
                 await self.session.send_realtime_input(text=prompts.VISION_PROMPT)
             elif message_type == "text_input":
                 try:
@@ -162,12 +282,13 @@ class LiveSession:
                     continue
                 text = text_message.text.strip()[:config.MAX_TEXT_INPUT_CHARS]
                 if text:
-                    if self.awaiting_confirmation:
-                        self.awaiting_confirmation = False
-                        await self._send_state("listening")
+                    await self._flush_transcript("agent")
+                    await self._emit_transcript("visitor", text, True)
                     await self.session.send_realtime_input(text=text)
             else:
                 log.warning("ignored unknown browser message type: %s", message_type)
+
+    # ---------------------------------------------------------------- downlink
 
     async def _downlink(self):
         while True:
@@ -182,100 +303,86 @@ class LiveSession:
         server_content = message.server_content
         if server_content is not None:
             if server_content.interrupted:
-                await self._send_control(
-                    schemas.ControlMessage(type="interrupted")
-                )
-                self.first_audio_sent = False
-                await self._send_state("listening")
+                await self._send_control({"type": "interrupted"})
+                await self._end_of_turn()
 
             if server_content.model_turn:
                 for part in server_content.model_turn.parts or []:
                     if part.inline_data and part.inline_data.data:
                         if not self.first_audio_sent:
                             self.first_audio_sent = True
-                            await self._send_state("speaking")
+                            await self._maybe_send_state(self._first_audio_state())
                         await self.ws.send_bytes(part.inline_data.data)
 
             if (
                 server_content.input_transcription
                 and server_content.input_transcription.text
             ):
-                await self._send_control(
-                    schemas.ControlMessage(
-                        type="transcript",
-                        role="user",
-                        text=server_content.input_transcription.text,
-                    )
+                await self._on_transcript_fragment(
+                    "visitor", server_content.input_transcription.text
                 )
-                if self.awaiting_confirmation:
-                    self.awaiting_confirmation = False
-                    await self._send_state("listening")
 
             if (
                 server_content.output_transcription
                 and server_content.output_transcription.text
             ):
-                await self._send_control(
-                    schemas.ControlMessage(
-                        type="transcript",
-                        role="agent",
-                        text=server_content.output_transcription.text,
-                    )
+                await self._on_transcript_fragment(
+                    "agent", server_content.output_transcription.text
                 )
 
             if server_content.turn_complete:
-                self.first_audio_sent = False
-                await self._send_state(
-                    "waiting_confirmation" if self.awaiting_confirmation else "listening"
-                )
+                self.greeted = True
+                await self._end_of_turn()
 
         if message.tool_call:
             await self._handle_tool_call(message.tool_call)
         if message.tool_call_cancellation:
             log.info("Live API cancelled a tool call")
 
+    async def _end_of_turn(self) -> None:
+        """16 section 2a item 6 and 07 section 2 rule 1."""
+        await self._flush_transcripts()
+        pending = self.ctx["pending_order_id"]
+        if pending:
+            order = await asyncio.to_thread(data.get_order, pending)
+            if order is None or order["status"] != "PENDING_CONFIRMATION":
+                self.ctx["pending_order_id"] = None
+        await self._send_state(self.resting_state())
+        self.first_audio_sent = False
+        self.recommended_this_turn = False
+
+    # -------------------------------------------------------------- tool calls
+
     async def _handle_tool_call(self, tool_call):
         function_responses = []
         for function_call in tool_call.function_calls:
             args = function_call.args or {}
-            if function_call.name == "signal_confirmation_request":
-                self.awaiting_confirmation = True
-                await self._send_state("waiting_confirmation")
+            name = function_call.name
+            if name == "signal_confirmation_request":
+                # A pure UI signal: no state message, no activity, no logging.
+                self.ctx["awaiting_confirmation"] = True
                 result = tools.signal_confirmation_request(**args)
             else:
-                await self._send_state("thinking")
-                await self._send_control(
-                    schemas.ControlMessage(
-                        type="tool_event",
-                        tool=function_call.name,
-                        status="running",
-                        summary=summaries.summarize_running(function_call.name, args),
-                        source=summaries.default_source(function_call.name),
-                    )
-                )
-                result = await self._run_tool(function_call.name, args)
-                await self._send_control(
-                    schemas.ControlMessage(
-                        type="tool_event",
-                        tool=function_call.name,
-                        status="done",
-                        summary=summaries.summarize_done(
-                            function_call.name,
-                            args,
-                            result,
-                        ),
-                        source=result.get(
-                            "source",
-                            summaries.default_source(function_call.name),
-                        ),
-                    )
-                )
-            if function_call.name == "create_complaint" and "error" not in result:
-                self.awaiting_confirmation = False
+                if name == "recommend_item":
+                    self.recommended_this_turn = True
+                await self._maybe_send_state(TOOL_STATES.get(name, "THINKING"))
+                result = await self._run_tool(name, args)
+                if "error" not in result:
+                    if name == "build_order":
+                        self.ctx["awaiting_confirmation"] = False
+                        await self._send_state("TAKING_ORDER")
+                    elif name in ("confirm_order", "cancel_order", "report_feedback"):
+                        self.ctx["awaiting_confirmation"] = False
+            log.info(
+                "tool %s session %s error=%s",
+                name,
+                self.ctx["session_id"],
+                "true" if "error" in result else "false",
+            )
             function_responses.append(
                 types.FunctionResponse(
                     id=function_call.id,
-                    name=function_call.name,
+                    name=name,
                     response=result,
                 )
             )
@@ -285,52 +392,22 @@ class LiveSession:
     async def _run_tool(self, name, args):
         function = tools.TOOL_FUNCTIONS.get(name)
         if function is None:
-            return {"error": f"Unknown tool: {name}", "source": "demo"}
-        try:
-            result = await asyncio.wait_for(
-                asyncio.to_thread(function, **(args or {})),
-                timeout=config.TOOL_TIMEOUT_S,
-            )
-        except asyncio.TimeoutError:
-            result = {"error": "That took too long."}
-        except Exception:
-            log.exception("tool failed: %s", name)
-            result = {"error": "That didn't work."}
-        result.setdefault("source", summaries.default_source(name))
-        return result
-
-    async def _send_control(self, message: schemas.ControlMessage):
-        if self.closed:
-            return
-        try:
-            await self.ws.send_text(message.model_dump_json(exclude_none=True))
-        except Exception:
-            self.closed = True
-            for task in self.tasks:
-                if not task.done():
-                    task.cancel()
-
-    async def _send_state(self, value: str):
-        if value != self.last_state:
-            await self._send_control(
-                schemas.ControlMessage(type="state", value=value)
-            )
-            self.last_state = value
-
-    async def stop(self):
-        for task in self.tasks:
-            if not task.done():
-                task.cancel()
-        if self.tasks:
-            await asyncio.gather(*self.tasks, return_exceptions=True)
-        if self.stack is not None:
+            result = {"error": f"Unknown tool: {name}"}
+        else:
             try:
-                await self.stack.aclose()
+                tools.SESSION_CTX.set(self.ctx)
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(function, **(args or {})),
+                    timeout=config.TOOL_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                result = {"error": "That took too long."}
             except Exception:
-                log.exception("failed to close Gemini Live session")
-            self.stack = None
-        self.closed = True
-        try:
-            await self.ws.close()
-        except Exception:
-            pass
+                log.exception("tool failed: %s", name)
+                result = {"error": "That didn't work."}
+        if name not in UNSOURCED_TOOLS:
+            result.setdefault(
+                "source",
+                "web" if name == "web_search" else "menu" if name in MENU_TOOLS else "order",
+            )
+        return result

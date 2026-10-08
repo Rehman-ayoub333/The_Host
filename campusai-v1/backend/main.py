@@ -1,15 +1,15 @@
+import json
 import logging
 import sqlite3
 from contextlib import asynccontextmanager, closing
 from time import monotonic
-from uuid import uuid4
 
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 
 import config
 import data
-import schemas
+import event_bus
 from live_session import LiveSession
 
 
@@ -69,17 +69,23 @@ async def websocket_session(websocket: WebSocket):
         trigger = "button"
     if ACTIVE is not None:
         await websocket.send_text(
-            schemas.ControlMessage(
-                type="error",
-                message="Another conversation is already active.",
-            ).model_dump_json(exclude_none=True)
+            json.dumps(
+                event_bus.stamp(
+                    {
+                        "type": "error",
+                        "message": "Another conversation is already active.",
+                        "recoverable": True,
+                        "session_id": None,
+                    }
+                )
+            )
         )
         await websocket.close()
         return
 
-    session_id = uuid4().hex[:8]
     session = LiveSession(websocket, trigger)
     ACTIVE = session
+    session_id = session.ctx["session_id"]
     started_at = monotonic()
     log.info("session %s started trigger=%s", session_id, trigger)
     try:
