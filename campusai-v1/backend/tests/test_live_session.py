@@ -522,9 +522,10 @@ def test_interrupted_flushes_the_buffers_and_returns_to_the_resting_state():
         "agent_state_changed",
     ]
     assert states(ws) == ["LISTENING", "GREETING", "LISTENING"]
+    # 16 section 2a item 16: a cut-off agent line is marked with an ellipsis.
     assert transcripts(ws) == [
         {"role": "agent", "text": "Let me just", "final": False},
-        {"role": "agent", "text": "Let me just", "final": True},
+        {"role": "agent", "text": "Let me just …", "final": True},
     ]
     assert session.transcripts == {"visitor": "", "agent": ""}
     validate(ws)
@@ -561,7 +562,7 @@ def test_interrupted_during_an_order_rests_in_taking_order():
     )
 
     assert states(ws) == ["LISTENING", "THINKING", "TAKING_ORDER"]
-    assert transcripts(ws)[-1] == {"role": "agent", "text": "So that's", "final": True}
+    assert transcripts(ws)[-1] == {"role": "agent", "text": "So that's …", "final": True}
     assert session.ctx["pending_order_id"] is not None
     validate(ws)
 
@@ -778,6 +779,152 @@ def test_the_audio_socket_never_carries_a_fifth_event_type():
 
 
 # -------------------------------------------------------------------- (j) stop
+
+
+def test_a_pending_draft_is_cancelled_when_the_session_ends():
+    """16 section 2a item 17."""
+    session, ws = listening()
+    feed(session, [message(tool_call=call("build_order", {"items": [BURGER]}))])
+    order_id = session.ctx["pending_order_id"]
+    event_bus.PUBLISHED.clear()
+
+    asyncio.run(session.stop())
+
+    row = order_row(order_id)
+    print("order row after the session ended:", row)
+    assert row["status"] == "CANCELLED"
+    assert row["cancel_reason"] == "session_ended"
+    assert session.ctx["pending_order_id"] is None
+
+    updates = [event for event in event_bus.PUBLISHED if event["type"] == "order_updated"]
+    print("order_updated published:", updates)
+    assert len(updates) == 1
+    assert updates[0]["order"]["id"] == order_id
+    assert updates[0]["order"]["status"] == "CANCELLED"
+    assert updates[0]["session_id"] == session.ctx["session_id"]
+    assert states(ws)[-1] == "IDLE"
+
+
+def test_a_confirmed_order_survives_the_session_ending():
+    session, ws = listening()
+    feed(session, [message(tool_call=call("build_order", {"items": [BURGER]}))])
+    order_id = session.ctx["pending_order_id"]
+    feed(session, [message(tool_call=call("confirm_order", {"order_id": order_id}))])
+
+    asyncio.run(session.stop())
+
+    assert order_row(order_id)["status"] == "CONFIRMED"
+
+
+def test_a_session_start_logs_its_row_and_activity(monkeypatch):
+    live_api = FakeLiveApiSession()
+
+    class FakeConnect:
+        async def __aenter__(self):
+            return live_api
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeLive:
+        def connect(self, **kwargs):
+            return FakeConnect()
+
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "live_session.genai.Client",
+        lambda **kwargs: SimpleNamespace(aio=SimpleNamespace(live=FakeLive())),
+    )
+    session, ws = new_session()
+
+    async def go():
+        await session._start()
+        for task in session.tasks:
+            task.cancel()
+        await asyncio.gather(*session.tasks, return_exceptions=True)
+
+    asyncio.run(go())
+
+    with closing(sqlite3.connect(config.DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT event_type, detail FROM system_events ORDER BY id"
+            ).fetchall()
+        ]
+    print("system_events rows:", rows)
+    started = [row for row in rows if row["event_type"] == "session_started"]
+    assert len(started) == 1
+    assert json.loads(started[0]["detail"]) == {"session_id": session.ctx["session_id"]}
+
+    activity = [event for event in event_bus.PUBLISHED if event["type"] == "agent_activity"]
+    print("activity published:", activity)
+    assert activity[0]["label"] == "Conversation started"
+    assert activity[0]["kind"] == "system"
+    assert activity[0]["session_id"] == session.ctx["session_id"]
+
+
+def test_a_finished_turn_publishes_the_responding_activity():
+    session, ws = listening()
+
+    feed(
+        session,
+        [
+            message(content(agent="Of course, one Club Sandwich coming up")),
+            message(content(turn_complete=True)),
+        ],
+    )
+
+    activity = [event for event in event_bus.PUBLISHED if event["type"] == "agent_activity"]
+    print("activity published:", activity)
+    assert len(activity) == 1
+    assert activity[0]["kind"] == "speech"
+    assert activity[0]["label"] == "Responding"
+    assert activity[0]["detail"] == "Of course, one Club Sandwich coming up"
+
+
+def test_an_interrupted_turn_publishes_no_responding_activity():
+    session, ws = listening()
+
+    feed(
+        session,
+        [
+            message(content(agent="Of course, one Club")),
+            message(content(interrupted=True)),
+        ],
+    )
+
+    activity = [event for event in event_bus.PUBLISHED if event["type"] == "agent_activity"]
+    assert activity == []
+    assert transcripts(ws)[-1]["text"] == "Of course, one Club …"
+
+
+def test_a_tool_call_publishes_its_activity():
+    session, ws = listening()
+
+    feed(session, [message(tool_call=call("build_order", {"items": [BURGER]}))])
+    order_id = session.ctx["pending_order_id"]
+    feed(session, [message(tool_call=call("confirm_order", {"order_id": order_id}))])
+
+    activity = [
+        (event["kind"], event["label"], event["detail"])
+        for event in event_bus.PUBLISHED
+        if event["type"] == "agent_activity"
+    ]
+    print("activity published:", activity)
+    assert activity == [
+        ("order", f"Order draft #{order_id} prepared", None),
+        ("order", f"Order #{order_id} created", "Chicken Burger"),
+    ]
+
+
+def test_signal_confirmation_request_publishes_no_activity():
+    session, ws = listening()
+
+    feed(session, [message(tool_call=call("signal_confirmation_request", {"summary": "ok?"}))])
+
+    assert [event for event in event_bus.PUBLISHED if event["type"] == "agent_activity"] == []
 
 
 def test_stop_sends_idle_and_clears_the_confirmation_flag():

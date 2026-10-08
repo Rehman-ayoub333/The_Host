@@ -14,8 +14,10 @@ from pydantic import ValidationError
 import config
 import data
 import event_bus
+import health
 import prompts
 import schemas
+import summaries
 import tools
 
 
@@ -39,6 +41,16 @@ TOOL_STATES = {
 # 16 section 2a item 11: the source tag a tool result falls back to.
 MENU_TOOLS = ("check_item_availability", "get_business_info")
 UNSOURCED_TOOLS = ("recommend_item", "signal_confirmation_request")
+
+
+def failure_message(exc: Exception) -> str:
+    """The honest, human-readable message for a failure (03 section 4, messages unchanged)."""
+    lowered = str(exc).lower()
+    if "429" in lowered or "resource_exhausted" in lowered or "quota" in lowered:
+        return "The AI service is busy right now. Please try again in a minute."
+    if isinstance(exc, asyncio.TimeoutError):
+        return "I couldn't reach my brain in time. Please try again."
+    return "Something went wrong. Please try again."
 
 
 def build_live_config(now: datetime) -> types.LiveConnectConfig:
@@ -126,16 +138,18 @@ class LiveSession:
             {"type": "speech_transcript", "role": role, "text": text, "final": final}
         )
 
-    async def _flush_transcript(self, role: str) -> None:
+    async def _flush_transcript(self, role: str, suffix: str = "") -> None:
         text = self.transcripts[role]
         if not text:
             return
         self.transcripts[role] = ""
-        await self._emit_transcript(role, text, True)
+        await self._emit_transcript(role, text + suffix, True)
 
-    async def _flush_transcripts(self) -> None:
-        for role in ("visitor", "agent"):
-            await self._flush_transcript(role)
+    async def _flush_transcripts(self, interrupted: bool = False) -> None:
+        await self._flush_transcript("visitor")
+        # 16 section 2a item 16: the transcription runs ahead of the audio the
+        # guest actually heard, so a cut-off agent line is marked with an ellipsis.
+        await self._flush_transcript("agent", " …" if interrupted else "")
 
     async def _on_transcript_fragment(self, role: str, fragment: str) -> None:
         """03 section 4: the other speaker's line is finalised first; text is the whole line."""
@@ -149,16 +163,30 @@ class LiveSession:
     async def _start(self):
         client = genai.Client(api_key=config.GEMINI_API_KEY)
         self.stack = contextlib.AsyncExitStack()
-        self.session = await asyncio.wait_for(
-            self.stack.enter_async_context(
-                client.aio.live.connect(
-                    model=config.GEMINI_LIVE_MODEL,
-                    config=build_live_config(datetime.now()),
-                )
-            ),
-            timeout=config.CONNECT_TIMEOUT_S,
-        )
+        try:
+            self.session = await asyncio.wait_for(
+                self.stack.enter_async_context(
+                    client.aio.live.connect(
+                        model=config.GEMINI_LIVE_MODEL,
+                        config=build_live_config(datetime.now()),
+                    )
+                ),
+                timeout=config.CONNECT_TIMEOUT_S,
+            )
+        except Exception as exc:
+            health.connect_failed(failure_message(exc))
+            raise
+        health.connect_ok()
         await self._send_state("LISTENING")
+        await asyncio.to_thread(
+            data.log_system_event,
+            "session_started",
+            "system",
+            {"session_id": self.ctx["session_id"]},
+        )
+        summaries.emit_activity(
+            "system", "Conversation started", None, self.ctx["session_id"]
+        )
         await self.session.send_realtime_input(
             text=(
                 prompts.GREETING_PRESENCE
@@ -198,17 +226,35 @@ class LiveSession:
             error_text = error_text.replace(config.GEMINI_API_KEY, "[REDACTED]")
         log.error("Live session failed: %s: %s", type(exc).__name__, error_text)
 
-        lowered = str(exc).lower()
-        if "429" in lowered or "resource_exhausted" in lowered or "quota" in lowered:
-            message = "The AI service is busy right now. Please try again in a minute."
-        elif isinstance(exc, asyncio.TimeoutError):
-            message = "I couldn't reach my brain in time. Please try again."
-        else:
-            message = "Something went wrong. Please try again."
+        message = failure_message(exc)
         await self._send_state("NEEDS_HELP")
         await self._send_control(
             {"type": "error", "message": message, "recoverable": True}
         )
+
+    async def _cancel_pending_draft(self) -> None:
+        """16 section 2a item 17: an unconfirmed draft dies with the session."""
+        pending = self.ctx.get("pending_order_id")
+        if not pending:
+            return
+        try:
+            order = await asyncio.to_thread(data.get_order, pending)
+            if order is not None and order["status"] == "PENDING_CONFIRMATION":
+                result = await asyncio.to_thread(
+                    data.update_order_status, pending, "CANCELLED", "session_ended"
+                )
+                if result["ok"]:
+                    event_bus.publish(
+                        {
+                            "type": "order_updated",
+                            "order": data.order_view(result["order"]),
+                            "session_id": self.ctx["session_id"],
+                        }
+                    )
+        except Exception:
+            log.exception("could not cancel the pending draft at session end")
+        finally:
+            self.ctx["pending_order_id"] = None
 
     async def stop(self):
         for task in self.tasks:
@@ -222,6 +268,7 @@ class LiveSession:
             except Exception:
                 log.exception("failed to close Gemini Live session")
             self.stack = None
+        await self._cancel_pending_draft()
         self.ctx["awaiting_confirmation"] = False
         await self._send_state("IDLE")
         self.closed = True
@@ -317,7 +364,7 @@ class LiveSession:
             if server_content.interrupted:
                 log.info("interrupted session %s", self.ctx["session_id"])
                 await self._send_control({"type": "interrupted"})
-                await self._end_of_turn()
+                await self._end_of_turn(interrupted=True)
 
             if server_content.model_turn:
                 for part in server_content.model_turn.parts or []:
@@ -351,12 +398,20 @@ class LiveSession:
         if message.tool_call_cancellation:
             log.info("Live API cancelled a tool call")
 
-    async def _end_of_turn(self) -> None:
+    async def _end_of_turn(self, interrupted: bool = False) -> None:
         """16 section 2a item 6 and 07 section 2 rule 1."""
         # The opening greeting is over at the first turn_complete OR interrupted
         # (16 section 2a item 5), so a greeting talked over is not greeted again.
         self.greeted = True
-        await self._flush_transcripts()
+        spoken = self.transcripts["agent"]
+        await self._flush_transcripts(interrupted=interrupted)
+        if spoken and not interrupted:
+            summaries.emit_activity(
+                "speech",
+                "Responding",
+                spoken[:summaries.MAX_DETAIL_SPEECH],
+                self.ctx["session_id"],
+            )
         pending = self.ctx["pending_order_id"]
         if pending:
             order = await asyncio.to_thread(data.get_order, pending)
@@ -394,6 +449,7 @@ class LiveSession:
                 self.ctx["session_id"],
                 "true" if "error" in result else "false",
             )
+            summaries.emit_tool_activity(name, args, result, self.ctx["session_id"])
             function_responses.append(
                 types.FunctionResponse(
                     id=function_call.id,

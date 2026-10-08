@@ -412,7 +412,7 @@ def test_signal_confirmation_request_is_a_pure_signal(ctx, monkeypatch):
     result = tools.signal_confirmation_request("Confirm one chicken burger.")
     assert result == {"acknowledged": True}
     assert "source" not in result
-    assert event_bus.PUBLISHED == []
+    assert list(event_bus.PUBLISHED) == []
 
 
 def test_tools_never_touch_awaiting_confirmation(ctx):
