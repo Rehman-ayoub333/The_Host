@@ -304,6 +304,15 @@ def test_attach_guest_name_only_fills_unnamed_live_orders():
     assert data.attach_guest_name(None, "Sara") == []
 
 
+def test_find_orders_for_includes_a_flagged_order():
+    flagged = _draft([BURGER], guest_name="Ahmed", session_id="s-flagged")["order_id"]
+    data.update_order_status(flagged, "CONFIRMED")
+    data.update_order_status(flagged, "REQUIRES_ATTENTION")
+
+    assert [o["id"] for o in data.find_orders_for("s-flagged", None)] == [flagged]
+    assert [o["id"] for o in data.find_orders_for(None, "ahmed")] == [flagged]
+
+
 def test_find_orders_for_matches_session_or_name_newest_first():
     older = _draft([BURGER], guest_name="Ahmed", session_id="s-old")["order_id"]
     data.update_order_status(older, "CONFIRMED")
@@ -329,6 +338,16 @@ def test_list_orders_scopes_and_counts():
     assert [o["id"] for o in data.list_orders("completed")["orders"]] == [done]
     assert data.list_orders("all")["counts"] == {"active": 1, "completed": 1, "all": 3}
     assert len(data.list_orders("all", limit=2)["orders"]) == 2
+
+
+def test_list_orders_counts_a_flagged_order_as_active():
+    flagged = _draft([BURGER], session_id="s-flag")["order_id"]
+    data.update_order_status(flagged, "CONFIRMED")
+    data.update_order_status(flagged, "REQUIRES_ATTENTION")
+
+    assert [o["id"] for o in data.list_orders("active")["orders"]] == [flagged]
+    assert data.list_orders("all")["counts"] == {"active": 1, "completed": 0, "all": 1}
+    assert data.list_orders("completed")["orders"] == []
 
 
 def test_feedback_is_stored_with_only_a_real_rating():

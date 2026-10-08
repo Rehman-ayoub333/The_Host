@@ -12,7 +12,9 @@ import event_bus
 
 log = logging.getLogger(__name__)
 
-ACTIVE_STATUSES = ("CONFIRMED", "PREPARING", "READY")
+# A REQUIRES_ATTENTION order still needs the operator, so it counts as active
+# everywhere (03 section 8, 15 section 4).
+ACTIVE_STATUSES = ("CONFIRMED", "PREPARING", "READY", "REQUIRES_ATTENTION")
 COMPLETED_STATUSES = ("COLLECTED", "CANCELLED", "FAILED")
 CONFIRMED_OR_LATER = ("CONFIRMED", "PREPARING", "READY", "COLLECTED")
 FINAL_STATUSES = ("COLLECTED", "CANCELLED", "FAILED")

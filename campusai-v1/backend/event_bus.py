@@ -25,7 +25,11 @@ def stamp(event: dict) -> dict:
 
 
 def publish(event: dict) -> None:
-    PUBLISHED.append(stamp(event))
+    # Stamp only when the event has no id yet (03 section 2), so an event already
+    # stamped by live_session._send_control keeps the same event_id on both paths.
+    if "event_id" not in event:
+        stamp(event)
+    PUBLISHED.append(event)
 
 
 def publish_threadsafe(event: dict) -> None:
