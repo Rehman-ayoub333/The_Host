@@ -1,26 +1,45 @@
-import asyncio
-import sqlite3
+import pytest
+from fastapi.testclient import TestClient
 
-import httpx
-
+import config
+import data
 import main
 
 
-def test_records_failure_returns_http_error(monkeypatch):
-    def fail_to_read_records(limit):
-        raise sqlite3.OperationalError("database unavailable")
+def test_health_reports_the_menu_row_count(monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
 
-    monkeypatch.setattr(main.data, "get_recent_log", fail_to_read_records)
+    with TestClient(main.app) as client:
+        response = client.get("/health")
 
-    async def get_records():
-        transport = httpx.ASGITransport(app=main.app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://test",
-        ) as client:
-            return await client.get("/api/records")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "model": config.GEMINI_LIVE_MODEL,
+        "menu_items": 5,
+        "db": "ok",
+    }
 
-    response = asyncio.run(get_records())
 
-    assert response.status_code == 503
-    assert response.json() == {"detail": "Recent records are unavailable."}
+def test_startup_refuses_to_open_with_an_empty_menu(monkeypatch, tmp_path):
+    empty_menu = tmp_path / "empty_menu.json"
+    empty_menu.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "MENU_JSON_PATH", empty_menu)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "empty.db")
+
+    with pytest.raises(RuntimeError, match="The menu is empty"):
+        with TestClient(main.app):
+            pass
+
+
+def test_the_retired_records_endpoint_is_gone(monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/records")
+
+    # The static frontend mount answers unknown paths, so the point is only that
+    # no records payload is served any more.
+    assert "records" not in response.text
+    assert not hasattr(data, "get_recent_log")

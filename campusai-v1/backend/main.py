@@ -4,13 +4,12 @@ from contextlib import asynccontextmanager, closing
 from time import monotonic
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket
+from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 
 import config
 import data
 import schemas
-import summaries
 from live_session import LiveSession
 
 
@@ -29,13 +28,13 @@ async def lifespan(app: FastAPI):
             "GEMINI_API_KEY is not set. Copy .env.example to .env and add your key."
         )
     data.init_db()
-    timetable_rows = data.load_timetable()
-    app.state.timetable_rows = timetable_rows
+    menu_items = data.load_menu()
+    app.state.menu_items = menu_items
     log.info(
-        "model=%s voice=%s timetable_rows=%s db=%s",
+        "model=%s voice=%s menu_items=%s db=%s",
         config.GEMINI_LIVE_MODEL,
         config.GEMINI_VOICE,
-        timetable_rows,
+        menu_items,
         config.DB_PATH,
     )
     yield
@@ -55,36 +54,9 @@ def health():
     return {
         "status": "ok",
         "model": config.GEMINI_LIVE_MODEL,
-        "timetable_rows": getattr(app.state, "timetable_rows", 0),
+        "menu_items": getattr(app.state, "menu_items", 0),
         "db": db_status,
     }
-
-
-@app.get("/api/records")
-def records(limit: int = Query(default=config.RECORDS_DEFAULT_LIMIT)):
-    limit = max(1, min(config.RECORDS_MAX_LIMIT, limit))
-    try:
-        rows = data.get_recent_log(limit)
-        result = []
-        for row in rows:
-            tool = row["tool"]
-            input_args = row["input_args"]
-            tool_result = row["result"]
-            result.append(
-                {
-                    "timestamp": row["timestamp"],
-                    "tool": tool,
-                    "summary": summaries.summarize_done(tool, input_args, tool_result),
-                    "source": tool_result.get("source", summaries.default_source(tool)),
-                }
-            )
-        return {"records": result}
-    except Exception as exc:
-        log.warning("failed to load recent records: %s", type(exc).__name__)
-        raise HTTPException(
-            status_code=503,
-            detail="Recent records are unavailable.",
-        ) from exc
 
 
 @app.websocket("/ws/session")

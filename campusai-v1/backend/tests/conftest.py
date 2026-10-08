@@ -4,37 +4,56 @@ import pytest
 
 import config
 import data
+import event_bus
+import tools
+
+
+# Mirrors backend/data/menu.json and backend/data/business_info.json (15 sections 2 and 2a)
+# so the tests exercise the same items the stall actually starts with.
+MENU_SEED = [
+    {"name": "Chicken Burger", "category": "Mains", "price": "Rs. 650", "description": "Crispy chicken, signature sauce, freshly assembled.", "image_url": "/menu/chicken-burger.jpg", "available": True, "prep_seconds": 300},
+    {"name": "Club Sandwich", "category": "Mains", "price": "Rs. 550", "description": "Triple-layered, grilled, served with fries.", "image_url": "/menu/club-sandwich.jpg", "available": True, "prep_seconds": 240},
+    {"name": "Patty Burger", "category": "Mains", "price": "Rs. 500", "description": "Classic beef patty, fresh-baked bun.", "image_url": "/menu/patty-burger.jpg", "available": True, "prep_seconds": 300},
+    {"name": "Blue Lemonade", "category": "Drinks", "price": "Rs. 250", "description": "Butterfly-pea lemonade, lightly sweet.", "image_url": "/menu/blue-lemonade.jpg", "available": True, "prep_seconds": 60},
+    {"name": "Mixed Fruit Shake", "category": "Drinks", "price": "Rs. 350", "description": "Seasonal fruit, blended fresh.", "image_url": "/menu/fruit-shake.jpg", "available": True, "prep_seconds": 120},
+]
+
+BUSINESS_INFO_SEED = [
+    {"topic": "hours", "answer": "We're open for the full duration of the gala."},
+    {"topic": "stall", "answer": "Bite & Pour serves fresh burgers, sandwiches, and cold drinks, made to order."},
+]
+
+
+@pytest.fixture(autouse=True)
+def fresh_backend(tmp_path, monkeypatch):
+    """Every test gets its own database and seed files, and an empty event bus."""
+    menu_path = tmp_path / "menu.json"
+    business_info_path = tmp_path / "business_info.json"
+    menu_path.write_text(json.dumps(MENU_SEED), encoding="utf-8")
+    business_info_path.write_text(json.dumps(BUSINESS_INFO_SEED), encoding="utf-8")
+    monkeypatch.setattr(config, "MENU_JSON_PATH", menu_path)
+    monkeypatch.setattr(config, "BUSINESS_INFO_JSON_PATH", business_info_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "campus_ai.db")
+    event_bus.PUBLISHED.clear()
+    data.init_db()
+    yield
+    event_bus.PUBLISHED.clear()
 
 
 @pytest.fixture
-def campus_data(tmp_path, monkeypatch):
-    timetable_path = tmp_path / "timetable.json"
-    demo_path = tmp_path / "demo_data.json"
-    db_path = tmp_path / "campus_ai.db"
-    timetable_path.write_text(
-        json.dumps(
-            [
-                {"course": "Data Structures", "teacher": "Dr. Ahmed", "day": "Monday", "start_time": "10:00", "end_time": "11:00", "room": "Lab 1", "section": "BSCS-6A"},
-                {"course": "Operating Systems", "teacher": "Dr. Bilal", "day": "Monday", "start_time": "11:00", "end_time": "12:00", "room": "Lab 3", "section": "BSCS-6A"},
-                {"course": "Database Systems", "teacher": "Ms. Sadia", "day": "Monday", "start_time": "14:00", "end_time": "15:00", "room": "Lab 3", "section": "BSCS-6B"},
-                {"course": "Web Engineering", "teacher": "Dr. Farah", "day": "Wednesday", "start_time": "11:00", "end_time": "12:00", "room": "Lab 2", "section": "BSCS-6B"},
-            ]
-        ),
-        encoding="utf-8",
-    )
-    demo_path.write_text(
-        json.dumps(
-            [
-                {"room": "Lab 1", "day": "Monday", "time": "15:00", "available": False, "note": "reserved for a demo event"},
-                {"room": "Seminar A", "day": "Tuesday", "time": "14:00", "available": False, "note": "reserved for a demo event"},
-            ]
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(config, "TIMETABLE_JSON_PATH", timetable_path)
-    monkeypatch.setattr(config, "DEMO_DATA_JSON_PATH", demo_path)
-    monkeypatch.setattr(config, "DB_PATH", db_path)
-    data.TIMETABLE = []
-    data.init_db()
-    assert data.load_timetable() == 4
+def host_data():
     return data
+
+
+@pytest.fixture
+def ctx():
+    """A session context of this test's own, as 09 section 1 requires."""
+    own = {
+        "session_id": "a1b2c3d4",
+        "visitor_name": None,
+        "pending_order_id": None,
+        "awaiting_confirmation": False,
+    }
+    token = tools.SESSION_CTX.set(own)
+    yield own
+    tools.SESSION_CTX.reset(token)

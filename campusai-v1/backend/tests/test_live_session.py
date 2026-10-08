@@ -60,15 +60,15 @@ def test_typed_confirmation_resets_waiting_state():
 def test_tool_timeout_returns_error_and_keeps_source(monkeypatch):
     def slow_tool(**kwargs):
         time.sleep(0.05)
-        return {"source": "real"}
+        return {"source": "web"}
 
     monkeypatch.setattr(config, "TOOL_TIMEOUT_S", 0.01)
-    monkeypatch.setitem(tools.TOOL_FUNCTIONS, "query_timetable", slow_tool)
+    monkeypatch.setitem(tools.TOOL_FUNCTIONS, "web_search", slow_tool)
     live_session = LiveSession(FakeWebSocket([]), "button")
 
-    result = asyncio.run(live_session._run_tool("query_timetable", {}))
+    result = asyncio.run(live_session._run_tool("web_search", {}))
 
-    assert result == {"error": "That took too long.", "source": "real"}
+    assert result == {"error": "That took too long.", "source": "web"}
 
 
 def test_confirmation_request_sets_waiting_state():
