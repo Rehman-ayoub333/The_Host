@@ -179,6 +179,11 @@ class LiveSession:
                 return_when=asyncio.FIRST_COMPLETED,
             )
             for task in done:
+                # A cancelled uplink/downlink is a normal end (16 section 2a item 14):
+                # never let its CancelledError surface as an ASGI traceback. A
+                # cancellation of run() itself still propagates.
+                if task.cancelled():
+                    continue
                 task.result()
         except WebSocketDisconnect:
             pass
@@ -269,6 +274,7 @@ class LiveSession:
                 except (ValueError, TypeError):
                     log.warning("ignored invalid vision_frame encoding")
                     continue
+                log.info("vision_frame session %s", self.ctx["session_id"])
                 await self.session.send_realtime_input(
                     video=types.Blob(data=image_bytes, mime_type="image/jpeg")
                 )
@@ -282,6 +288,9 @@ class LiveSession:
                     continue
                 text = text_message.text.strip()[:config.MAX_TEXT_INPUT_CHARS]
                 if text:
+                    log.info(
+                        "text_input session %s chars=%s", self.ctx["session_id"], len(text)
+                    )
                     # Both buffers close first, agent then visitor, so a partial
                     # spoken line is never overwritten by the typed one.
                     await self._flush_transcript("agent")
@@ -306,6 +315,7 @@ class LiveSession:
         server_content = message.server_content
         if server_content is not None:
             if server_content.interrupted:
+                log.info("interrupted session %s", self.ctx["session_id"])
                 await self._send_control({"type": "interrupted"})
                 await self._end_of_turn()
 

@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 import sqlite3
 import time
 from contextlib import closing
@@ -600,6 +601,81 @@ def test_a_connect_timeout_gives_needs_help_then_a_recoverable_error(monkeypatch
     assert ws.sent[1]["recoverable"] is True
     assert ws.sent[1]["session_id"] == session.ctx["session_id"]
     validate(ws)
+
+
+def test_a_cancelled_task_ends_run_without_raising(monkeypatch):
+    """16 section 2a item 14: a cancelled uplink/downlink is a normal end."""
+    live_api = FakeLiveApiSession()
+
+    class FakeConnect:
+        async def __aenter__(self):
+            return live_api
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeLive:
+        def connect(self, **kwargs):
+            return FakeConnect()
+
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "live_session.genai.Client",
+        lambda **kwargs: SimpleNamespace(aio=SimpleNamespace(live=FakeLive())),
+    )
+    session, ws = new_session()
+
+    async def self_cancelling_downlink():
+        asyncio.current_task().cancel()
+        await asyncio.sleep(0)
+
+    async def never_ending_uplink():
+        await asyncio.Event().wait()
+
+    session._downlink = self_cancelling_downlink
+    session._uplink = never_ending_uplink
+
+    # Must complete: no CancelledError may escape to the caller (uvicorn).
+    asyncio.run(session.run())
+
+    assert states(ws) == ["LISTENING", "IDLE"]
+    assert session.ctx["awaiting_confirmation"] is False
+    assert ws.closed is True
+    validate(ws)
+
+
+def test_the_evidence_log_lines_never_carry_the_text(caplog):
+    """16 section 2a item 15."""
+    image = base64.b64encode(b"fake-jpeg-bytes").decode()
+    session, ws = listening(
+        [
+            {
+                "type": "websocket.receive",
+                "text": json.dumps({"type": "vision_frame", "image_base64": image}),
+            },
+            {
+                "type": "websocket.receive",
+                "text": json.dumps({"type": "text_input", "text": "two burgers please"}),
+            },
+            {"type": "websocket.disconnect"},
+        ]
+    )
+    session_id = session.ctx["session_id"]
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        feed(session, [message(content(interrupted=True))])
+        asyncio.run(session._uplink())
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert f"interrupted session {session_id}" in messages
+    assert f"vision_frame session {session_id}" in messages
+    assert f"text_input session {session_id} chars=18" in messages
+
+    joined = "\n".join(messages)
+    assert "two burgers please" not in joined
+    assert "burger" not in joined
+    assert image not in joined
+    assert "fake-jpeg" not in joined
 
 
 def test_a_second_session_is_refused_with_the_new_error_shape(monkeypatch):
