@@ -100,6 +100,73 @@ def test_the_label_table_for_every_tool():
         assert actual == expected
 
 
+def test_the_error_label_table_for_every_tool():
+    """03 section 4, the "A tool returns an error" row."""
+    cases = [
+        ("check_item_availability", {"kind": "order", "label": "Menu check failed"}),
+        ("build_order", {"kind": "order", "label": "Order could not be prepared"}),
+        ("confirm_order", {"kind": "order", "label": "Order could not be confirmed"}),
+        ("cancel_order", {"kind": "order", "label": "Order could not be cancelled"}),
+        ("get_order_status", {"kind": "order", "label": "Order status check failed"}),
+        ("report_feedback", {"kind": "order", "label": "Feedback could not be logged"}),
+        ("remember_visitor", {"kind": "visitor", "label": "Visitor could not be noted"}),
+        ("get_business_info", {"kind": "system", "label": "Stall information check failed"}),
+        ("web_search", {"kind": "system", "label": "Online lookup failed"}),
+        ("request_operator_help", {"kind": "operator", "label": "Help request failed"}),
+    ]
+    for name, expected in cases:
+        actual = summaries.activity_for_tool(name, {}, {"error": "something went wrong"})
+        print(f"{name:26} error -> {actual}")
+        assert actual == {**expected, "detail": None}
+
+
+def test_an_erroring_tool_keeps_the_kind_of_its_success_row():
+    for name, result in (
+        ("check_item_availability", {"source": "menu", "total": 1, "items": []}),
+        ("build_order", {"order_id": 27, "status": "PENDING_CONFIRMATION"}),
+        ("confirm_order", {"order_id": 27, "status": "CONFIRMED", "items": []}),
+        ("cancel_order", {"order_id": 27, "status": "CANCELLED"}),
+        ("get_order_status", {"found": False, "orders": []}),
+        ("report_feedback", {"feedback_id": 3, "subject": "chicken burger"}),
+        ("remember_visitor", {"returning": False, "name": "Sara", "visits": 1}),
+        ("get_business_info", {"found": True, "answers": []}),
+        ("web_search", {"found": True, "summary": "..."}),
+        ("request_operator_help", {"acknowledged": True, "reason": "wants a refund"}),
+    ):
+        ok = summaries.activity_for_tool(name, {}, result)
+        failed = summaries.activity_for_tool(name, {}, {"error": "x"})
+        print(f"{name:26} kind ok={ok['kind']!r} error={failed['kind']!r}")
+        assert failed["kind"] == ok["kind"]
+
+
+def test_the_two_tools_whose_errors_produce_no_row():
+    for name in ("recommend_item", "signal_confirmation_request"):
+        actual = summaries.activity_for_tool(name, {}, {"error": "something went wrong"})
+        print(f"{name:26} error -> {actual}")
+        assert actual is None
+
+
+def test_emit_tool_activity_publishes_an_error_row():
+    entry = summaries.emit_tool_activity("web_search", {}, {"error": "offline"}, "a1b2c3d4")
+    assert entry == {"kind": "system", "label": "Online lookup failed", "detail": None}
+
+    event = event_bus.PUBLISHED[-1]
+    print("published event:", event)
+    assert event["type"] == "agent_activity"
+    assert event["label"] == "Online lookup failed"
+    assert event["session_id"] == "a1b2c3d4"
+    assert json.loads(activity_rows()[-1]["detail"]) == {
+        "kind": "system",
+        "label": "Online lookup failed",
+        "detail": None,
+    }
+
+
+def test_emit_tool_activity_publishes_nothing_for_a_recommend_item_error():
+    assert summaries.emit_tool_activity("recommend_item", {}, {"error": "no such item"}) is None
+    assert list(event_bus.PUBLISHED) == []
+
+
 def test_signal_confirmation_request_produces_no_activity():
     assert summaries.activity_for_tool("signal_confirmation_request", {"summary": "x"}, {}) is None
 

@@ -12,6 +12,22 @@ import event_bus
 MAX_DETAIL_REASON = 80
 MAX_DETAIL_SPEECH = 120
 
+# "A tool returns an error" (03 section 4): the same kind as the tool's success
+# row, the label below, and no detail. A tool absent from this table gets no row
+# when it errors -- recommend_item and signal_confirmation_request by design.
+ERROR_ROWS = {
+    "check_item_availability": ("order", "Menu check failed"),
+    "build_order": ("order", "Order could not be prepared"),
+    "confirm_order": ("order", "Order could not be confirmed"),
+    "cancel_order": ("order", "Order could not be cancelled"),
+    "get_order_status": ("order", "Order status check failed"),
+    "report_feedback": ("order", "Feedback could not be logged"),
+    "remember_visitor": ("visitor", "Visitor could not be noted"),
+    "get_business_info": ("system", "Stall information check failed"),
+    "web_search": ("system", "Online lookup failed"),
+    "request_operator_help": ("operator", "Help request failed"),
+}
+
 
 def _order_id(args, result):
     for source in (result, args):
@@ -38,12 +54,14 @@ def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
     if name == "signal_confirmation_request":
         return None
 
+    if failed:
+        row = ERROR_ROWS.get(name)
+        return None if row is None else {"kind": row[0], "label": row[1], "detail": None}
+
     if name == "check_item_availability":
-        return None if failed else {"kind": "order", "label": "Checked menu", "detail": None}
+        return {"kind": "order", "label": "Checked menu", "detail": None}
 
     if name == "build_order":
-        if failed:
-            return {"kind": "order", "label": "Order could not be prepared", "detail": None}
         return {
             "kind": "order",
             "label": f"Order draft #{_order_id(args, result)} prepared",
@@ -51,8 +69,6 @@ def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
         }
 
     if name == "confirm_order":
-        if failed:
-            return {"kind": "order", "label": "Order could not be confirmed", "detail": None}
         return {
             "kind": "order",
             "label": f"Order #{_order_id(args, result)} created",
@@ -60,19 +76,13 @@ def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
         }
 
     if name == "cancel_order":
-        return (
-            None
-            if failed
-            else {
-                "kind": "order",
-                "label": f"Order #{_order_id(args, result)} cancelled",
-                "detail": None,
-            }
-        )
+        return {
+            "kind": "order",
+            "label": f"Order #{_order_id(args, result)} cancelled",
+            "detail": None,
+        }
 
     if name == "get_order_status":
-        if failed:
-            return None
         orders = result.get("orders") or []
         label = (
             f"Order #{orders[0]['order_id']} checked"
@@ -82,15 +92,9 @@ def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
         return {"kind": "order", "label": label, "detail": None}
 
     if name == "report_feedback":
-        return (
-            None
-            if failed
-            else {"kind": "order", "label": "Feedback logged", "detail": result.get("subject")}
-        )
+        return {"kind": "order", "label": "Feedback logged", "detail": result.get("subject")}
 
     if name == "remember_visitor":
-        if failed:
-            return None
         if result.get("returning"):
             return {
                 "kind": "visitor",
@@ -100,22 +104,12 @@ def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
         return {"kind": "visitor", "label": "New visitor noted", "detail": result.get("name")}
 
     if name == "get_business_info":
-        return (
-            None
-            if failed
-            else {"kind": "system", "label": "Checked stall information", "detail": None}
-        )
+        return {"kind": "system", "label": "Checked stall information", "detail": None}
 
     if name == "web_search":
-        return (
-            None
-            if failed
-            else {"kind": "system", "label": "Looked something up online", "detail": None}
-        )
+        return {"kind": "system", "label": "Looked something up online", "detail": None}
 
     if name == "recommend_item":
-        if "error" in result:
-            return None
         return {
             "kind": "speech",
             "label": f"Recommended: {result.get('item')}",
@@ -123,8 +117,6 @@ def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
         }
 
     if name == "request_operator_help":
-        if failed:
-            return None
         reason = str(result.get("reason") or args.get("reason") or "")[:MAX_DETAIL_REASON]
         return {"kind": "operator", "label": "Operator help requested", "detail": reason or None}
 
