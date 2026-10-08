@@ -1,88 +1,154 @@
-DEFAULT_SOURCE = {
-    "query_timetable": "real",
-    "check_room_availability": "real",
-    "create_complaint": "demo",
-    "get_complaint_status": "demo",
-    "list_recent_complaints": "demo",
-    "web_search": "web",
-}
+"""Activity feed labels: the only way tool and system activity reaches a frontend.
+
+`activity_for_tool` maps a finished tool call onto the fixed label table in
+03 section 4. `emit_activity` is the single helper that both logs the row to
+`system_events` and publishes the `agent_activity` event (16 section 2b item 7).
+"""
+
+import data
+import event_bus
 
 
-def default_source(tool) -> str:
-    return DEFAULT_SOURCE.get(tool, "demo")
+MAX_DETAIL_REASON = 80
+MAX_DETAIL_SPEECH = 120
 
 
-def summarize_running(tool, args) -> str:
-    if tool == "query_timetable":
-        return "Searching the timetable…"
-    if tool == "check_room_availability":
-        parts = []
-        if args.get("room"):
-            parts.append(str(args["room"]))
-        if args.get("day"):
-            parts.append(f"on {args['day']}" if parts else str(args["day"]))
-        if args.get("time"):
-            parts.append(f"at {args['time']}")
-        return f"Checking {' '.join(parts)}…"
-    if tool == "create_complaint":
-        return "Logging your complaint…"
-    if tool == "get_complaint_status":
-        return f"Looking up ticket #{args.get('ticket_number')}…"
-    if tool == "list_recent_complaints":
-        return "Fetching recent complaints…"
-    if tool == "web_search":
-        return "Looking that up online…"
-    return "Working…"
+def _order_id(args, result):
+    for source in (result, args):
+        if isinstance(source, dict) and source.get("order_id") is not None:
+            return source["order_id"]
+    return None
 
 
-def summarize_done(tool, args, result) -> str:
-    if result.get("error"):
-        failures = {
-            "query_timetable": "Timetable search failed",
-            "check_room_availability": "Couldn't check that room",
-            "create_complaint": "Couldn't log the complaint",
-            "get_complaint_status": "Couldn't look up that ticket",
-            "list_recent_complaints": "Couldn't fetch complaints",
-            "web_search": "Web lookup failed",
+def _item_names(items) -> str | None:
+    names = [
+        str((entry or {}).get("name"))
+        for entry in items or []
+        if (entry or {}).get("name")
+    ]
+    return ", ".join(names) or None
+
+
+def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
+    """The 03 section 4 table. None when the table defines no row."""
+    args = args or {}
+    result = result or {}
+    failed = "error" in result
+
+    if name == "signal_confirmation_request":
+        return None
+
+    if name == "check_item_availability":
+        return None if failed else {"kind": "order", "label": "Checked menu", "detail": None}
+
+    if name == "build_order":
+        if failed:
+            return {"kind": "order", "label": "Order could not be prepared", "detail": None}
+        return {
+            "kind": "order",
+            "label": f"Order draft #{_order_id(args, result)} prepared",
+            "detail": None,
         }
-        return failures.get(tool, "Failed")
 
-    if tool == "query_timetable":
-        total = result.get("total", 0)
-        if total == 0:
-            return "No matching classes"
-        if total == 1:
-            return "1 matching class"
-        return f"{total} matching classes"
-    if tool == "check_room_availability":
-        room = result.get("room", args.get("room"))
-        if not result.get("known_room"):
-            return f"{room} isn't in the timetable"
-        day = result.get("day", args.get("day"))
-        time = result.get("time", args.get("time"))
-        if result.get("available"):
-            return f"{room} is free — {day} {time}"
-        summary = f"{room} is booked — {day} {time}"
-        class_entry = result.get("class")
-        if class_entry and class_entry.get("course"):
-            return f"{summary} ({class_entry['course']})"
-        if result.get("source") == "demo" and result.get("reason"):
-            return f"{summary} (demo: {result['reason']})"
-        return summary
-    if tool == "create_complaint":
-        return f"Ticket #{result.get('ticket_number')} logged — {result.get('issue')} ({result.get('room')})"
-    if tool == "get_complaint_status":
-        number = result.get("ticket_number", args.get("ticket_number"))
-        if result.get("found"):
-            record = result.get("record") or {}
-            return f"Ticket #{number}: {record.get('status')} — {record.get('issue')}"
-        return f"Ticket #{number} not found"
-    if tool == "list_recent_complaints":
-        total = result.get("total", 0)
-        if total == 0:
-            return "No complaints logged yet"
-        noun = "complaint" if total == 1 else "complaints"
-        return f"{total} recent {noun}"
-    if tool == "web_search":
-        return "Found an answer online" if result.get("found") else "Nothing found online"
-    return "Done"
+    if name == "confirm_order":
+        if failed:
+            return {"kind": "order", "label": "Order could not be confirmed", "detail": None}
+        return {
+            "kind": "order",
+            "label": f"Order #{_order_id(args, result)} created",
+            "detail": _item_names(result.get("items")),
+        }
+
+    if name == "cancel_order":
+        return (
+            None
+            if failed
+            else {
+                "kind": "order",
+                "label": f"Order #{_order_id(args, result)} cancelled",
+                "detail": None,
+            }
+        )
+
+    if name == "get_order_status":
+        if failed:
+            return None
+        orders = result.get("orders") or []
+        label = (
+            f"Order #{orders[0]['order_id']} checked"
+            if len(orders) == 1
+            else "Order status checked"
+        )
+        return {"kind": "order", "label": label, "detail": None}
+
+    if name == "report_feedback":
+        return (
+            None
+            if failed
+            else {"kind": "order", "label": "Feedback logged", "detail": result.get("subject")}
+        )
+
+    if name == "remember_visitor":
+        if failed:
+            return None
+        if result.get("returning"):
+            return {
+                "kind": "visitor",
+                "label": "Visitor identified",
+                "detail": f"{result.get('name')} · visit {result.get('visits')}",
+            }
+        return {"kind": "visitor", "label": "New visitor noted", "detail": result.get("name")}
+
+    if name == "get_business_info":
+        return (
+            None
+            if failed
+            else {"kind": "system", "label": "Checked stall information", "detail": None}
+        )
+
+    if name == "web_search":
+        return (
+            None
+            if failed
+            else {"kind": "system", "label": "Looked something up online", "detail": None}
+        )
+
+    if name == "recommend_item":
+        if "error" in result:
+            return None
+        return {
+            "kind": "speech",
+            "label": f"Recommended: {result.get('item')}",
+            "detail": None,
+        }
+
+    if name == "request_operator_help":
+        if failed:
+            return None
+        reason = str(result.get("reason") or args.get("reason") or "")[:MAX_DETAIL_REASON]
+        return {"kind": "operator", "label": "Operator help requested", "detail": reason or None}
+
+    return None
+
+
+def emit_activity(kind: str, label: str, detail=None, session_id=None) -> None:
+    """Write the system_events row and publish the agent_activity event."""
+    data.log_system_event(
+        "agent_activity", "system", {"kind": kind, "label": label, "detail": detail}
+    )
+    event_bus.publish_threadsafe(
+        {
+            "type": "agent_activity",
+            "kind": kind,
+            "label": label,
+            "detail": detail,
+            "session_id": session_id,
+        }
+    )
+
+
+def emit_tool_activity(name: str, args: dict, result: dict, session_id=None) -> dict | None:
+    entry = activity_for_tool(name, args, result)
+    if entry is not None:
+        emit_activity(entry["kind"], entry["label"], entry["detail"], session_id)
+    return entry

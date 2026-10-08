@@ -5,6 +5,7 @@ import pytest
 import config
 import data
 import event_bus
+import health
 import tools
 
 
@@ -35,9 +36,15 @@ def fresh_backend(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BUSINESS_INFO_JSON_PATH", business_info_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "campus_ai.db")
     event_bus.PUBLISHED.clear()
+    event_bus._sockets.clear()
+    event_bus.set_loop(None)
+    health._mode = "ONLINE"
     data.init_db()
     yield
     event_bus.PUBLISHED.clear()
+    event_bus._sockets.clear()
+    event_bus.set_loop(None)
+    health._mode = "ONLINE"
 
 
 @pytest.fixture
