@@ -1,0 +1,7 @@
+[
+  {"name": "Chicken Burger", "category": "Mains", "price": "Rs. 650", "description": "Crispy chicken, signature sauce, freshly assembled.", "image_url": "/menu/chicken-burger.jpg", "available": true, "prep_seconds": 300},
+  {"name": "Club Sandwich", "category": "Mains", "price": "Rs. 550", "description": "Triple-layered, grilled, served with fries.", "image_url": "/menu/club-sandwich.jpg", "available": true, "prep_seconds": 240},
+  {"name": "Patty Burger", "category": "Mains", "price": "Rs. 500", "description": "Classic beef patty, fresh-baked bun.", "image_url": "/menu/patty-burger.jpg", "available": true, "prep_seconds": 300},
+  {"name": "Blue Lemonade", "category": "Drinks", "price": "Rs. 250", "description": "Butterfly-pea lemonade, lightly sweet.", "image_url": "/menu/blue-lemonade.jpg", "available": true, "prep_seconds": 60},
+  {"name": "Mixed Fruit Shake", "category": "Drinks", "price": "Rs. 350", "description": "Seasonal fruit, blended fresh.", "image_url": "/menu/fruit-shake.jpg", "available": true, "prep_seconds": 120}
+]
