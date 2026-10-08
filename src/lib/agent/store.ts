@@ -1,134 +1,181 @@
 import { useSyncExternalStore } from "react";
-import { sampleData } from "./sample";
-import type { Activity, ActivityKind, AgentEvent, AgentSnapshot, LocalAction } from "./types";
+import type { Activity, ActivityKind, AgentEvent, AgentSnapshot, AgentStateName, BackendState, LocalAction } from "./types";
 
 export const initialSnapshot: AgentSnapshot = {
   mode: "live",
   connection: "unconfigured",
   state: "offline",
-  detail: null,
+  lastAgentState: null,
+  opMode: null,
   caption: null,
   transcript: [],
-  frameUrl: null,
-  detections: [],
-  focusVisitorId: null,
+  present: false,
+  people: 0,
+  objects: [],
+  focus: null,
   visitors: [],
   orders: [],
   memory: [],
   activity: [],
-  system: { camera: "unknown", microphone: "unknown", speaker: "unknown", agent: "unknown", internet: "unknown" },
+  analytics: null,
+  menu: [],
+  recommendation: null,
+  orderReady: null,
+  system: {
+    backend: "unknown",
+    ai_agent: "unknown",
+    database: "unknown",
+    web_search: "unknown",
+    camera: "unknown",
+    microphone: "unknown",
+    speaker: "unknown",
+    internet: "unknown",
+  },
   lastError: null,
+  tokenError: null,
   demoStep: null,
-  sample: false,
   updatedAt: 0,
 };
 
 let seq = 0;
 const uid = () => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
-function log(s: AgentSnapshot, kind: ActivityKind, title: string, detail?: string): Activity[] {
-  return [{ id: uid(), kind, title, detail, ts: Date.now() }, ...s.activity].slice(0, 80);
+function log(s: AgentSnapshot, kind: ActivityKind, label: string, detail?: string): Activity[] {
+  return [{ id: uid(), kind, label, detail, ts: Date.now() }, ...s.activity].slice(0, 80);
 }
+
+/** Map a backend state to one of the nine visual states. */
+export function mapState(state: BackendState): AgentStateName {
+  switch (state) {
+    case "IDLE":
+      return "idle";
+    case "SEEING":
+      return "seeing";
+    case "LISTENING":
+      return "listening";
+    case "THINKING":
+      return "thinking";
+    case "SPEAKING":
+    case "GREETING":
+    case "RECOMMENDING":
+      return "speaking";
+    case "TAKING_ORDER":
+      return "taking_order";
+    case "ANNOUNCING":
+      return "order_ready";
+    case "REMEMBERING":
+      return "remembering";
+    case "NEEDS_HELP":
+      return "needs_help";
+  }
+}
+
+const ACTIVE_ORDER: Order["status"][] = ["CONFIRMED", "PREPARING", "READY", "REQUIRES_ATTENTION"];
 
 export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnapshot {
   const now = Date.now();
   const n = (patch: Partial<AgentSnapshot>): AgentSnapshot => ({ ...s, ...patch, updatedAt: now });
 
   switch (e.type) {
-    case "@connection": {
-      if (e.connection === "connected" && s.sample)
-        return { ...initialSnapshot, connection: "connected", state: "idle", sample: false, updatedAt: now };
-      const next = n({
-        connection: e.connection,
-        state: e.connection === "connected" ? (s.state === "offline" ? "idle" : s.state) : s.mode === "demo" ? s.state : "offline",
-      });
-      if (e.connection !== "connected" && next.mode === "live" && !next.sample) return { ...next, ...sampleData(now), sample: true };
-      return next;
-    }
+    case "@connection":
+      return n({ connection: e.connection, state: e.connection === "live" ? (s.state === "offline" ? "idle" : s.state) : s.mode === "demo" ? s.state : "offline" });
     case "@mode":
-      if (e.mode === "live" && s.connection !== "connected") return { ...n({ mode: "live" }), ...sampleData(now), sample: true };
-      return n({ mode: e.mode, sample: e.mode === "demo" ? false : s.sample });
+      return n({ mode: e.mode });
     case "@demo_step":
       return n({ demoStep: e.step });
     case "@hydrate":
       return n(e.snapshot);
-    case "@reset": {
-      const base = { ...initialSnapshot, connection: s.connection, state: s.connection === "connected" ? ("idle" as const) : ("offline" as const), updatedAt: now };
-      return s.connection === "connected" ? base : { ...base, ...sampleData(now), sample: true };
-    }
+    case "@menu":
+      return n({ menu: e.menu });
+    case "@analytics":
+      return n({ analytics: e.analytics });
+    case "@token_error":
+      return n({ tokenError: e.message });
+    case "@reset":
+      return { ...initialSnapshot, connection: s.connection, state: s.connection === "live" ? "idle" : "offline", updatedAt: now };
 
+    case "state_snapshot":
+      return n({
+        state: mapState(e.conversation_state),
+        lastAgentState: e.conversation_state,
+        opMode: { mode: e.operational_mode },
+        present: e.present,
+        orders: e.active_orders ?? [],
+      });
     case "agent_state_changed":
-      return n({ state: e.state, detail: e.detail ?? null });
-    case "vision_update":
-      return n({ frameUrl: e.frameUrl === undefined ? s.frameUrl : e.frameUrl, detections: e.detections });
-    case "person_detected":
+      return n({ state: mapState(e.state), lastAgentState: e.state });
+    case "order_ready":
       return n({
-        state: "person_detected",
-        detail: null,
-        activity: log(s, "vision", "Person detected", e.detection ? `${Math.round(e.detection.confidence * 100)}% confidence` : undefined),
+        orderReady: { order_id: e.order_id, customer_name: e.customer_name, until: now + 8000 },
+        activity: log(s, "order", `Order #${e.order_id} ready`, e.customer_name ?? undefined),
       });
-    case "person_recognized": {
-      const others = s.visitors.filter((v) => v.id !== e.visitor.id);
-      return n({
-        state: "remembering",
-        detail: null,
-        focusVisitorId: e.visitor.id,
-        visitors: [e.visitor, ...others],
-        activity: log(s, "memory", "Visitor recognized", `${e.visitor.name} · visit ${e.visitor.visits}`),
-      });
-    }
-    case "speech_started":
-      return n({ state: "listening", detail: null, caption: null, activity: log(s, "audio", "Speech detected") });
+    case "operational_mode_changed":
+      return n({ opMode: { mode: e.mode, reason: e.reason }, activity: log(s, "system", `Mode: ${e.mode}`, e.reason) });
     case "speech_transcript": {
-      const caption = { speaker: "visitor" as const, text: e.text };
-      if (!e.final) return n({ caption });
+      const speaker = e.role === "agent" ? ("host" as const) : ("visitor" as const);
+      const caption = { speaker, text: e.text };
+      const last = s.transcript[s.transcript.length - 1];
+      let transcript: AgentSnapshot["transcript"];
+      if (last && last.speaker === speaker && !last.final) {
+        transcript = [...s.transcript.slice(0, -1), { ...last, text: e.text, final: !!e.final, ts: now }];
+      } else {
+        transcript = [...s.transcript, { id: uid(), speaker, text: e.text, final: !!e.final, ts: now }];
+      }
+      return n({ caption, transcript: transcript.slice(-40) });
+    }
+    case "order_created": {
+      const faint = e.order.status === "PENDING_CONFIRMATION";
       return n({
-        caption,
-        transcript: [...s.transcript, { id: uid(), speaker: "visitor" as const, text: e.text, ts: now }].slice(-40),
-        activity: log(s, "audio", "Transcript received", `“${e.text}”`),
+        orders: [e.order, ...s.orders.filter((o) => o.id !== e.order.id)],
+        activity: faint ? s.activity : log(s, "order", `Order #${e.order.id} created`, e.order.items.map((i) => i.name).join(" · ")),
       });
     }
-    case "agent_thinking":
-      return n({ state: "thinking", detail: e.detail ?? null, activity: log(s, "reasoning", "Reasoning", e.detail) });
-    case "agent_speaking":
-      return n({
-        state: "speaking",
-        detail: null,
-        caption: { speaker: "nexa", text: e.text },
-        transcript: [...s.transcript, { id: uid(), speaker: "nexa" as const, text: e.text, ts: now }].slice(-40),
-        activity: log(s, "voice", "Responding", `“${e.text}”`),
-      });
-    case "agent_speech_finished":
-      return n({ state: s.detections.length ? "engaging" : "idle" });
-    case "order_created":
-      return n({
-        state: "order_confirmed",
-        orders: [e.order, ...s.orders.filter((o) => o.id !== e.order.id)],
-        activity: log(s, "order", `Order #${e.order.number} created`, e.order.items.map((i) => i.name).join(" · ")),
-      });
     case "order_updated": {
       const orders = s.orders.map((o) => (o.id === e.order.id ? { ...o, ...e.order } : o));
       const o = orders.find((x) => x.id === e.order.id);
-      return n({ orders, activity: log(s, "order", `Order #${o?.number ?? "?"} updated`, e.order.status) });
+      return n({ orders, activity: log(s, "order", `Order #${e.order.id} updated`, o?.status) });
     }
-    case "order_ready": {
-      const orders = s.orders.map((o) => (o.id === e.id ? { ...o, status: "ready" as const } : o));
-      const o = orders.find((x) => x.id === e.id);
-      return n({ state: "order_ready", orders, activity: log(s, "order", `Order #${o?.number ?? "?"} ready`) });
-    }
-    case "memory_updated":
+    case "visitor_identified":
       return n({
-        memory: [e.entry, ...s.memory.filter((m) => m.id !== e.entry.id)].slice(0, 100),
-        activity: log(s, "memory", "Memory updated", `${e.entry.visitorName}: ${e.entry.text}`),
+        focus: { name: e.name, returning: e.returning, visits: e.visits, favorite_item: e.favorite_item, last_order: e.last_order },
+        activity: log(s, "visitor", "Visitor identified", e.name),
       });
+    case "memory_updated": {
+      const entry = { id: `m-${e.name}`, name: e.name, visits: e.visits, favorite_item: e.favorite_item, last_order: e.last_order, last_seen: e.last_seen, returning: e.returning };
+      const visitors = [
+        { name_key: e.name.toLowerCase(), name: e.name, visits: e.visits, favorite_item: e.favorite_item, last_order: e.last_order, last_seen: e.last_seen, returning: e.returning },
+        ...s.visitors.filter((v) => v.name !== e.name),
+      ];
+      return n({
+        memory: [entry, ...s.memory.filter((m) => m.name !== e.name)].slice(0, 100),
+        visitors,
+        activity: log(s, "memory", "Memory updated", e.name),
+      });
+    }
+    case "recommendation":
+      return n({ recommendation: { item: e.item, reason: e.reason, until: now + 10_000 }, activity: log(s, "speech", "Recommendation", `${e.item} — ${e.reason}`) });
+    case "menu_updated":
+      return n({ menu: s.menu.map((m) => (m.name === e.item ? { ...m, available: e.available } : m)) });
+    case "person_detected":
+      return n({ present: true, activity: log(s, "visitor", "Visitor detected") });
+    case "person_left":
+      return n({ present: false, focus: null, activity: log(s, "visitor", "Visitor left") });
+    case "vision_update":
+      return n({ present: e.present, people: e.people, objects: e.objects });
     case "system_status_changed":
-      return n({ system: { ...s.system, [e.component]: e.status }, activity: log(s, "system", `${e.component} ${e.status}`) });
+      return n({ system: { ...s.system, [e.component]: e.status }, activity: log(s, "system", `${e.component} ${e.status}`, e.detail) });
+    case "agent_activity":
+      return n({ activity: log(s, e.kind, e.label, e.detail) });
+    case "interrupted":
+      return s;
     case "error":
-      return n({ state: "error", lastError: e.message, activity: log(s, "error", "Error", e.message) });
+      return n({ lastError: e.message, activity: log(s, "system", "Error", e.message) });
+    case "heartbeat":
+      return s;
   }
 }
 
-/* ---------------- store + cross-window sync ---------------- */
+/* ---------------- store + demo-only cross-window sync ---------------- */
 
 let snap = initialSnapshot;
 const listeners = new Set<() => void>();
@@ -145,20 +192,21 @@ export const agentStore = {
   dispatch(e: AgentEvent | LocalAction) {
     snap = reduce(snap, e);
     emit();
-    channel?.postMessage({ kind: "snapshot", snap });
+    // BroadcastChannel carries Demo Mode only — never live data.
+    if (snap.mode === "demo") channel?.postMessage({ kind: "snapshot", snap });
   },
 };
 
-/** Keeps the dashboard and the SMD display window in lock-step. */
-export function initCrossWindowSync() {
+/** Demo Mode sync between the operator window and the SMD display window. */
+export function initDemoSync() {
   if (typeof window === "undefined" || channel || !("BroadcastChannel" in window)) return;
-  channel = new BroadcastChannel("nexa-agent");
+  channel = new BroadcastChannel("thehost-demo");
   channel.onmessage = (ev: MessageEvent) => {
     const msg = ev.data as { kind: string; snap?: AgentSnapshot };
-    if (msg.kind === "snapshot" && msg.snap && msg.snap.updatedAt > snap.updatedAt) {
+    if (msg.kind === "snapshot" && msg.snap && msg.snap.mode === "demo" && msg.snap.updatedAt > snap.updatedAt) {
       snap = msg.snap;
       emit();
-    } else if (msg.kind === "hello" && snap.updatedAt > 0) {
+    } else if (msg.kind === "hello" && snap.mode === "demo" && snap.updatedAt > 0) {
       channel?.postMessage({ kind: "snapshot", snap });
     }
   };
@@ -172,3 +220,5 @@ export function useAgent<T>(selector: (s: AgentSnapshot) => T): T {
     () => selector(initialSnapshot),
   );
 }
+
+export { ACTIVE_ORDER };
