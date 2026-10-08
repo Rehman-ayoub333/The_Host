@@ -17,6 +17,7 @@ def test_health_reports_the_menu_row_count(monkeypatch):
         "status": "ok",
         "model": config.GEMINI_LIVE_MODEL,
         "menu_items": 5,
+        "operational_mode": "ONLINE",
         "db": "ok",
     }
 
