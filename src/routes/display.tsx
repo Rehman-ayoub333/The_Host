@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Maximize, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AIOrb } from "@/components/nexa/AIOrb";
-import { BrandMark } from "@/components/nexa/Brand";
-import { VoiceWaveform } from "@/components/nexa/VoiceWaveform";
-import { MenuCarousel } from "@/components/nexa/MenuCarousel";
+import { AIOrb } from "@/components/host/AIOrb";
+import { BrandMark } from "@/components/host/Brand";
+import { VoiceWaveform } from "@/components/host/VoiceWaveform";
+import { MenuCarousel } from "@/components/host/MenuCarousel";
 import { useAgent } from "@/lib/agent/store";
 import { STATE_META, fmtAgo, fmtCountdown, useNow } from "@/lib/agent/ui";
 import { cn } from "@/lib/utils";

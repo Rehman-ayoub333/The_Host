@@ -1,112 +1,158 @@
 /**
- * Contract between the THE HOST frontend and the external agent.
- * The backend emits AgentEvents; the frontend never reasons on its own.
+ * Contract between the THE HOST frontend and the real backend.
+ * The backend emits AgentEvents over /ws/events; the frontend never
+ * reasons on its own and never invents data the backend did not send.
  */
 
+/** States the backend reports (uppercase, as sent). */
+export type BackendState =
+  | "IDLE"
+  | "GREETING"
+  | "SEEING"
+  | "LISTENING"
+  | "THINKING"
+  | "SPEAKING"
+  | "RECOMMENDING"
+  | "TAKING_ORDER"
+  | "ANNOUNCING"
+  | "REMEMBERING"
+  | "NEEDS_HELP";
+
+/** The nine visual states the UI renders (plus offline). */
 export type AgentStateName =
   | "idle"
   | "seeing"
-  | "person_detected"
   | "listening"
   | "thinking"
   | "speaking"
   | "taking_order"
-  | "order_confirmed"
-  | "order_preparing"
   | "order_ready"
   | "remembering"
-  | "welcoming"
-  | "engaging"
-  | "multitasking"
-  | "error"
+  | "needs_help"
   | "offline";
 
-export type ConnectionStatus = "unconfigured" | "connecting" | "connected" | "disconnected";
+export type OperationalMode = "ONLINE" | "DEGRADED" | "RECOVERING" | "OFFLINE" | "PAUSED" | "OPERATOR_TAKEOVER";
+
+export type ConnectionStatus = "unconfigured" | "connecting" | "live" | "reconnecting" | "token_error";
 export type DataMode = "live" | "demo";
 
-export type SystemComponent = "camera" | "microphone" | "speaker" | "agent" | "internet";
+export type BackendComponent = "backend" | "ai_agent" | "database" | "web_search";
+export type BrowserComponent = "camera" | "microphone" | "speaker" | "internet";
+export type SystemComponent = BackendComponent | BrowserComponent;
 export type ComponentStatus = "online" | "degraded" | "offline" | "unknown";
 
-export interface Detection {
-  id: string;
+export interface DetectedObject {
   label: string;
   confidence: number; // 0..1
-  /** normalised [x, y, w, h] in 0..1 */
-  box: [number, number, number, number];
-  visitorId?: string;
-}
-
-export interface Visitor {
-  id: string;
-  name: string;
-  visits: number;
-  lastVisit: number; // epoch ms
-  returning: boolean;
-  favorite?: string;
-  lastOrder?: string;
 }
 
 export interface OrderItem {
   name: string;
-  qty: number;
+  quantity: number;
+  price?: number;
 }
 
-export type OrderStatus = "confirming" | "preparing" | "ready" | "completed" | "cancelled";
+export type OrderStatus =
+  | "PENDING_CONFIRMATION"
+  | "CONFIRMED"
+  | "PREPARING"
+  | "READY"
+  | "COLLECTED"
+  | "CANCELLED"
+  | "FAILED"
+  | "REQUIRES_ATTENTION";
 
 export interface Order {
   id: string;
-  number: string;
-  customerName?: string;
-  visitorId?: string;
   items: OrderItem[];
   status: OrderStatus;
-  createdAt: number;
-  /** epoch ms supplied by backend — never invented by the UI */
-  readyAt?: number;
-  prepSeconds?: number;
+  guest_name?: string | null;
+  total?: number | null;
+  timestamp?: number;
+  estimated_ready_at?: number | null;
+  ready_at?: number | null;
+}
+
+export interface Visitor {
+  name_key?: string;
+  name: string;
+  visits: number;
+  favorite_item?: string | null;
+  last_order?: string | null;
+  first_seen?: number;
+  last_seen?: number;
+  returning: boolean;
 }
 
 export interface MemoryEntry {
   id: string;
-  visitorId: string;
-  visitorName: string;
-  text: string;
-  ts: number;
+  name: string;
+  visits: number;
+  favorite_item?: string | null;
+  last_order?: string | null;
+  last_seen?: number;
+  returning: boolean;
 }
 
 export interface TranscriptLine {
   id: string;
-  speaker: "visitor" | "nexa";
+  speaker: "visitor" | "host";
   text: string;
+  final: boolean;
   ts: number;
 }
 
-export type ActivityKind = "vision" | "audio" | "reasoning" | "voice" | "order" | "memory" | "system" | "error";
+export type ActivityKind = "speech" | "order" | "memory" | "visitor" | "vision" | "system" | "operator";
 
 export interface Activity {
   id: string;
   kind: ActivityKind;
-  title: string;
+  label: string;
   detail?: string | undefined;
   ts: number;
 }
 
+export interface Analytics {
+  date: string;
+  orders: number;
+  interactions: number;
+  named_visitors: number;
+  returning_visitors: number;
+  popular_items: { name: string; percent: number }[];
+  average_order_to_ready_seconds?: number | null;
+}
+
+export interface MenuItem {
+  name: string;
+  category: string;
+  price: string | number;
+  description?: string;
+  image_url?: string | null;
+  available: boolean;
+  prep_seconds?: number | null;
+}
+
+/** Events the backend sends over /ws/events (exact shapes). */
 export type AgentEvent =
-  | { type: "agent_state_changed"; state: AgentStateName; detail?: string }
-  | { type: "vision_update"; frameUrl?: string | null; detections: Detection[] }
-  | { type: "person_detected"; detection?: Detection }
-  | { type: "person_recognized"; visitor: Visitor }
-  | { type: "speech_started" }
-  | { type: "speech_transcript"; text: string; final?: boolean }
-  | { type: "agent_thinking"; detail?: string }
-  | { type: "agent_speaking"; text: string }
-  | { type: "agent_speech_finished" }
-  | { type: "order_created"; order: Order }
-  | { type: "order_updated"; order: Partial<Order> & { id: string } }
-  | { type: "order_ready"; id: string }
-  | { type: "memory_updated"; entry: MemoryEntry }
-  | { type: "system_status_changed"; component: SystemComponent; status: ComponentStatus }
-  | { type: "error"; message: string };
+  | { type: "state_snapshot"; event_id?: number; boot_id: string; operational_mode: OperationalMode; conversation_state: BackendState; session_id: string; present: boolean; active_orders: Order[] }
+  | { type: "agent_state_changed"; event_id?: number; state: BackendState }
+  | { type: "order_ready"; event_id?: number; order_id: string; customer_name?: string | null }
+  | { type: "operational_mode_changed"; event_id?: number; mode: OperationalMode; reason?: string }
+  | { type: "speech_transcript"; event_id?: number; role: "visitor" | "agent"; text: string; final?: boolean }
+  | { type: "order_created"; event_id?: number; order: Order }
+  | { type: "order_updated"; event_id?: number; order: Order }
+  | { type: "visitor_identified"; event_id?: number; name: string; returning: boolean; visits?: number; favorite_item?: string | null; last_order?: string | null }
+  | { type: "memory_updated"; event_id?: number; name: string; visits: number; favorite_item?: string | null; last_order?: string | null; last_seen?: number; returning: boolean }
+  | { type: "recommendation"; event_id?: number; item: string; reason: string }
+  | { type: "menu_updated"; event_id?: number; item: string; available: boolean }
+  | { type: "person_detected"; event_id?: number; person_id: string }
+  | { type: "person_left"; event_id?: number; person_id: string }
+  | { type: "vision_update"; event_id?: number; present: boolean; people: number; objects: DetectedObject[] }
+  | { type: "system_status_changed"; event_id?: number; component: BackendComponent; status: "online" | "degraded" | "offline"; detail?: string }
+  | { type: "agent_activity"; event_id?: number; kind: ActivityKind; label: string; detail?: string }
+  | { type: "interrupted"; event_id?: number }
+  | { type: "error"; event_id?: number; message: string; recoverable?: boolean }
+  | { type: "heartbeat" };
 
 /** Internal (frontend-only) actions */
 export type LocalAction =
@@ -114,25 +160,35 @@ export type LocalAction =
   | { type: "@mode"; mode: DataMode }
   | { type: "@demo_step"; step: number | null }
   | { type: "@hydrate"; snapshot: Partial<AgentSnapshot> }
+  | { type: "@menu"; menu: MenuItem[] }
+  | { type: "@analytics"; analytics: Analytics | null }
+  | { type: "@token_error"; message: string | null }
   | { type: "@reset" };
 
 export interface AgentSnapshot {
   mode: DataMode;
   connection: ConnectionStatus;
   state: AgentStateName;
-  detail: string | null;
-  caption: { speaker: "visitor" | "nexa"; text: string } | null;
+  /** Last raw agent_state_changed (used by the display's order_ready speech rule). */
+  lastAgentState: BackendState | null;
+  opMode: { mode: OperationalMode; reason?: string | undefined } | null;
+  caption: { speaker: "visitor" | "host"; text: string } | null;
   transcript: TranscriptLine[];
-  frameUrl: string | null;
-  detections: Detection[];
-  focusVisitorId: string | null;
+  present: boolean;
+  people: number;
+  objects: DetectedObject[];
+  focus: { name: string; returning: boolean; visits?: number | undefined; favorite_item?: string | null | undefined; last_order?: string | null | undefined } | null;
   visitors: Visitor[];
   orders: Order[];
   memory: MemoryEntry[];
   activity: Activity[];
+  analytics: Analytics | null;
+  menu: MenuItem[];
+  recommendation: { item: string; reason: string; until: number } | null;
+  orderReady: { order_id: string; customer_name?: string | null | undefined; until: number } | null;
   system: Record<SystemComponent, ComponentStatus>;
   lastError: string | null;
+  tokenError: string | null;
   demoStep: number | null;
-  sample: boolean;
   updatedAt: number;
 }

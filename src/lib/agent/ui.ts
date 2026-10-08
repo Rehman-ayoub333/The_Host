@@ -13,19 +13,13 @@ export interface StateMeta {
 export const STATE_META: Record<AgentStateName, StateMeta> = {
   idle: { label: "Idle", verb: "Ready to welcome you", tone: "brand", rings: "none" },
   seeing: { label: "Seeing", verb: "Seeing…", tone: "scan", rings: "pulse" },
-  person_detected: { label: "Person Detected", verb: "Welcome!", tone: "scan", rings: "pulse" },
   listening: { label: "Listening", verb: "Listening…", tone: "voice", rings: "wave" },
   thinking: { label: "Thinking", verb: "Thinking…", tone: "think", rings: "think" },
   speaking: { label: "Speaking", verb: "Speaking", tone: "voice", rings: "wave" },
   taking_order: { label: "Taking Order", verb: "Taking your order", tone: "order", rings: "pulse" },
-  order_confirmed: { label: "Order Confirmed", verb: "Order confirmed", tone: "order", rings: "pulse" },
-  order_preparing: { label: "Preparing", verb: "Preparing your order", tone: "order", rings: "none" },
   order_ready: { label: "Order Ready", verb: "Your order is ready", tone: "ready", rings: "pulse" },
   remembering: { label: "Remembering", verb: "I remember you", tone: "memory", rings: "particles" },
-  welcoming: { label: "Welcoming", verb: "Welcome back", tone: "memory", rings: "particles" },
-  engaging: { label: "Engaging", verb: "Here for you", tone: "voice", rings: "none" },
-  multitasking: { label: "Multi-tasking", verb: "Handling several things", tone: "think", rings: "think" },
-  error: { label: "Needs Help", verb: "One moment — calling a host", tone: "warn", rings: "pulse" },
+  needs_help: { label: "Needs Help", verb: "One moment — calling a host", tone: "warn", rings: "pulse" },
   offline: { label: "Offline", verb: "THE HOST is unavailable", tone: "off", rings: "none" },
 };
 
@@ -34,7 +28,7 @@ export function useNow(intervalMs = 1000) {
   const [now, setNow] = useState(0);
   useEffect(() => {
     setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), intervalMs);
+    const t = setInterval(() => setNow(Date.now(), intervalMs));
     return () => clearInterval(t);
   }, [intervalMs]);
   return now;
@@ -51,7 +45,7 @@ export function fmtClock(ts: number) {
 }
 
 export function fmtAgo(ts: number, now: number) {
-  if (!now) return "";
+  if (!now || !ts) return "";
   const m = Math.round((now - ts) / 60000);
   if (m < 1) return "just now";
   if (m < 60) return `${m} min ago`;
