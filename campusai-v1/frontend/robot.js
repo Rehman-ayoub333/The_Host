@@ -29,7 +29,7 @@ function randomBlinkDelay() {
 }
 
 export function createRobot(mountEl) {
-  mountEl.innerHTML = `<svg id="robotSvg" viewBox="0 0 200 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="CampusAI robot" style="--eye:#5B6B8C">
+  mountEl.innerHTML = `<svg id="robotSvg" viewBox="0 0 200 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="THE HOST robot" style="--eye:#5B6B8C">
   <g id="antenna">
     <line x1="100" y1="34" x2="100" y2="12" stroke="#3B4660" stroke-width="4" stroke-linecap="round"/>
     <circle id="antennaTip" cx="100" cy="8" r="7" fill="var(--eye)"/>
