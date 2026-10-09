@@ -657,6 +657,20 @@ def memory_event(profile) -> dict:
     }
 
 
+def visitor_view(profile) -> dict:
+    """One visitor as GET /api/visitors returns it (03 section 8)."""
+    return {
+        "name_key": profile["name_key"],
+        "name": profile["display_name"],
+        "visits": profile["visits"],
+        "favorite_item": profile["favorite_item"],
+        "last_order": profile["last_order"],
+        "first_seen": profile["first_seen"],
+        "last_seen": profile["last_seen"],
+        "returning": int(profile["visits"]) > 1,
+    }
+
+
 def list_visitors(limit=20) -> list[dict]:
     try:
         cap = max(1, int(limit))
@@ -668,30 +682,23 @@ def list_visitors(limit=20) -> list[dict]:
             "first_seen, last_seen FROM visitors ORDER BY last_seen DESC LIMIT ?",
             (cap,),
         ).fetchall()
-    return [
-        {
-            "name_key": row["name_key"],
-            "name": row["display_name"],
-            "visits": row["visits"],
-            "favorite_item": row["favorite_item"],
-            "last_order": row["last_order"],
-            "first_seen": row["first_seen"],
-            "last_seen": row["last_seen"],
-            "returning": int(row["visits"]) > 1,
-        }
-        for row in rows
-    ]
+    return [visitor_view(row) for row in rows]
 
 
-def update_visitor(key, display_name=None, favorite_item=None) -> dict | None:
+# `None` is a real value for favorite_item (11 section 5 lets the operator clear
+# it), so "leave this column alone" needs a marker of its own.
+UNCHANGED = object()
+
+
+def update_visitor(key, display_name=None, favorite_item=UNCHANGED) -> dict | None:
     name_key = str(key or "").lower()
     assignments, params = [], []
     if display_name is not None:
         assignments.append("display_name = ?")
         params.append(str(display_name).strip())
-    if favorite_item is not None:
+    if favorite_item is not UNCHANGED:
         assignments.append("favorite_item = ?")
-        params.append(str(favorite_item).strip())
+        params.append(None if favorite_item is None else str(favorite_item).strip())
     if not assignments:
         return get_visitor(name_key)
     with closing(_connect()) as conn:

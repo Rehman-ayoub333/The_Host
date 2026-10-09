@@ -32,6 +32,8 @@ NEW_ENDPOINTS = (
     ("POST", "/api/operator/end-session"),
     ("POST", "/api/operator/retry-connection"),
     ("POST", "/api/operator/announce"),
+    ("PATCH", "/api/visitors/ahmed"),
+    ("DELETE", "/api/visitors/ahmed"),
 )
 
 

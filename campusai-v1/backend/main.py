@@ -340,6 +340,99 @@ async def post_menu_availability(name: str, request: Request):
     return {"item": item}
 
 
+# ----------------------------------------------------- the operator audit trail
+
+
+async def _log_operator_action(action: str, **fields) -> None:
+    """12 section 1: every operator action lands in system_events."""
+    await asyncio.to_thread(
+        data.log_system_event,
+        "operator_action",
+        "operator",
+        {"action": action, **fields},
+    )
+
+
+def _operator_row(text: str) -> None:
+    """The one activity shape every operator control emits (2e items 4 and 5)."""
+    summaries.emit_activity("operator", f"Operator: {text}", None, None)
+
+
+# ------------------------------------------------------- visitor corrections
+
+
+MAX_DISPLAY_NAME = 60
+MAX_FAVORITE_ITEM = 80
+VISITOR_PATCH_FIELDS = ("display_name", "favorite_item")
+
+
+def _validated_visitor_patch(payload) -> dict:
+    """11 section 5 / 2e item 5. Returns the fields to change, or raises 400.
+
+    Validated by hand rather than by a model because `favorite_item: null` is a
+    real instruction (clear it) that must stay distinguishable from an absent
+    field, and because pydantic's lax mode would accept `7` as a name.
+    """
+    invalid = HTTPException(status_code=400, detail="Invalid visitor update.")
+    if not isinstance(payload, dict) or not payload:
+        raise invalid
+    if set(payload) - set(VISITOR_PATCH_FIELDS):
+        raise invalid
+
+    changes = {}
+    if "display_name" in payload:
+        name = payload["display_name"]
+        if not isinstance(name, str):
+            raise invalid
+        name = name.strip()
+        if not 1 <= len(name) <= MAX_DISPLAY_NAME:
+            raise invalid
+        changes["display_name"] = name
+    if "favorite_item" in payload:
+        favorite = payload["favorite_item"]
+        if favorite is not None:
+            if not isinstance(favorite, str) or len(favorite) > MAX_FAVORITE_ITEM:
+                raise invalid
+        changes["favorite_item"] = favorite
+    return changes
+
+
+@app.patch("/api/visitors/{name_key}", dependencies=[Depends(require_operator_token)])
+async def patch_visitor(name_key: str, request: Request):
+    try:
+        payload = await request.json()
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid visitor update.")
+    changes = _validated_visitor_patch(payload)
+
+    profile = await asyncio.to_thread(
+        _read_db,
+        data.update_visitor,
+        name_key,
+        changes.get("display_name"),
+        changes.get("favorite_item", data.UNCHANGED),
+    )
+    if profile is None:
+        raise HTTPException(status_code=404, detail="There is no visitor with that name.")
+
+    event_bus.publish({**data.memory_event(profile), "session_id": None})
+    _operator_row("corrected a visitor")
+    await _log_operator_action("visitor_update", name_key=profile["name_key"])
+    return {"visitor": data.visitor_view(profile)}
+
+
+@app.delete("/api/visitors/{name_key}", status_code=204,
+            dependencies=[Depends(require_operator_token)])
+async def delete_visitor(name_key: str):
+    """Deleted means deleted (11 section 5). Orders are never touched."""
+    if not await asyncio.to_thread(_read_db, data.delete_visitor, name_key):
+        raise HTTPException(status_code=404, detail="There is no visitor with that name.")
+
+    _operator_row("forgot a visitor")
+    await _log_operator_action("visitor_delete", name_key=str(name_key).lower())
+    return Response(status_code=204)
+
+
 # --------------------------------------------------------- operator controls
 
 
@@ -352,20 +445,6 @@ PAUSED_REFUSAL = "THE HOST is paused right now. Please ask the team."
 
 class AnnounceRequest(BaseModel):
     order_id: StrictInt
-
-
-async def _log_operator_action(action: str, **fields) -> None:
-    await asyncio.to_thread(
-        data.log_system_event,
-        "operator_action",
-        "operator",
-        {"action": action, **fields},
-    )
-
-
-def _operator_row(text: str) -> None:
-    """The one activity shape every operator control emits (2e item 4)."""
-    summaries.emit_activity("operator", f"Operator: {text}", None, None)
 
 
 async def _end_active_session() -> bool:
