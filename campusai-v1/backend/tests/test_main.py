@@ -1,3 +1,7 @@
+import importlib
+import os
+
+import dotenv
 import pytest
 from fastapi.testclient import TestClient
 
@@ -32,6 +36,36 @@ def test_startup_refuses_to_open_with_an_empty_menu(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="The menu is empty"):
         with TestClient(main.app):
             pass
+
+
+def test_the_default_voice_is_sulafat():
+    """16 section 2e item 3. Reloaded with the .env loader disabled, so the test
+    reads nothing out of the real .env and a value there still wins at runtime.
+    """
+    saved = os.environ.pop("GEMINI_VOICE", None)
+    original_loader = dotenv.load_dotenv
+    dotenv.load_dotenv = lambda *args, **kwargs: False
+    try:
+        importlib.reload(config)
+        print("GEMINI_VOICE with nothing configured:", config.GEMINI_VOICE)
+        assert config.GEMINI_VOICE == "Sulafat"
+
+        os.environ["GEMINI_VOICE"] = "Puck"
+        importlib.reload(config)
+        print("GEMINI_VOICE with the environment set:", config.GEMINI_VOICE)
+        assert config.GEMINI_VOICE == "Puck"
+    finally:
+        dotenv.load_dotenv = original_loader
+        os.environ.pop("GEMINI_VOICE", None)
+        if saved is not None:
+            os.environ["GEMINI_VOICE"] = saved
+        importlib.reload(config)
+
+
+def test_the_example_env_ships_the_new_default():
+    lines = (config.BASE_DIR / ".env.example").read_text(encoding="utf-8").splitlines()
+    print("GEMINI_VOICE line:", [line for line in lines if line.startswith("GEMINI_VOICE")])
+    assert "GEMINI_VOICE=Sulafat" in lines
 
 
 def test_the_voice_page_is_never_cached(monkeypatch):

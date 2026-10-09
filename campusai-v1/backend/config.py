@@ -18,7 +18,8 @@ def _origins(name: str, default: str) -> list[str]:
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.8-live")
-GEMINI_VOICE = os.getenv("GEMINI_VOICE", "Puck")
+# 16 section 2e item 3: Sulafat after the Phase 4 check. A value in .env wins.
+GEMINI_VOICE = os.getenv("GEMINI_VOICE", "Sulafat")
 OPERATOR_TOKEN = os.getenv("OPERATOR_TOKEN", "")
 AGENT_NAME = os.getenv("AGENT_NAME", "THE HOST")
 STALL_NAME = os.getenv("STALL_NAME", "Bite & Pour")
