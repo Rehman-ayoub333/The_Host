@@ -561,20 +561,17 @@ export function SystemPanel({ className }: { className?: string }) {
 
   // Browser-side checks: camera/mic permission state, navigator.onLine.
   useEffect(() => {
-    const set = (patch: Partial<Record<SystemComponent, "online" | "unknown">>) =>
-      agentDispatchSystem(patch);
-    const agentDispatchSystem = (patch: Partial<Record<SystemComponent, "online" | "unknown">>) => {
-      const { agentStore } = require("@/lib/agent/store") as typeof import("@/lib/agent/store");
+    const setSys = (patch: Partial<Record<SystemComponent, ComponentStatus>>) => {
       const s = agentStore.get();
       agentStore.dispatch({ type: "@hydrate", snapshot: { system: { ...s.system, ...patch } } });
     };
-    set({ internet: navigator.onLine ? "online" : "offline" as never });
-    const on = () => agentDispatchSystem({ internet: "online" });
-    const off = () => agentDispatchSystem({ internet: "offline" as never });
+    setSys({ internet: navigator.onLine ? "online" : "offline" });
+    const on = () => setSys({ internet: "online" });
+    const off = () => setSys({ internet: "offline" });
     window.addEventListener("online", on);
     window.addEventListener("offline", off);
-    navigator.permissions?.query({ name: "camera" as PermissionName }).then((p) => agentDispatchSystem({ camera: p.state === "granted" ? "online" : "unknown" })).catch(() => undefined);
-    navigator.permissions?.query({ name: "microphone" as PermissionName }).then((p) => agentDispatchSystem({ microphone: p.state === "granted" ? "online" : "unknown" })).catch(() => undefined);
+    navigator.permissions?.query({ name: "camera" as PermissionName }).then((p) => setSys({ camera: p.state === "granted" ? "online" : "unknown" })).catch(() => undefined);
+    navigator.permissions?.query({ name: "microphone" as PermissionName }).then((p) => setSys({ microphone: p.state === "granted" ? "online" : "unknown" })).catch(() => undefined);
     return () => {
       window.removeEventListener("online", on);
       window.removeEventListener("offline", off);
