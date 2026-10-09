@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { agentStore, useAgent } from "@/lib/agent/store";
 import { STATE_META, fmtAgo, fmtClock, fmtCountdown, useNow } from "@/lib/agent/ui";
-import type { ActivityKind, AgentStateName, Order, OrderStatus, SystemComponent } from "@/lib/agent/types";
+import type { ActivityKind, AgentStateName, ComponentStatus, Order, OrderStatus, SystemComponent } from "@/lib/agent/types";
 import { setOrderStatus } from "@/lib/agent/service";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
