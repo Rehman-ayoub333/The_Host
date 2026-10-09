@@ -8,10 +8,13 @@ import sqlite3
 from contextlib import asynccontextmanager, closing
 from time import monotonic
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StrictBool, ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import config
 import data
@@ -470,8 +473,27 @@ async def websocket_session(websocket: WebSocket):
         )
 
 
+class NoStoreStaticFiles(StaticFiles):
+    """16 section 2e item 2.
+
+    Chrome served the pre-Phase-4 `app.js` through a whole booth test, so the
+    page ignored `capture_request` and the fault looked like a backend one.
+    Every file this mount serves now says `no-store`, the 404 included.
+    """
+
+    async def get_response(self, path, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            # Same body FastAPI's own handler would have produced, but routed
+            # through here so the header is on the miss as well.
+            response = JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
 app.mount(
     "/",
-    StaticFiles(directory=config.FRONTEND_DIR, html=True),
+    NoStoreStaticFiles(directory=config.FRONTEND_DIR, html=True),
     name="frontend",
 )

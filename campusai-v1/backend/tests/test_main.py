@@ -34,6 +34,28 @@ def test_startup_refuses_to_open_with_an_empty_menu(monkeypatch, tmp_path):
             pass
 
 
+def test_the_voice_page_is_never_cached(monkeypatch):
+    """16 section 2e item 2: a stale app.js silently disabled a whole phase."""
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+
+    with TestClient(main.app) as client:
+        for path in ("/", "/app.js", "/no-such-file.js"):
+            response = client.get(path)
+            print(
+                f"GET {path} -> {response.status_code} "
+                f"Cache-Control: {response.headers.get('cache-control')!r}"
+            )
+            assert response.headers["cache-control"] == "no-store"
+
+        assert client.get("/").status_code == 200
+        assert client.get("/app.js").status_code == 200
+        missing = client.get("/no-such-file.js")
+        assert missing.status_code == 404
+        assert missing.json() == {"detail": "Not Found"}
+
+    assert isinstance(main.app.routes[-1].app, main.NoStoreStaticFiles)
+
+
 def test_the_retired_records_endpoint_is_gone(monkeypatch):
     monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
 
