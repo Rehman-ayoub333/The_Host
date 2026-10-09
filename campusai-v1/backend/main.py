@@ -2,6 +2,7 @@ import asyncio
 import hmac
 import json
 import logging
+import re
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager, closing
@@ -10,7 +11,7 @@ from time import monotonic
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, StrictBool, ValidationError
 
 import config
 import data
@@ -25,6 +26,39 @@ ACTIVE: LiveSession | None = None
 
 LIMIT_MIN = 1
 LIMIT_MAX = 100
+
+
+# ----------------------------------------------------------- token redaction
+
+
+class RedactTokenFilter(logging.Filter):
+    """16 section 2b item 12.
+
+    The dashboard token travels as `?token=` on `/ws/events` because a browser
+    cannot set a header on a WebSocket handshake, and uvicorn's access logger
+    prints the request path. This rewrites the value before it is ever written.
+    """
+
+    PATTERN = re.compile(r"(token=)[^\s\"'&]+")
+    REPLACEMENT = r"\1[REDACTED]"
+
+    def _clean(self, value):
+        if isinstance(value, str):
+            return self.PATTERN.sub(self.REPLACEMENT, value)
+        return value
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = self._clean(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(self._clean(item) for item in record.args)
+        elif isinstance(record.args, dict):
+            record.args = {key: self._clean(item) for key, item in record.args.items()}
+        return True
+
+
+REDACT_TOKEN = RedactTokenFilter()
+for _logger_name in ("uvicorn.access", "uvicorn.error"):
+    logging.getLogger(_logger_name).addFilter(REDACT_TOKEN)
 
 
 def _clamp(limit: int, default: int) -> int:
@@ -186,6 +220,121 @@ def get_analytics():
 def get_menu():
     rows = _read_db(data.get_menu)
     return {"menu": [{**row, "available": bool(row["available"])} for row in rows]}
+
+
+# ------------------------------------------------------------ operator writes
+
+
+class OrderStatusUpdate(BaseModel):
+    status: str
+    reason: str | None = None
+
+
+class AvailabilityUpdate(BaseModel):
+    # A real boolean: pydantic's lax mode would otherwise accept "no" and "off".
+    available: StrictBool
+
+
+async def _run_announcement(order: dict) -> None:
+    """04 section 5 / 2c item 2: the guard, then order_ready, then the live voice."""
+    if not await asyncio.to_thread(data.mark_announced, order["id"]):
+        return
+    event_bus.publish(
+        {
+            "type": "order_ready",
+            "order_id": order["id"],
+            "customer_name": order.get("guest_name"),
+            "session_id": None,
+        }
+    )
+    session = ACTIVE
+    if session is None:
+        # 04 section 5 step 4: the backend never opens a session just to speak.
+        return
+    try:
+        await session.announce(order)
+    except Exception:
+        # The order state and order_ready are already correct, so the operator's
+        # call still succeeds (2c item 3).
+        log.exception("the order-ready announcement could not be spoken")
+
+
+@app.post("/api/orders/{order_id}/status", dependencies=[Depends(require_operator_token)])
+async def post_order_status(order_id: int, request: Request):
+    """2c item 1 / 12 section 1. Transition validation lives in data.py (08 section 5)."""
+    try:
+        body = OrderStatusUpdate.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid status update.")
+    if body.status not in data.ORDER_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid status update.")
+
+    if await asyncio.to_thread(_read_db, data.get_order, order_id) is None:
+        raise HTTPException(status_code=404, detail="There is no order with that number.")
+
+    result = await asyncio.to_thread(
+        _read_db, data.update_order_status, order_id, body.status, body.reason
+    )
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    view = data.order_view(result["order"])
+    event_bus.publish({"type": "order_updated", "order": view, "session_id": None})
+    if body.status == "READY":
+        # order_ready follows its order_updated immediately (04 section 5 step 2).
+        await _run_announcement(result["order"])
+
+    label = (
+        f"Order #{order_id} ready"
+        if body.status == "READY"
+        else f"Order #{order_id} updated"
+    )
+    summaries.emit_activity("order", label, body.status.lower(), None)
+    await asyncio.to_thread(
+        data.log_system_event,
+        "operator_action",
+        "operator",
+        {"action": "order_status", "order_id": order_id, "status": body.status},
+    )
+    return {"order": view}
+
+
+@app.post("/api/menu/{name}/availability", dependencies=[Depends(require_operator_token)])
+async def post_menu_availability(name: str, request: Request):
+    """2c item 4 / 12 section 1."""
+    try:
+        body = AvailabilityUpdate.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid availability update.")
+
+    row = await asyncio.to_thread(
+        _read_db, data.set_menu_availability, name, body.available
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="That item isn't on the menu.")
+
+    item = {**row, "available": bool(row["available"])}
+    event_bus.publish(
+        {
+            "type": "menu_updated",
+            "item": item["name"],
+            "available": item["available"],
+            "session_id": None,
+        }
+    )
+    summaries.emit_activity(
+        "operator",
+        f"Marked {item['name']} available" if item["available"] else f"Marked {item['name']} sold out",
+        None,
+        None,
+    )
+    await asyncio.to_thread(
+        data.log_system_event,
+        "operator_action",
+        "operator",
+        {"action": "menu_availability", "item": item["name"], "available": item["available"]},
+    )
+    return {"item": item}
 
 
 # --------------------------------------------------------------- vision input

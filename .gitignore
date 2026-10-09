@@ -5,6 +5,7 @@ __pycache__/
 .env
 *.db
 .vscode/
+.claude/
 host-spec/
 HOST-HANDOFF-BRIEFING.md
 THE_HOST_Proposal.docx
