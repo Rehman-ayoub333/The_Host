@@ -89,6 +89,11 @@ class LiveSession:
             "awaiting_confirmation": False,
         }
         self.first_audio_sent = False
+        # 16 section 2e item 1: true from the first piece of model output of a
+        # turn until that turn ends. Unlike first_audio_sent it survives a tool
+        # response, so an announcement cannot be injected into the gap between a
+        # tool result and the audio it produces (the order #12 sequence).
+        self.turn_in_progress = False
         self.greeted = False
         self.recommended_this_turn = False
         self.announcing = False
@@ -439,6 +444,7 @@ class LiveSession:
             if server_content.model_turn:
                 for part in server_content.model_turn.parts or []:
                     if part.inline_data and part.inline_data.data:
+                        self.turn_in_progress = True
                         if not self.first_audio_sent:
                             self.first_audio_sent = True
                             state = self._first_audio_state()
@@ -461,6 +467,7 @@ class LiveSession:
                 server_content.output_transcription
                 and server_content.output_transcription.text
             ):
+                self.turn_in_progress = True
                 await self._on_transcript_fragment(
                     "agent", server_content.output_transcription.text
                 )
@@ -494,6 +501,7 @@ class LiveSession:
                 self.ctx["pending_order_id"] = None
         await self._send_state(self.resting_state())
         self.first_audio_sent = False
+        self.turn_in_progress = False
         self.recommended_this_turn = False
         # Only the announcing turn's own end clears the flag (2c item 3).
         # Injecting the announcement mid-turn makes Gemini interrupt itself, and
@@ -516,8 +524,14 @@ class LiveSession:
     # ------------------------------------------------------------ announcement
 
     async def announce(self, order) -> None:
-        """16 section 2d item 3: speak it now only if no turn is making audio."""
-        if self.first_audio_sent:
+        """16 section 2e item 1: speak it now only if nobody is mid-turn.
+
+        A model turn counts as in progress from its first output until its
+        `turn_complete`, tool responses included; a non-empty visitor buffer
+        means the guest is still in the middle of a sentence. Either way the
+        announcement waits for the gap instead of cutting someone off.
+        """
+        if self.turn_in_progress or self.transcripts["visitor"]:
             log.info(
                 "announce deferred session %s order %s",
                 self.ctx["session_id"],
@@ -549,6 +563,9 @@ class LiveSession:
             summaries.emit_row(queue.pop(0), self.ctx["session_id"])
 
     async def _handle_tool_call(self, tool_call):
+        # A tool call is model output: the turn is running and stays running
+        # across the tool response below (16 section 2e item 1).
+        self.turn_in_progress = True
         function_responses = []
         look_requested = False
         for function_call in tool_call.function_calls:

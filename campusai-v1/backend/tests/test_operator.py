@@ -498,6 +498,133 @@ def test_the_deferral_is_logged_without_the_guest_name(caplog):
     assert "Ahmed" not in "\n".join(messages)
 
 
+# ---------------------------- Phase 5: the corrected deferral (2e item 1)
+
+
+def test_the_order_12_sequence_defers_until_the_turn_really_ends(caplog):
+    """The Phase 4 check, order #12: a tool response resets first_audio_sent, so
+    the turn looked idle and the announcement cut Gemini's own reply off.
+
+    `turn_in_progress` survives the tool response, so nothing reaches Gemini
+    before `turn_complete` and the template leaves after it.
+    """
+    session, ws = doubles.new_session()
+    asyncio.run(session._send_state("LISTENING"))
+    session.greeted = True
+    session_id = session.ctx["session_id"]
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        # The model calls a tool; live_session answers it.
+        asyncio.run(
+            session._handle_message(
+                doubles.message(
+                    tool_call=doubles.call("check_item_availability", {"item": "Chicken Burger"})
+                )
+            )
+        )
+        print("first_audio_sent after the tool response:", session.first_audio_sent)
+        print("turn_in_progress after the tool response:", session.turn_in_progress)
+        assert session.first_audio_sent is False
+        assert session.turn_in_progress is True
+
+        # The operator marks an order READY in exactly that gap.
+        asyncio.run(session.announce({"id": 12, "guest_name": "Ahmed"}))
+        print("Gemini inputs in the gap:", session.session.inputs)
+        assert session.session.inputs == []
+        assert session.announcing is False
+        assert [order["id"] for order in session.pending_announcements] == [12]
+
+        # The model's own reply plays out and the turn ends.
+        asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x00"))))
+        print("Gemini inputs while the reply plays:", session.session.inputs)
+        assert session.session.inputs == []
+
+        asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+
+    print("Gemini inputs after turn_complete:", session.session.inputs)
+    assert session.session.inputs == [
+        {
+            "text": (
+                "An order just became ready: order #12 for Ahmed. "
+                "Let the guests know, briefly and naturally, even if it is not their order."
+            )
+        }
+    ]
+    assert session.turn_in_progress is False
+    messages = [record.getMessage() for record in caplog.records]
+    for line in messages:
+        print("log:", line)
+    assert f"announce deferred session {session_id} order 12" in messages
+    assert f"announce session {session_id} order 12" in messages
+    assert messages.index(f"announce deferred session {session_id} order 12") < messages.index(
+        f"announce session {session_id} order 12"
+    )
+    assert "Ahmed" not in "\n".join(messages)
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x01"))))
+    print("states:", doubles.states(ws))
+    assert doubles.states(ws)[-1] == "ANNOUNCING"
+    doubles.validate(ws)
+
+
+def test_an_announcement_while_the_guest_is_mid_sentence_is_deferred(caplog):
+    """2e item 1: a non-empty visitor buffer means the guest is still talking."""
+    session, ws = doubles.new_session()
+    asyncio.run(session._send_state("LISTENING"))
+    session.greeted = True
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(visitor="can I get"))))
+    print("visitor buffer:", repr(session.transcripts["visitor"]))
+    print("turn_in_progress:", session.turn_in_progress)
+    assert session.transcripts["visitor"] == "can I get"
+    assert session.turn_in_progress is False
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+
+    print("Gemini inputs while the guest talks:", session.session.inputs)
+    assert session.session.inputs == []
+    assert [order["id"] for order in session.pending_announcements] == [27]
+    assert any("announce deferred" in record.getMessage() for record in caplog.records)
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+    print("Gemini inputs after the turn ends:", session.session.inputs)
+    assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
+    doubles.validate(ws)
+
+
+def test_an_output_transcription_fragment_alone_marks_the_turn_in_progress():
+    """Gemini's text can arrive before its audio; that is still a live turn."""
+    session, _ = doubles.new_session()
+    asyncio.run(session._send_state("LISTENING"))
+    session.greeted = True
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(agent="Sure,"))))
+    print("turn_in_progress after an agent fragment:", session.turn_in_progress)
+    assert session.turn_in_progress is True
+
+    asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+    print("Gemini inputs:", session.session.inputs)
+    assert session.session.inputs == []
+    assert [order["id"] for order in session.pending_announcements] == [27]
+
+
+def test_turn_in_progress_is_cleared_by_an_interruption_as_well():
+    session, _ = doubles.new_session()
+    asyncio.run(session._send_state("LISTENING"))
+    session.greeted = True
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x00"))))
+    assert session.turn_in_progress is True
+    asyncio.run(session._handle_message(doubles.message(doubles.content(interrupted=True))))
+    print("turn_in_progress after an interruption:", session.turn_in_progress)
+    assert session.turn_in_progress is False
+
+    asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+    print("Gemini inputs:", session.session.inputs)
+    assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
+
+
 def test_ready_with_no_session_publishes_order_ready_and_says_nothing(served):
     assert main.ACTIVE is None
     session, ws = doubles.new_session()
