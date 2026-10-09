@@ -39,12 +39,14 @@ def fresh_backend(tmp_path, monkeypatch):
     event_bus._sockets.clear()
     event_bus.set_loop(None)
     health._mode = "ONLINE"
+    health._override = None
     data.init_db()
     yield
     event_bus.PUBLISHED.clear()
     event_bus._sockets.clear()
     event_bus.set_loop(None)
     health._mode = "ONLINE"
+    health._override = None
 
 
 @pytest.fixture
