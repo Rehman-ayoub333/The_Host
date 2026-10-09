@@ -445,6 +445,17 @@ def update_order_status(order_id, new_status, reason=None) -> dict:
     return {"ok": True, "order": _order_from_row(updated)}
 
 
+def mark_announced(order_id) -> bool:
+    """04 section 5 step 1: the atomic guard. True only for the first caller."""
+    with closing(_connect()) as conn:
+        cursor = conn.execute(
+            "UPDATE orders SET announced = 1 WHERE id = ? AND announced = 0",
+            (order_id,),
+        )
+        conn.commit()
+    return cursor.rowcount == 1
+
+
 def list_orders(status="all", limit=20) -> dict:
     expire_pending_orders()
     scope = str(status or "all").strip().lower()

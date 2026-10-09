@@ -88,6 +88,7 @@ class LiveSession:
         self.first_audio_sent = False
         self.greeted = False
         self.recommended_this_turn = False
+        self.announcing = False
         self.transcripts = {"visitor": "", "agent": ""}
         self.last_state = None
         self.closed = False
@@ -124,7 +125,9 @@ class LiveSession:
         return "TAKING_ORDER" if self.ctx["pending_order_id"] else "LISTENING"
 
     def _first_audio_state(self) -> str:
-        # 07 section 2 rule 3. The ANNOUNCING branch arrives in Phase 3.
+        # 07 section 2 rule 3, in order.
+        if self.announcing:
+            return "ANNOUNCING"
         if not self.greeted:
             return "GREETING"
         if self.recommended_this_turn:
@@ -420,6 +423,21 @@ class LiveSession:
         await self._send_state(self.resting_state())
         self.first_audio_sent = False
         self.recommended_this_turn = False
+        self.announcing = False
+
+    # ------------------------------------------------------------ announcement
+
+    async def announce(self, order) -> None:
+        """2c item 3 / 04 section 5 step 3: THE HOST's own voice, this turn only."""
+        self.announcing = True
+        log.info(
+            "announce session %s order %s", self.ctx["session_id"], order["id"]
+        )
+        await self.session.send_realtime_input(
+            text=prompts.ANNOUNCE_TEMPLATE.format(
+                order_id=order["id"], name=order.get("guest_name") or "a guest"
+            )
+        )
 
     # -------------------------------------------------------------- tool calls
 

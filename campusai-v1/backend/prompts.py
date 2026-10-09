@@ -62,6 +62,15 @@ _VISION_PROMPT_TEMPLATE = (
 )
 
 
+# 04 section 5 step 3: injected into a live session when an order becomes ready.
+# Unlike the strings below it keeps its placeholders, because the order number and
+# the guest's name are only known at announcement time.
+ANNOUNCE_TEMPLATE = (
+    "An order just became ready: order #{order_id} for {name}. "
+    "Let the guests know, briefly and naturally, even if it is not their order."
+)
+
+
 # Formatted once, at import, so the module exports plain strings and live_session can
 # send them as they are.
 GREETING_PRESENCE = _GREETING_PRESENCE_TEMPLATE.format(
