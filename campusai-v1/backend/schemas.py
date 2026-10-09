@@ -54,6 +54,12 @@ class InterruptedEvent(EventEnvelope):
     type: Literal["interrupted"]
 
 
+class CaptureRequestEvent(EventEnvelope):
+    """03 section 4: the fifth audio-socket event (Phase 4). The smd role never sees it."""
+
+    type: Literal["capture_request"]
+
+
 class ErrorEvent(EventEnvelope):
     type: Literal["error"]
     message: str

@@ -22,8 +22,9 @@ def test_the_system_instruction_covers_the_two_step_order_rule():
     # A confirmed order is final: a later request is a new, separate order (09 section 15).
     assert (
         "Once an order is confirmed it is final: anything the guest asks for after "
-        "that is a new, separate order, so call build_order with only the new items, "
-        "never items from an order that is already confirmed." in text
+        'that is a new, separate order (call it a new order, never "adding to" the '
+        "confirmed one), so call build_order with only the new items, never items "
+        "from an order that is already confirmed." in text
     )
     assert (
         "If they want to change a confirmed order, offer to cancel it (cancel_order) "

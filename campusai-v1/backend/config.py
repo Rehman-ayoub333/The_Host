@@ -31,6 +31,9 @@ CORS_ALLOW_ORIGINS = _origins(
     "http://localhost:8080,http://localhost:5173,http://localhost:4173",
 )
 PORT = int(os.getenv("PORT", "8000"))
+# 16 section 2d item 4: how a snapshot reaches Gemini. "client_content" sends the
+# picture and the prompt as one user turn; "realtime" is the older two-call path.
+VISION_SEND_MODE = os.getenv("VISION_SEND_MODE", "client_content").strip() or "client_content"
 
 CONNECT_TIMEOUT_S = 15
 TOOL_TIMEOUT_S = 10
@@ -44,3 +47,4 @@ HEARTBEAT_INTERVAL_S = 10
 EVENT_SEND_TIMEOUT_S = 1
 VISION_MAX_PEOPLE = 50
 VISION_MAX_OBJECTS = 10
+LOOK_TIMEOUT_S = 6
