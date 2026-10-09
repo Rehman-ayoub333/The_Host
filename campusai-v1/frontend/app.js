@@ -184,6 +184,8 @@ function handleControl(message) {
   } else if (message.type === "speech_transcript") {
     lastActivity = now();
     appendTranscript(message.role, message.text, Boolean(message.final));
+  } else if (message.type === "capture_request") {
+    if (isSessionActive()) captureSnapshot();
   } else if (message.type === "interrupted") {
     audio.flushPlayback();
   } else if (message.type === "error") {

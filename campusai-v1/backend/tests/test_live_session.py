@@ -22,6 +22,7 @@ EVENT_MODELS = {
     "speech_transcript": schemas.SpeechTranscriptEvent,
     "interrupted": schemas.InterruptedEvent,
     "error": schemas.ErrorEvent,
+    "capture_request": schemas.CaptureRequestEvent,
 }
 
 BURGER = {"name": "Chicken Burger", "quantity": 1}
@@ -61,9 +62,13 @@ class FakeLiveApiSession:
     def __init__(self):
         self.inputs = []
         self.responses = []
+        self.client_content = []
 
     async def send_realtime_input(self, **kwargs):
         self.inputs.append(kwargs)
+
+    async def send_client_content(self, **kwargs):
+        self.client_content.append(kwargs)
 
     async def send_tool_response(self, **kwargs):
         self.responses.append(kwargs)
@@ -351,9 +356,14 @@ def test_a_vision_frame_sends_seeing_before_the_vision_prompt():
 
     asyncio.run(session._uplink())
 
+    # The default VISION_SEND_MODE sends the picture and the prompt as one turn
+    # (16 section 2d item 4); both modes are covered in test_look_at_camera.py.
     assert states(ws) == ["LISTENING", "SEEING"]
-    assert [kind for payload in session.session.inputs for kind in payload] == ["video", "text"]
-    assert session.session.inputs[1] == {"text": prompts.VISION_PROMPT}
+    assert session.session.inputs == []
+    assert len(session.session.client_content) == 1
+    parts = session.session.client_content[0]["turns"].parts
+    assert parts[0].inline_data.mime_type == "image/jpeg"
+    assert parts[1].text == prompts.VISION_PROMPT
     validate(ws)
 
 

@@ -314,7 +314,13 @@ def test_the_announcing_turn_is_announcing_and_returns_to_resting_state():
 
 def test_an_interruption_before_the_announcing_turn_does_not_cancel_it():
     """The 9 Oct booth sequence: the announcement arrives while the greeting is
-    still playing, Gemini interrupts itself, and the announcing turn follows."""
+    still playing, Gemini interrupts itself, and the announcing turn follows.
+
+    Phase 4 (16 section 2d item 3) keeps the announcement out of a speaking turn
+    in the first place, so it now leaves through the interruption's own end of
+    turn. The guard this test exists for -- `announcing` surviving an interruption
+    nobody asked for -- still has to hold.
+    """
     session, ws = doubles.new_session()
     asyncio.run(session._send_state("LISTENING"))
 
@@ -366,6 +372,130 @@ def test_an_ordinary_turn_is_not_announcing():
     asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x00\x01"))))
     print("states without an announcement:", doubles.states(ws))
     assert doubles.states(ws)[-1] == "SPEAKING"
+
+
+# ------------------------------- Phase 4: the gentler announcement (2d item 3)
+
+
+ANNOUNCEMENT_27 = (
+    "An order just became ready: order #27 for Ahmed. "
+    "Let the guests know, briefly and naturally, even if it is not their order."
+)
+ANNOUNCEMENT_28 = (
+    "An order just became ready: order #28 for a guest. "
+    "Let the guests know, briefly and naturally, even if it is not their order."
+)
+
+
+def speaking_session():
+    """A session in the middle of a turn that is already producing audio."""
+    session, ws = doubles.new_session()
+    asyncio.run(session._send_state("LISTENING"))
+    session.greeted = True
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x00"))))
+    assert doubles.states(ws)[-1] == "SPEAKING"
+    assert session.first_audio_sent is True
+    return session, ws
+
+
+def test_an_announcement_during_audio_waits_for_the_end_of_that_turn():
+    session, ws = speaking_session()
+
+    asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+
+    print("Gemini inputs while the turn is still speaking:", session.session.inputs)
+    print("pending:", [order["id"] for order in session.pending_announcements])
+    assert session.session.inputs == []
+    assert session.announcing is False
+    assert [order["id"] for order in session.pending_announcements] == [27]
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+
+    print("Gemini inputs after turn_complete:", session.session.inputs)
+    print("states:", doubles.states(ws))
+    assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
+    assert session.announcing is True
+    assert session.pending_announcements == []
+    # It leaves only after the resting state of the finished turn is set.
+    assert doubles.states(ws) == ["LISTENING", "SPEAKING", "LISTENING"]
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x01"))))
+    print("states on the announcing turn:", doubles.states(ws))
+    assert doubles.states(ws)[-1] == "ANNOUNCING"
+    doubles.validate(ws)
+
+
+def test_two_pending_announcements_go_out_one_per_turn():
+    session, ws = speaking_session()
+
+    asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+    asyncio.run(session.announce({"id": 28, "guest_name": None}))
+    # The same order again is not queued twice.
+    asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+    print("pending:", [order["id"] for order in session.pending_announcements])
+    assert [order["id"] for order in session.pending_announcements] == [27, 28]
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+    print("after the first turn end:", session.session.inputs)
+    assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
+    assert [order["id"] for order in session.pending_announcements] == [28]
+
+    # The announcing turn plays and ends; the second announcement follows it.
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x01"))))
+    assert doubles.states(ws)[-1] == "ANNOUNCING"
+    asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+
+    print("after the second turn end:", session.session.inputs)
+    assert session.session.inputs == [{"text": ANNOUNCEMENT_27}, {"text": ANNOUNCEMENT_28}]
+    assert session.pending_announcements == []
+    assert session.announcing is True
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x02"))))
+    print("states:", doubles.states(ws))
+    assert doubles.states(ws)[-1] == "ANNOUNCING"
+    doubles.validate(ws)
+
+
+def test_a_pending_announcement_is_dropped_at_session_end():
+    session, ws = speaking_session()
+    asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+    assert session.pending_announcements
+
+    asyncio.run(session.stop())
+
+    print("pending after stop:", session.pending_announcements)
+    print("Gemini inputs after stop:", session.session.inputs)
+    assert session.pending_announcements == []
+    assert session.session.inputs == []
+    assert doubles.states(ws)[-1] == "IDLE"
+
+
+def test_an_announcement_with_no_turn_in_flight_still_goes_out_at_once():
+    session, _ = doubles.new_session()
+    asyncio.run(session._send_state("LISTENING"))
+    session.greeted = True
+
+    asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+
+    print("Gemini inputs:", session.session.inputs)
+    assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
+    assert session.pending_announcements == []
+    assert session.announcing is True
+
+
+def test_the_deferral_is_logged_without_the_guest_name(caplog):
+    session, _ = speaking_session()
+    session_id = session.ctx["session_id"]
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+        asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+
+    messages = [record.getMessage() for record in caplog.records]
+    print("log lines:", messages)
+    assert f"announce deferred session {session_id} order 27" in messages
+    assert f"announce session {session_id} order 27" in messages
+    assert "Ahmed" not in "\n".join(messages)
 
 
 def test_ready_with_no_session_publishes_order_ready_and_says_nothing(served):

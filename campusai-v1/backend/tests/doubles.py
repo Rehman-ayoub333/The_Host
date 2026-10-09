@@ -15,6 +15,7 @@ EVENT_MODELS = {
     "speech_transcript": schemas.SpeechTranscriptEvent,
     "interrupted": schemas.InterruptedEvent,
     "error": schemas.ErrorEvent,
+    "capture_request": schemas.CaptureRequestEvent,
 }
 
 BURGER = {"name": "Chicken Burger", "quantity": 1}
@@ -76,9 +77,13 @@ class FakeLiveApiSession:
     def __init__(self):
         self.inputs = []
         self.responses = []
+        self.client_content = []
 
     async def send_realtime_input(self, **kwargs):
         self.inputs.append(kwargs)
+
+    async def send_client_content(self, **kwargs):
+        self.client_content.append(kwargs)
 
     async def send_tool_response(self, **kwargs):
         self.responses.append(kwargs)

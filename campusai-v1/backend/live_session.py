@@ -23,9 +23,10 @@ import tools
 
 log = logging.getLogger(__name__)
 
-# The audio socket carries only these four event types (03 section 2).
+# The audio socket carries only these five event types (03 section 2);
+# capture_request is the fifth, added in Phase 4.
 AUDIO_SOCKET_EVENTS = frozenset(
-    {"agent_state_changed", "speech_transcript", "interrupted", "error"}
+    {"agent_state_changed", "speech_transcript", "interrupted", "error", "capture_request"}
 )
 
 # 07 section 2 rule 2: while a draft is pending these never replace TAKING_ORDER.
@@ -36,6 +37,8 @@ TOOL_STATES = {
     "remember_visitor": "REMEMBERING",
     "recommend_item": "RECOMMENDING",
     "request_operator_help": "NEEDS_HELP",
+    # 09 section 17: rule 2 lets SEEING interrupt TAKING_ORDER.
+    "look_at_camera": "SEEING",
 }
 
 # 16 section 2a item 11: the source tag a tool result falls back to.
@@ -90,6 +93,10 @@ class LiveSession:
         self.recommended_this_turn = False
         self.announcing = False
         self.announcing_turn = False
+        # 16 section 2d item 3: announcements that arrived mid-turn, newest last.
+        self.pending_announcements = []
+        # 09 section 17: the timer waiting for a picture we asked the page for.
+        self.look_timer = None
         self.transcripts = {"visitor": "", "agent": ""}
         self.last_state = None
         self.closed = False
@@ -266,6 +273,10 @@ class LiveSession:
                 task.cancel()
         if self.tasks:
             await asyncio.gather(*self.tasks, return_exceptions=True)
+        self._cancel_look_timer()
+        # 16 section 2d item 3: a deferred announcement dies with the session. The
+        # order is already READY and order_ready reached both screens long ago.
+        self.pending_announcements.clear()
         if self.stack is not None:
             try:
                 await self.stack.aclose()
@@ -280,6 +291,62 @@ class LiveSession:
             await self.ws.close()
         except Exception:
             pass
+
+    # ------------------------------------------------------------------ vision
+
+    async def _send_vision(self, image_bytes: bytes) -> None:
+        """16 section 2d item 4: the one path a snapshot takes to Gemini.
+
+        Both the "Show It Something" button and a look_at_camera capture come
+        through here. `client_content` sends the picture and the prompt as a single
+        user turn, so the model cannot answer before it has looked; `realtime` is
+        the older two-call path, kept so the better of the two can be measured.
+        """
+        if config.VISION_SEND_MODE == "realtime":
+            await self.session.send_realtime_input(
+                video=types.Blob(data=image_bytes, mime_type="image/jpeg")
+            )
+            await self._send_state("SEEING")
+            await self.session.send_realtime_input(text=prompts.VISION_PROMPT)
+            return
+        await self._send_state("SEEING")
+        await self.session.send_client_content(
+            turns=types.Content(
+                role="user",
+                parts=[
+                    types.Part(
+                        inline_data=types.Blob(data=image_bytes, mime_type="image/jpeg")
+                    ),
+                    types.Part(text=prompts.VISION_PROMPT),
+                ],
+            ),
+            turn_complete=True,
+        )
+
+    # ---------------------------------------------------------- camera request
+
+    def _cancel_look_timer(self) -> None:
+        if self.look_timer is not None and not self.look_timer.done():
+            self.look_timer.cancel()
+        self.look_timer = None
+
+    async def _request_capture(self) -> None:
+        """09 section 17: ask the voice page for one picture, then wait for it."""
+        self._cancel_look_timer()
+        await self._send_control({"type": "capture_request"})
+        summaries.emit_row(summaries.LOOKED_AT_CAMERA, self.ctx["session_id"])
+        self.look_timer = asyncio.create_task(self._look_timeout())
+
+    async def _look_timeout(self) -> None:
+        """LOOK_TIMEOUT_S passed with no frame: say so honestly (09 section 17)."""
+        await asyncio.sleep(config.LOOK_TIMEOUT_S)
+        self.look_timer = None
+        log.info("camera picture failed session %s", self.ctx["session_id"])
+        try:
+            await self.session.send_realtime_input(text=prompts.LOOK_FAILED_PROMPT)
+        except Exception:
+            log.exception("could not tell the model the camera picture failed")
+        summaries.emit_row(summaries.CAMERA_FAILED, self.ctx["session_id"])
 
     # ------------------------------------------------------------------ uplink
 
@@ -326,11 +393,10 @@ class LiveSession:
                     log.warning("ignored invalid vision_frame encoding")
                     continue
                 log.info("vision_frame session %s", self.ctx["session_id"])
-                await self.session.send_realtime_input(
-                    video=types.Blob(data=image_bytes, mime_type="image/jpeg")
-                )
-                await self._send_state("SEEING")
-                await self.session.send_realtime_input(text=prompts.VISION_PROMPT)
+                # A valid frame is the answer to any capture_request still waiting
+                # (09 section 17), whoever actually took the picture.
+                self._cancel_look_timer()
+                await self._send_vision(image_bytes)
             elif message_type == "text_input":
                 try:
                     text_message = schemas.TextInputMessage.model_validate(payload)
@@ -435,10 +501,34 @@ class LiveSession:
         if self.announcing_turn:
             self.announcing = False
             self.announcing_turn = False
+        if self.pending_announcements:
+            # 16 section 2d item 3: one deferred announcement per turn end, after
+            # the resting state is set. Injecting it mid-turn made Gemini cut its
+            # own greeting off at the booth, so it waits for a gap instead.
+            order = self.pending_announcements.pop(0)
+            try:
+                await self._announce_now(order)
+            except Exception:
+                # The order is READY and order_ready already reached both screens;
+                # a failed injection must never end the conversation (2c item 3).
+                log.exception("the deferred order-ready announcement could not be spoken")
 
     # ------------------------------------------------------------ announcement
 
     async def announce(self, order) -> None:
+        """16 section 2d item 3: speak it now only if no turn is making audio."""
+        if self.first_audio_sent:
+            log.info(
+                "announce deferred session %s order %s",
+                self.ctx["session_id"],
+                order["id"],
+            )
+            if all(pending["id"] != order["id"] for pending in self.pending_announcements):
+                self.pending_announcements.append(order)
+            return
+        await self._announce_now(order)
+
+    async def _announce_now(self, order) -> None:
         """2c item 3 / 04 section 5 step 3: THE HOST's own voice, this turn only."""
         self.announcing = True
         log.info(
@@ -452,8 +542,15 @@ class LiveSession:
 
     # -------------------------------------------------------------- tool calls
 
+    def _drain_activity_queue(self) -> None:
+        """16 section 2d item 1: publish the rows the tool queued (09 section 1)."""
+        queue = self.ctx.get("activity_queue")
+        while queue:
+            summaries.emit_row(queue.pop(0), self.ctx["session_id"])
+
     async def _handle_tool_call(self, tool_call):
         function_responses = []
+        look_requested = False
         for function_call in tool_call.function_calls:
             args = function_call.args or {}
             name = function_call.name
@@ -478,7 +575,14 @@ class LiveSession:
                 self.ctx["session_id"],
                 "true" if "error" in result else "false",
             )
-            summaries.emit_tool_activity(name, args, result, self.ctx["session_id"])
+            if name == "look_at_camera":
+                # Its row goes out with the capture_request, after the response
+                # below has been sent (09 section 17).
+                look_requested = look_requested or "error" not in result
+            else:
+                summaries.emit_tool_activity(name, args, result, self.ctx["session_id"])
+            # The tool's own row first, then anything only the tool could compute.
+            self._drain_activity_queue()
             function_responses.append(
                 types.FunctionResponse(
                     id=function_call.id,
@@ -488,6 +592,10 @@ class LiveSession:
             )
         self.first_audio_sent = False
         await self.session.send_tool_response(function_responses=function_responses)
+        if look_requested:
+            # 09 section 17: the page is asked for the picture only after the model
+            # has its tool response, and a second call restarts the whole wait.
+            await self._request_capture()
 
     async def _run_tool(self, name, args):
         function = tools.TOOL_FUNCTIONS.get(name)
