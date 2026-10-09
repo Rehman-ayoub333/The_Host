@@ -34,6 +34,7 @@ NEW_ENDPOINTS = (
     ("POST", "/api/operator/announce"),
     ("PATCH", "/api/visitors/ahmed"),
     ("DELETE", "/api/visitors/ahmed"),
+    ("GET", "/api/metrics"),
 )
 
 

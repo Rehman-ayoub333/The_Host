@@ -193,6 +193,14 @@ def get_health():
         "menu_items": getattr(app.state, "menu_items", 0),
         "operational_mode": health.mode(),
         "db": db_status,
+        # 12 section 3 / 2e item 7: the same per-component status the event
+        # stream sends, so a terminal check and the dashboard always agree.
+        # Camera, microphone and speaker are browser-local and never reported.
+        "components": {
+            "backend": "online",
+            "ai_agent": health.ai_agent_status(),
+            "database": db_status,
+        },
     }
 
 
@@ -217,6 +225,12 @@ def get_activity(limit: int = 30):
 @app.get("/api/analytics", dependencies=[Depends(require_operator_token)])
 def get_analytics():
     return _read_db(data.get_analytics)
+
+
+@app.get("/api/metrics", dependencies=[Depends(require_operator_token)])
+def get_metrics():
+    """12 section 3 / 2e item 6. Real counts or an error, never a guess."""
+    return _read_db(data.get_metrics)
 
 
 @app.get("/api/menu")

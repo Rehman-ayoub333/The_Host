@@ -23,6 +23,7 @@ def test_health_reports_the_menu_row_count(monkeypatch):
         "menu_items": 5,
         "operational_mode": "ONLINE",
         "db": "ok",
+        "components": {"backend": "online", "ai_agent": "online", "database": "ok"},
     }
 
 

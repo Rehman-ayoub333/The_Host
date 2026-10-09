@@ -793,6 +793,59 @@ def list_activity(limit=30) -> list[dict]:
     return activity
 
 
+def get_metrics() -> dict:
+    """12 section 3 / 16 section 2e item 6: computed on request, today only.
+
+    No latency figure: nothing already logged makes one cheaply derivable, and
+    an invented number is worse than no number.
+    """
+    today = _today()
+    not_counted = ("CANCELLED", "FAILED", "PENDING_CONFIRMATION")
+    placeholders = ",".join("?" * len(not_counted))
+    with closing(_connect()) as conn:
+        sessions = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM system_events WHERE event_type = 'session_started' "
+                "AND substr(timestamp, 1, 10) = ?",
+                (today,),
+            ).fetchone()[0]
+        )
+        orders = int(
+            conn.execute(
+                f"SELECT COUNT(*) FROM orders WHERE substr(timestamp, 1, 10) = ? "
+                f"AND status NOT IN ({placeholders})",
+                (today, *not_counted),
+            ).fetchone()[0]
+        )
+        results = conn.execute(
+            "SELECT result FROM agent_log WHERE substr(timestamp, 1, 10) = ?", (today,)
+        ).fetchall()
+        connection_failures = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM system_events WHERE event_type = 'connect_failed' "
+                "AND substr(timestamp, 1, 10) = ?",
+                (today,),
+            ).fetchone()[0]
+        )
+
+    failed_tool_calls = 0
+    for row in results:
+        try:
+            result = json.loads(row["result"])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(result, dict) and "error" in result:
+            failed_tool_calls += 1
+
+    return {
+        "date": today,
+        "sessions_today": sessions,
+        "orders_today": orders,
+        "failed_tool_calls_today": failed_tool_calls,
+        "connection_failures_today": connection_failures,
+    }
+
+
 def get_analytics() -> dict:
     today = _today()
     counted = ("CANCELLED", "FAILED", "PENDING_CONFIRMATION")
