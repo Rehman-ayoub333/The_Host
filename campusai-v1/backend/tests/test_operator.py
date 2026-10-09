@@ -312,6 +312,52 @@ def test_the_announcing_turn_is_announcing_and_returns_to_resting_state():
     doubles.validate(ws)
 
 
+def test_an_interruption_before_the_announcing_turn_does_not_cancel_it():
+    """The 9 Oct booth sequence: the announcement arrives while the greeting is
+    still playing, Gemini interrupts itself, and the announcing turn follows."""
+    session, ws = doubles.new_session()
+    asyncio.run(session._send_state("LISTENING"))
+
+    # The greeting is already speaking.
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x00"))))
+    assert doubles.states(ws)[-1] == "GREETING"
+
+    asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+    # Gemini interrupts its own greeting because of the injected text.
+    asyncio.run(session._handle_message(doubles.message(doubles.content(interrupted=True))))
+    print("states after the interruption:", doubles.states(ws))
+    print("announcing still set:", session.announcing)
+    assert session.announcing is True
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x01"))))
+    print("states after the announcement audio:", doubles.states(ws))
+    assert doubles.states(ws)[-1] == "ANNOUNCING"
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+    assert doubles.states(ws)[-1] == "LISTENING"
+    assert session.announcing is False
+    assert session.announcing_turn is False
+    doubles.validate(ws)
+
+
+def test_an_interrupted_announcement_does_not_label_the_next_turn():
+    session, ws = doubles.new_session()
+    asyncio.run(session._send_state("LISTENING"))
+    session.greeted = True
+
+    asyncio.run(session.announce({"id": 27, "guest_name": None}))
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x00"))))
+    assert doubles.states(ws)[-1] == "ANNOUNCING"
+
+    # The guest talks over the announcement itself.
+    asyncio.run(session._handle_message(doubles.message(doubles.content(interrupted=True))))
+    assert session.announcing is False
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x01"))))
+    print("states after an interrupted announcement:", doubles.states(ws))
+    assert doubles.states(ws)[-1] == "SPEAKING"
+
+
 def test_an_ordinary_turn_is_not_announcing():
     session, ws = doubles.new_session()
     asyncio.run(session._send_state("LISTENING"))

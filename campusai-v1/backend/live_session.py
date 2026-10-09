@@ -89,6 +89,7 @@ class LiveSession:
         self.greeted = False
         self.recommended_this_turn = False
         self.announcing = False
+        self.announcing_turn = False
         self.transcripts = {"visitor": "", "agent": ""}
         self.last_state = None
         self.closed = False
@@ -374,7 +375,12 @@ class LiveSession:
                     if part.inline_data and part.inline_data.data:
                         if not self.first_audio_sent:
                             self.first_audio_sent = True
-                            await self._maybe_send_state(self._first_audio_state())
+                            state = self._first_audio_state()
+                            if state == "ANNOUNCING":
+                                # This is the announcing turn, so this is the
+                                # turn whose end clears the flag (2c item 3).
+                                self.announcing_turn = True
+                            await self._maybe_send_state(state)
                         await self.ws.send_bytes(part.inline_data.data)
 
             if (
@@ -423,7 +429,12 @@ class LiveSession:
         await self._send_state(self.resting_state())
         self.first_audio_sent = False
         self.recommended_this_turn = False
-        self.announcing = False
+        # Only the announcing turn's own end clears the flag (2c item 3).
+        # Injecting the announcement mid-turn makes Gemini interrupt itself, and
+        # that earlier turn's end must not cancel the announcement it caused.
+        if self.announcing_turn:
+            self.announcing = False
+            self.announcing_turn = False
 
     # ------------------------------------------------------------ announcement
 
