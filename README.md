@@ -1,0 +1,325 @@
+# THE HOST
+
+A real-time voice and vision AI host for a food stall: it notices a guest, greets them
+unprompted, talks, recommends, takes a confirmed order, remembers returning guests by the
+name they spoke, and announces orders when they are ready.
+
+THE HOST was built for **Bite & Pour**, a student food stall at a university business gala.
+It runs on one laptop, uses only free-tier services, and is designed so that every number on
+a screen comes from the database — never from a guess.
+
+---
+
+## What it does
+
+1. A guest walks up. The browser's on-device detector notices a person and reports presence
+   to the backend, which opens a conversation on its own — nobody has to press anything.
+2. THE HOST greets the guest in its own voice and listens. Speech goes both ways over one
+   WebSocket as raw audio; the transcript appears live on the operator's screen.
+3. The guest asks what's good. THE HOST checks the real menu, recommends something that is
+   actually in stock, and answers questions about the stall.
+4. The guest orders. THE HOST reads the order back, waits for a clear spoken yes, and only
+   then creates it. An unconfirmed draft is never a real order.
+5. If the guest gives a name, THE HOST remembers it. Next time it greets them by name and
+   knows their usual. It never recognises a face.
+6. The guest can hold something up and ask "what is this?" — or THE HOST can ask the page
+   for a picture itself when a question needs eyes.
+7. The operator marks the order ready. THE HOST announces it out loud in the middle of
+   whatever conversation it is having, and the public display shows it.
+
+## Key features
+
+- **Unprompted greeting** from on-device presence detection — no wake word, no button.
+- **Live voice both ways** through the Gemini Live API (16 kHz in, 24 kHz out).
+- **Vision on demand**: the guest can show the camera something, and the agent can also
+  request a snapshot itself mid-sentence.
+- **13 tools** the model can call, each validating its own input and reading live data.
+- **Two-step confirmed orders**: nothing is charged without a spoken yes.
+- **Name-based memory**, never face recognition.
+- **An 11-state conversation machine** that drives the robot face and the dashboard label.
+- **One event bus, two audiences**: the operator's dashboard sees everything; the public
+  screen is filtered in the backend so a guest's name can never reach it.
+- **Operator controls**: pause, take over, end a conversation, advance or cancel an order,
+  mark an item sold out, re-announce, correct or forget a visitor.
+- **Honest failures**: every failure produces a plain spoken sentence and a visible mode
+  change, never a traceback and never invented data.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Browser["Voice page (served by the backend)"]
+        PRES["presence.js<br/>on-device person detection"]
+        AUD["audio.js<br/>mic in / speaker out"]
+        ROB["robot.js<br/>robot face, 11 states"]
+    end
+
+    subgraph Backend["FastAPI backend"]
+        MAIN["main.py<br/>routes, sockets, static"]
+        LIVE["live_session.py<br/>the conversation"]
+        TOOLS["tools.py<br/>13 tools"]
+        BUS["event_bus.py<br/>role filtering"]
+        DATA["data.py<br/>SQLite"]
+        HEALTH["health.py<br/>operational mode"]
+        SUM["summaries.py<br/>activity labels"]
+        PROMPT["prompts.py<br/>system instruction"]
+    end
+
+    GEM["Gemini Live API"]
+    DB[("SQLite")]
+
+    subgraph Screens["Separate local web app"]
+        DASH["Operator dashboard"]
+        SMD["Public display"]
+    end
+
+    AUD <-->|"/ws/session — audio + 5 event types"| MAIN
+    PRES -->|"POST /api/vision"| MAIN
+    MAIN --> LIVE
+    LIVE <-->|audio, tool calls| GEM
+    LIVE --> PROMPT
+    LIVE --> TOOLS
+    TOOLS --> DATA
+    TOOLS --> SUM
+    LIVE --> BUS
+    TOOLS --> BUS
+    HEALTH --> BUS
+    DATA --- DB
+    BUS -->|"/ws/events (dashboard) — everything"| DASH
+    BUS -->|"/ws/events (smd) — filtered"| SMD
+    DASH -->|"REST, operator token"| MAIN
+    SMD -->|"GET /api/menu"| MAIN
+    MAIN --> ROB
+```
+
+Two WebSockets, deliberately separate:
+
+- **`/ws/session`** is the audio path. It carries binary PCM both ways and only five JSON
+  event types. A slow or dead observer can never touch it.
+- **`/ws/events`** is a read-only observer stream. Everything published goes through it,
+  filtered per role, with a per-socket send timeout so a stuck client is dropped instead of
+  stalling a conversation.
+
+## How it works
+
+**Conversation state machine.** One value at a time, sent only when it really changes:
+`IDLE`, `GREETING`, `SEEING`, `LISTENING`, `THINKING`, `SPEAKING`, `RECOMMENDING`,
+`TAKING_ORDER`, `ANNOUNCING`, `REMEMBERING`, `NEEDS_HELP`. While an order is being taken the
+label holds at `TAKING_ORDER`; only `SEEING`, `REMEMBERING`, `ANNOUNCING` and `NEEDS_HELP`
+may interrupt it, each returning to the resting state at the end of the turn.
+
+**Two-step orders.** `build_order` creates a draft in `PENDING_CONFIRMATION`,
+`signal_confirmation_request` puts the question on screen, and only `confirm_order` — after
+a clear spoken yes — makes it real. A draft that is abandoned is cancelled after five
+minutes, and a draft dies with its session rather than surviving as a half-order. From
+there the operator moves it `CONFIRMED → PREPARING → READY → COLLECTED`, one step at a time;
+`CANCELLED`, `FAILED` and `REQUIRES_ATTENTION` are the other three statuses, the last two
+operator-only.
+
+**Role-filtered event bus.** Every event is stamped once with a monotonic `event_id`, a
+local timestamp and a session id, then delivered to each observer through a filter table.
+The public display never receives the activity feed, memory updates, vision detections or
+system status; guest names are stripped from every order it does receive, and it sees only
+completed transcript lines, never partials.
+
+**The announcement.** Moving an order to `READY` flips an atomic `announced` flag, so the
+same order can never be announced twice. The order-ready event goes to both screens, and if
+a conversation is running THE HOST speaks the announcement itself. It waits for a gap: an
+announcement is never injected while a model turn is producing output or while the guest is
+mid-sentence, because doing so makes the model cut its own sentence off. Deferred
+announcements leave one per turn end.
+
+**Memory by name, never by face.** A profile is created only when a guest clearly says a
+name. The key is the lower-cased name; there is no biometric data anywhere in the system,
+and the camera is used only for presence counting and for pictures the guest asks about.
+An operator can correct a misheard name or delete a profile outright.
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Backend | Python 3.13, FastAPI, Uvicorn |
+| AI | Gemini Live API via `google-genai` (audio in/out, function calling) |
+| Storage | SQLite (single local file) |
+| Voice page | Vanilla HTML/CSS/JavaScript, Web Audio API, MediaPipe for presence |
+| Tests | pytest |
+
+No paid services, no cloud database, no build step for the voice page.
+
+## Getting started (Windows)
+
+**Prerequisites:** Python 3.13, Google Chrome, and a Gemini API key from Google AI Studio.
+
+```powershell
+# 1. Create and activate a virtual environment at the repository root
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# 2. Install the backend dependencies
+pip install -r campusai-v1\backend\requirements.txt
+
+# 3. Create your own configuration from the example and add your key
+Copy-Item campusai-v1\backend\.env.example campusai-v1\backend\.env
+notepad campusai-v1\backend\.env
+
+# 4. Run the backend from the backend folder
+cd campusai-v1\backend
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+Then open **http://localhost:8000/** in Chrome and allow the microphone and camera. The page
+greets a guest on its own, so it must be a visible window of its own — presence detection
+pauses while the tab is hidden. A partly overlapped window is fine; a minimised one is not.
+
+`.env` is never committed and the key is only ever read by the backend process. It is never
+logged, never sent to a browser, and never written into any file by the application.
+
+**Hard-refresh note.** The backend now serves every static file with `Cache-Control:
+no-store`, so the browser cannot keep an old copy of the voice page. If you have an older
+build cached from before that change, load the page once with **Ctrl+Shift+R** to clear it.
+
+## Configuration
+
+Every value lives in `campusai-v1/backend/.env`; `campusai-v1/backend/.env.example` lists
+them all. **Put no real secret in any file that is committed.**
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `GEMINI_API_KEY` | Your Gemini API key. Required; the backend refuses to start without it. | none |
+| `GEMINI_LIVE_MODEL` | The Gemini Live model to connect to. | `gemini-3.8-live` |
+| `GEMINI_VOICE` | The prebuilt voice THE HOST speaks with. | `Sulafat` |
+| `OPERATOR_TOKEN` | Shared secret for every privileged endpoint and the dashboard event stream. Without it those are all refused. | none |
+| `AGENT_NAME` | The name the agent uses for itself. | `THE HOST` |
+| `STALL_NAME` | The stall the agent says it works at. | `Bite & Pour` |
+| `MENU_JSON_PATH` | Seed file the menu table is loaded from on first run. | `./data/menu.json` |
+| `BUSINESS_INFO_JSON_PATH` | Seed file for the stall facts the agent may state. | `./data/business_info.json` |
+| `DB_PATH` | The SQLite file. | `./data/campus_ai.db` |
+| `FRONTEND_DIR` | Folder served as the voice page. | `../frontend` |
+| `CORS_ALLOW_ORIGINS` | Comma-separated origins allowed to call the API. No wildcard. | `http://localhost:8080,http://localhost:5173,http://localhost:4173` |
+| `PORT` | Port recorded for the frontends to use. | `8000` |
+| `VISION_SEND_MODE` | How a snapshot reaches the model: `client_content` (picture and question as one turn) or `realtime` (two calls). | `client_content` |
+
+## REST and WebSocket reference
+
+**Token** means the `X-Operator-Token` header. Everything that returns guest data or changes
+anything requires it.
+
+| Endpoint | Purpose | Token |
+|---|---|---|
+| `GET /health` | Status, model, menu row count, operational mode and per-component health | no |
+| `GET /api/menu` | The menu, for the public display's carousel | no |
+| `POST /api/vision` | The browser reporting presence and detections. A report, never a command | no |
+| `GET /api/orders` | Orders for the Orders panel, with tab counts | yes |
+| `GET /api/visitors` | Recent visitor profiles | yes |
+| `GET /api/activity` | Recent activity-feed entries | yes |
+| `GET /api/analytics` | Real aggregates for today | yes |
+| `GET /api/metrics` | Today's conversation, order, failed-tool and connection-failure counts | yes |
+| `POST /api/orders/{id}/status` | Advance, cancel, fail or flag an order | yes |
+| `POST /api/menu/{name}/availability` | Mark an item sold out or available again | yes |
+| `POST /api/operator/pause` | Pause THE HOST; any running conversation ends cleanly | yes |
+| `POST /api/operator/resume` | Return to the computed mode | yes |
+| `POST /api/operator/takeover` | The operator handles this one personally | yes |
+| `POST /api/operator/takeover/end` | Hand it back | yes |
+| `POST /api/operator/end-session` | Force-end whatever conversation is running | yes |
+| `POST /api/operator/retry-connection` | Check the AI service right now and update the mode | yes |
+| `POST /api/operator/announce` | Repeat the announcement for a ready order | yes |
+| `PATCH /api/visitors/{name_key}` | Correct a misheard name or a wrong favourite | yes |
+| `DELETE /api/visitors/{name_key}` | Forget a visitor completely. Orders are untouched | yes |
+
+| WebSocket | Purpose |
+|---|---|
+| `/ws/session` | The conversation: binary audio both ways plus `agent_state_changed`, `speech_transcript`, `interrupted`, `error` and `capture_request` |
+| `/ws/events?role=dashboard` | Read-only observer stream for the operator. Also needs the operator token, passed as a query parameter because a browser cannot set a header on a WebSocket handshake |
+| `/ws/events?role=smd` | Read-only observer stream for the public display, filtered in the backend |
+
+**Events on `/ws/events`.** Every one carries `event_id`, `timestamp` and `session_id`.
+
+| Event | Meaning |
+|---|---|
+| `state_snapshot` | Sent once on connect: boot id, mode, current state, presence, active orders |
+| `agent_state_changed` | The conversation state changed |
+| `person_detected` / `person_left` | The browser's detector saw someone arrive or leave |
+| `visitor_identified` | A spoken name matched a stored profile |
+| `speech_transcript` | A line of speech, partial or complete, from the guest or the agent |
+| `interrupted` | The guest talked over the agent and its audio was cut |
+| `order_created` / `order_updated` | An order was drafted, or its status changed |
+| `order_ready` | An order became ready and should be announced |
+| `menu_updated` | An item was marked sold out or available |
+| `memory_updated` | A visitor profile changed. Dashboard only |
+| `recommendation` | The agent recommended a specific item |
+| `vision_update` | What the browser's detectors currently report. Dashboard only |
+| `agent_activity` | One line for the activity feed. Dashboard only |
+| `system_status_changed` | A component the backend can actually observe changed. Dashboard only |
+| `operational_mode_changed` | `ONLINE`, `OFFLINE`, `PAUSED` or `OPERATOR_TAKEOVER` |
+| `capture_request` | The agent is asking the voice page for one picture. Never public |
+| `error` | A plain, human-readable failure message |
+| `heartbeat` | Every 10 seconds, so a client knows the stream is alive |
+
+## Testing
+
+```powershell
+cd campusai-v1\backend
+..\..\.venv\Scripts\python.exe -m pytest -q
+```
+
+**300 tests pass.** They cover the data model, all 13 tools, the system prompt, the event bus
+and its role filtering, the activity labels, the state machine, both WebSockets, every REST
+endpoint including its error cases, the operator controls, visitor correction, metrics and
+the order-ready announcement. The tools and the live session are tested against fakes, so
+the suite needs no API key and makes no network call.
+
+## Reliability, privacy and security
+
+- **Graceful failure.** Every failure path ends in a plain spoken sentence, a `NEEDS_HELP`
+  state and an honest mode change. Real network failures during testing produced a clean
+  recovery in under four seconds with no traceback. A tool that fails returns an error the
+  model must tell the guest about; it never pretends to have succeeded.
+- **Never invented data.** The agent reads availability, prices, orders and stall facts from
+  the database on every call. The analytics and metrics endpoints return real counts or an
+  explicit error — never a placeholder number.
+- **The API key stays server-side.** It is read once by the backend process, never logged,
+  never included in an error message, and never sent to a browser.
+- **Operator token redaction.** A browser cannot set a header on a WebSocket handshake, so
+  the dashboard's token has to travel in the URL — where the web server's access log would
+  normally print it. A logging filter rewrites it before any line is written.
+- **The public screen is filtered in the backend.** Role filtering is server-side, not a
+  frontend convention: the public display cannot receive a guest's name, the activity feed,
+  memory updates, vision detections or partial transcripts even if it asks.
+- **No face recognition, ever.** Visitors are matched by a name they said out loud. The
+  camera reports a person count and takes pictures the guest asks about; no image is stored
+  and no biometric data exists anywhere in the system.
+- **Honesty rules in the prompt.** The agent may not claim to have cancelled, created or
+  remembered anything it did not actually do through a tool call, and may not state a fact
+  about the stall it did not look up.
+- **Minimal attack surface.** No tool takes arbitrary code or SQL, every tool validates and
+  truncates its inputs, and only one conversation can run at a time.
+
+## Project structure
+
+```
+campusai-v1/
+├── backend/      the FastAPI backend — all the code described above, plus its tests
+└── frontend/     the voice page: the screen that listens, speaks and watches
+```
+
+The `campusai-v1` folder name is historical: the conversational engine began as a university
+timetable assistant called CampusAI and was migrated to this restaurant domain. The database
+filename comes from the same history. Both names were kept deliberately rather than renamed
+mid-project.
+
+The `backend/` folder at the repository root is **legacy code from an earlier, unrelated
+project and is not used** by THE HOST.
+
+The operator dashboard and the public display are a separate local web app. They are clients
+of the contract above and are not part of this repository.
+
+## Roadmap
+
+- Load the stall's final menu and prices in place of the current seed data.
+- Connect the operator dashboard and the public display to this backend.
+- Work through every row of the failure matrix deliberately, then a full event-day rehearsal.
+
+## Credits
+
+Built by **Rehman Ayoub** (lead), **Saad Saleem** and **Umair Saddiqui** — BS Computer
+Science, Government College University Faisalabad.
