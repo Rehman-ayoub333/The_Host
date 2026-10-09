@@ -12,6 +12,12 @@ import event_bus
 MAX_DETAIL_REASON = 80
 MAX_DETAIL_SPEECH = 120
 
+# 03 section 4, the two Phase 4 camera rows. `look_at_camera`'s row is emitted by
+# live_session together with the `capture_request` it sends after the tool response
+# (09 section 17), not from the usual place in the tool loop.
+LOOKED_AT_CAMERA = {"kind": "vision", "label": "Looked at the camera", "detail": None}
+CAMERA_FAILED = {"kind": "vision", "label": "Camera picture failed", "detail": None}
+
 # "A tool returns an error" (03 section 4): the same kind as the tool's success
 # row, the label below, and no detail. A tool absent from this table gets no row
 # when it errors -- recommend_item and signal_confirmation_request by design.
@@ -120,6 +126,9 @@ def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
         reason = str(result.get("reason") or args.get("reason") or "")[:MAX_DETAIL_REASON]
         return {"kind": "operator", "label": "Operator help requested", "detail": reason or None}
 
+    if name == "look_at_camera":
+        return dict(LOOKED_AT_CAMERA)
+
     return None
 
 
@@ -137,6 +146,11 @@ def emit_activity(kind: str, label: str, detail=None, session_id=None) -> None:
             "session_id": session_id,
         }
     )
+
+
+def emit_row(row: dict, session_id=None) -> None:
+    """Publish an already-built {kind, label, detail} row (09 sections 15a and 17)."""
+    emit_activity(row["kind"], row["label"], row.get("detail"), session_id)
 
 
 def emit_tool_activity(name: str, args: dict, result: dict, session_id=None) -> dict | None:

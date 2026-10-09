@@ -510,6 +510,8 @@ def test_registries_have_exact_tool_order():
         "get_business_info",
         "request_operator_help",
         "web_search",
+        # The 13th tool, added in Phase 4 (09 section 17).
+        "look_at_camera",
     ]
     assert list(tools.TOOL_FUNCTIONS) == expected
     assert [declaration["name"] for declaration in tools.TOOL_DECLARATIONS] == expected

@@ -40,6 +40,35 @@ def _finish(tool: str, args: dict, result: dict) -> dict:
     return result
 
 
+def _queue_memory_row(order, old, profile) -> None:
+    """09 section 15a: the `Memory updated` row only a tool can compute.
+
+    The old favourite is read before `data.refresh_visitor_after_order`, so the row
+    can say whether the favourite stayed, changed, or nothing but the last order did.
+    The row is appended to `ctx["activity_queue"]` (09 section 1); live_session drains
+    the queue and publishes it. Tools never publish `agent_activity` themselves.
+    """
+    if not profile:
+        return
+    name = profile["display_name"]
+    favourite = profile["favorite_item"]
+    ordered = [(entry or {}).get("name") for entry in order.get("items") or []]
+    if favourite == old and favourite in ordered:
+        detail = f"{name}: ordered {favourite} again"
+    elif favourite and favourite != old:
+        detail = f"{name}: new favourite, {favourite}"
+    else:
+        detail = f"{name}: last order updated"
+    _ctx().setdefault("activity_queue", []).append(
+        {"kind": "memory", "label": "Memory updated", "detail": detail}
+    )
+
+
+def _old_favourite(order) -> str | None:
+    profile = data.get_visitor(str(order.get("guest_name") or "").strip().lower())
+    return (profile or {}).get("favorite_item")
+
+
 def check_item_availability(item=None, category=None) -> dict:
     args = {"item": item, "category": category}
     try:
@@ -194,9 +223,11 @@ def confirm_order(order_id) -> dict:
             c["pending_order_id"] = None
         _pub({"type": "order_updated", "order": data.order_view(order)})
         if order.get("guest_name"):
+            old_favourite = _old_favourite(order)
             profile = data.refresh_visitor_after_order(order)
             if profile:
                 _pub(data.memory_event(profile))
+                _queue_memory_row(order, old_favourite, profile)
         return _finish(
             "confirm_order",
             args,
@@ -377,9 +408,11 @@ def remember_visitor(name) -> dict:
         for order in data.attach_guest_name(c.get("session_id"), profile["display_name"]):
             _pub({"type": "order_updated", "order": data.order_view(order)})
             if order["status"] in ("CONFIRMED", "PREPARING", "READY", "COLLECTED"):
+                old_favourite = _old_favourite(order)
                 linked = data.refresh_visitor_after_order(order)
                 if linked:
                     _pub(data.memory_event(linked))
+                    _queue_memory_row(order, old_favourite, linked)
         # Re-read: favourite and last order may have changed.
         profile = data.get_visitor(key)
         _pub(
@@ -416,6 +449,16 @@ def remember_visitor(name) -> dict:
 
 def signal_confirmation_request(summary) -> dict:
     return {"acknowledged": True}
+
+
+def look_at_camera(reason=None) -> dict:
+    """09 section 17: a pure signal. live_session asks the voice page for one picture."""
+    return {
+        "source": "camera",
+        "requested": True,
+        "note": "A picture is being taken now. Describe nothing until it arrives, "
+                "then describe only what is in it.",
+    }
 
 
 def get_business_info(topic=None) -> dict:
@@ -541,6 +584,7 @@ TOOL_FUNCTIONS = {
     "get_business_info": get_business_info,
     "request_operator_help": request_operator_help,
     "web_search": web_search,
+    "look_at_camera": look_at_camera,
 }
 
 
@@ -671,5 +715,15 @@ TOOL_DECLARATIONS = [
         "Look up general knowledge on the web (definitions, well-known facts). A limited instant-answer lookup that may find nothing. Do not use it for menu, order or stall questions.",
         {"query": {"type": "string", "description": "What to look up."}},
         ("query",),
+    ),
+    _decl(
+        "look_at_camera",
+        "Take one picture with the stall camera when the guest asks you to look at something they are holding or showing ('what is this?', 'look at this', 'what am I holding?'). The picture arrives right after this call; describe only what is in it.",
+        {
+            "reason": {
+                "type": "string",
+                "description": "Optional: what the guest wants you to look at.",
+            }
+        },
     ),
 ]
