@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, StrictBool, ValidationError
+from pydantic import BaseModel, Field, StrictBool, StrictInt, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import config
@@ -340,6 +340,154 @@ async def post_menu_availability(name: str, request: Request):
     return {"item": item}
 
 
+# --------------------------------------------------------- operator controls
+
+
+# 16 section 2e item 4: the connectivity probe. The key travels in a header and
+# is never logged; the response body is never read.
+MODELS_PROBE_URL = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1"
+
+PAUSED_REFUSAL = "THE HOST is paused right now. Please ask the team."
+
+
+class AnnounceRequest(BaseModel):
+    order_id: StrictInt
+
+
+async def _log_operator_action(action: str, **fields) -> None:
+    await asyncio.to_thread(
+        data.log_system_event,
+        "operator_action",
+        "operator",
+        {"action": action, **fields},
+    )
+
+
+def _operator_row(text: str) -> None:
+    """The one activity shape every operator control emits (2e item 4)."""
+    summaries.emit_activity("operator", f"Operator: {text}", None, None)
+
+
+async def _end_active_session() -> bool:
+    """Ends whatever conversation is running, down the normal stop() path."""
+    session = ACTIVE
+    if session is None:
+        return False
+    try:
+        await session.stop()
+    except Exception:
+        log.exception("could not end the active session")
+    return True
+
+
+@app.post("/api/operator/pause", dependencies=[Depends(require_operator_token)])
+async def post_operator_pause():
+    mode = health.set_override("PAUSED")
+    await _end_active_session()
+    _operator_row("paused THE HOST")
+    await _log_operator_action("pause")
+    return {"operational_mode": mode}
+
+
+@app.post("/api/operator/resume", dependencies=[Depends(require_operator_token)])
+async def post_operator_resume():
+    mode = health.set_override(None)
+    _operator_row("resumed THE HOST")
+    await _log_operator_action("resume")
+    return {"operational_mode": mode}
+
+
+@app.post("/api/operator/takeover", dependencies=[Depends(require_operator_token)])
+async def post_operator_takeover():
+    mode = health.set_override("OPERATOR_TAKEOVER")
+    await _end_active_session()
+    _operator_row("took over")
+    await _log_operator_action("takeover")
+    return {"operational_mode": mode}
+
+
+@app.post("/api/operator/takeover/end", dependencies=[Depends(require_operator_token)])
+async def post_operator_takeover_end():
+    mode = health.set_override(None)
+    _operator_row("ended the takeover")
+    await _log_operator_action("takeover_end")
+    return {"operational_mode": mode}
+
+
+@app.post("/api/operator/end-session", dependencies=[Depends(require_operator_token)])
+async def post_operator_end_session():
+    ended = await _end_active_session()
+    _operator_row("ended the conversation")
+    await _log_operator_action("end_session", ended=ended)
+    return {"ended": ended}
+
+
+@app.post("/api/operator/retry-connection", dependencies=[Depends(require_operator_token)])
+async def post_operator_retry_connection():
+    """A real check, once, now. No background loop and no retry schedule."""
+    reachable = False
+    reason = ""
+    try:
+        async with httpx.AsyncClient(timeout=config.CONNECT_TIMEOUT_S) as client:
+            response = await client.get(
+                MODELS_PROBE_URL, headers={"x-goog-api-key": config.GEMINI_API_KEY}
+            )
+        reachable = response.status_code == 200
+        if not reachable:
+            # The status code only: the body can carry the key back.
+            reason = f"The AI service answered {response.status_code}."
+    except Exception as exc:
+        # The type only, for the same reason.
+        reason = f"The AI service could not be reached ({type(exc).__name__})."
+
+    if reachable:
+        health.connect_ok()
+    else:
+        log.info("retry-connection failed: %s", reason)
+        health.connect_failed(reason)
+
+    _operator_row("retried the connection")
+    await _log_operator_action("retry_connection", reachable=reachable)
+    return {"operational_mode": health.mode(), "reachable": reachable}
+
+
+@app.post("/api/operator/announce", dependencies=[Depends(require_operator_token)])
+async def post_operator_announce(request: Request):
+    """A deliberate repeat: it bypasses the `announced` guard (04 section 5)."""
+    try:
+        body = AnnounceRequest.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid announcement request.")
+
+    order = await asyncio.to_thread(_read_db, data.get_order, body.order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="There is no order with that number.")
+    if order["status"] != "READY":
+        raise HTTPException(
+            status_code=400, detail="Only a READY order can be announced again."
+        )
+
+    view = data.order_view(order)
+    event_bus.publish(
+        {
+            "type": "order_ready",
+            "order_id": order["id"],
+            "customer_name": order.get("guest_name"),
+            "session_id": None,
+        }
+    )
+    session = ACTIVE
+    if session is not None:
+        try:
+            await session.announce(order)
+        except Exception:
+            log.exception("the repeated announcement could not be spoken")
+
+    _operator_row(f"repeated the announcement for order #{order['id']}")
+    await _log_operator_action("announce", order_id=order["id"])
+    return {"order": view}
+
+
 # --------------------------------------------------------------- vision input
 
 
@@ -440,13 +588,14 @@ async def websocket_session(websocket: WebSocket):
     trigger = websocket.query_params.get("trigger", "button")
     if trigger != "presence":
         trigger = "button"
-    if ACTIVE is not None:
+
+    async def refuse(message: str) -> None:
         await websocket.send_text(
             json.dumps(
                 event_bus.stamp(
                     {
                         "type": "error",
-                        "message": "Another conversation is already active.",
+                        "message": message,
                         "recoverable": True,
                         "session_id": None,
                     }
@@ -454,6 +603,15 @@ async def websocket_session(websocket: WebSocket):
             )
         )
         await websocket.close()
+
+    # 16 section 2e item 4: an operator override wins over everything, so it is
+    # checked before the single-session rule.
+    if health.mode() in health.OVERRIDES:
+        log.info("session refused: operational_mode=%s", health.mode())
+        await refuse(PAUSED_REFUSAL)
+        return
+    if ACTIVE is not None:
+        await refuse("Another conversation is already active.")
         return
 
     session = LiveSession(websocket, trigger)
