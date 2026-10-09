@@ -24,7 +24,7 @@ import {
   Users,
   Volume2,
 } from "lucide-react";
-import { useAgent } from "@/lib/agent/store";
+import { agentStore, useAgent } from "@/lib/agent/store";
 import { STATE_META, fmtAgo, fmtClock, fmtCountdown, useNow } from "@/lib/agent/ui";
 import type { ActivityKind, AgentStateName, Order, OrderStatus, SystemComponent } from "@/lib/agent/types";
 import { setOrderStatus } from "@/lib/agent/service";
