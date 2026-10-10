@@ -12,7 +12,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { initCrossWindowSync } from "../lib/agent/store";
+import { initDemoSync } from "../lib/agent/store";
 import { connectAgent } from "../lib/agent/service";
 import { Button } from "@/components/ui/button";
 
@@ -110,8 +110,10 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   useEffect(() => {
-    initCrossWindowSync();
-    void connectAgent();
+    initDemoSync();
+    // The public display opens its own role=smd socket; every other screen
+    // is the operator dashboard.
+    if (window.location.pathname !== "/display") connectAgent("dashboard");
   }, []);
 
   return (
