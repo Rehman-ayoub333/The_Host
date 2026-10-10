@@ -12,6 +12,7 @@ import {
   Settings,
   ShoppingBag,
   Users,
+  UtensilsCrossed,
   X,
 } from "lucide-react";
 import { useAgent } from "@/lib/agent/store";
@@ -24,7 +25,7 @@ import { DemoIntro, DemoStepper } from "./DemoMode";
 
 const NAV = [
   { label: "Core", items: [{ to: "/", label: "Command Center", icon: Home }, { to: "/vision", label: "Live Vision", icon: Eye }] },
-  { label: "Experience", items: [{ to: "/orders", label: "Orders", icon: ShoppingBag }, { to: "/visitors", label: "Visitors", icon: Users }, { to: "/memory", label: "Memory", icon: Bookmark }] },
+  { label: "Experience", items: [{ to: "/orders", label: "Orders", icon: ShoppingBag }, { to: "/menu", label: "Menu", icon: UtensilsCrossed }, { to: "/visitors", label: "Visitors", icon: Users }, { to: "/memory", label: "Memory", icon: Bookmark }] },
   { label: "Insight", items: [{ to: "/activity", label: "AI Activity", icon: Activity }, { to: "/analytics", label: "Analytics", icon: ChartNoAxesColumn }] },
   { label: "System", items: [{ to: "/settings", label: "Settings", icon: Settings }] },
 ] as const;
@@ -32,7 +33,7 @@ const NAV = [
 function Sidebar({ onDemo, onNavigate }: { onDemo: () => void; onNavigate?: () => void }) {
   const connection = useAgent((s) => s.connection);
   const mode = useAgent((s) => s.mode);
-  const live = mode === "demo" || connection === "connected";
+  const live = mode === "demo" || connection === "live";
   return (
     <div className="flex h-full flex-col">
       <div className="px-6 pb-6 pt-8">

@@ -68,10 +68,3 @@ export function DemoTag() {
   );
 }
 
-export function SampleTag() {
-  return (
-    <span className="rounded-sm border border-gold/30 bg-gold/5 px-1.5 py-0.5 font-mono text-[0.58rem] font-semibold uppercase tracking-widest text-gold/80">
-      Sample data
-    </span>
-  );
-}
