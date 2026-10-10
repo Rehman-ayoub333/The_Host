@@ -625,6 +625,137 @@ def test_turn_in_progress_is_cleared_by_an_interruption_as_well():
     assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
 
 
+# ------------------- Phase 5: the connect window (16 section 2e item 1a)
+
+
+ANNOUNCEMENT_20 = (
+    "An order just became ready: order #20 for a guest. "
+    "Let the guests know, briefly and naturally, even if it is not their order."
+)
+
+
+class FailingLiveApiSession(doubles.FakeLiveApiSession):
+    """A Gemini session whose socket has gone away mid-call."""
+
+    async def send_realtime_input(self, **kwargs):
+        raise RuntimeError("the live socket is gone")
+
+
+def test_an_announcement_during_the_gemini_connect_is_deferred(caplog):
+    """The 10 Oct live check: `main` publishes ACTIVE the moment the socket opens,
+    so `self.session` is still None for the whole Gemini connect. The announcement
+    used to hit None, be lost, and leave `announcing` true, which mislabelled the
+    greeting as ANNOUNCING (16 section 2e item 1a).
+    """
+    session, ws = doubles.new_session()
+    # _start() has not assigned the Live API session yet.
+    session.session = None
+    session_id = session.ctx["session_id"]
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        # Nothing may be raised: the operator's call still has to succeed.
+        asyncio.run(session.announce({"id": 20, "guest_name": None}))
+
+    messages = [record.getMessage() for record in caplog.records]
+    print("log lines:", messages)
+    print("pending:", [order["id"] for order in session.pending_announcements])
+    print("announcing:", session.announcing)
+    assert f"announce deferred session {session_id} order 20" in messages
+    assert [order["id"] for order in session.pending_announcements] == [20]
+    assert session.announcing is False
+    assert session.announcing_turn is False
+
+    # The connect finishes and the session starts for real.
+    session.session = doubles.FakeLiveApiSession()
+    asyncio.run(session._send_state("LISTENING"))
+
+    # The first audio of the session is the greeting, not the announcement.
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x00"))))
+    print("state on the first audio:", doubles.states(ws))
+    assert doubles.states(ws)[-1] == "GREETING"
+    assert session.session.inputs == []
+
+    # The announcement leaves at that turn's end.
+    asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+    print("Gemini inputs after the greeting ended:", session.session.inputs)
+    assert session.session.inputs == [{"text": ANNOUNCEMENT_20}]
+    assert session.announcing is True
+    assert session.pending_announcements == []
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x01"))))
+    print("states:", doubles.states(ws))
+    assert doubles.states(ws)[-1] == "ANNOUNCING"
+    doubles.validate(ws)
+
+
+def test_a_failed_send_leaves_the_next_turn_unlabelled():
+    """2e item 1a (ii): nothing was said, so nothing may be called ANNOUNCING."""
+    session, ws = doubles.new_session()
+    session.session = FailingLiveApiSession()
+    asyncio.run(session._send_state("LISTENING"))
+    session.greeted = True
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(session.announce({"id": 20, "guest_name": None}))
+
+    print("announcing:", session.announcing, "announcing_turn:", session.announcing_turn)
+    assert session.announcing is False
+    assert session.announcing_turn is False
+
+    # A later turn is an ordinary one.
+    session.session = doubles.FakeLiveApiSession()
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x00"))))
+    print("states after the failed announcement:", doubles.states(ws))
+    assert doubles.states(ws)[-1] == "SPEAKING"
+
+
+def test_a_failed_send_does_not_clear_an_announcement_already_in_flight():
+    """A send that fails must not cancel the announcing turn that is already live."""
+    session, ws = doubles.new_session()
+    asyncio.run(session._send_state("LISTENING"))
+    session.greeted = True
+
+    # One announcement is spoken and its turn is under way.
+    asyncio.run(session.announce({"id": 27, "guest_name": "Ahmed"}))
+    asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x00"))))
+    assert doubles.states(ws)[-1] == "ANNOUNCING"
+    assert session.announcing_turn is True
+
+    # The operator's repeat fails on a dead socket.
+    session.session = FailingLiveApiSession()
+    with pytest.raises(RuntimeError):
+        asyncio.run(session._announce_now({"id": 28, "guest_name": None}))
+
+    print("announcing:", session.announcing, "announcing_turn:", session.announcing_turn)
+    # The flags are cleared because this send said nothing; the turn that is
+    # already playing keeps its ANNOUNCING label, which was sent long ago.
+    assert session.announcing is False
+    assert doubles.states(ws)[-1] == "ANNOUNCING"
+
+
+def test_the_operator_announce_endpoint_survives_the_connect_window(served, monkeypatch):
+    """End to end: the endpoint still returns 200 and order_ready still goes out."""
+    order_id = confirmed()
+    advance(served, order_id, "PREPARING")
+    advance(served, order_id, "READY")
+
+    session, ws = doubles.new_session()
+    session.session = None
+    monkeypatch.setattr(main, "ACTIVE", session)
+
+    event_bus.PUBLISHED.clear()
+    response = served.post(
+        "/api/operator/announce", json={"order_id": order_id}, headers=AUTH
+    )
+    print("POST /api/operator/announce ->", response.status_code)
+    print("published:", [event["type"] for event in event_bus.PUBLISHED])
+    assert response.status_code == 200
+    assert of_type("order_ready")[0]["order_id"] == order_id
+    print("pending:", [order["id"] for order in session.pending_announcements])
+    assert [order["id"] for order in session.pending_announcements] == [order_id]
+    assert session.announcing is False
+
+
 def test_ready_with_no_session_publishes_order_ready_and_says_nothing(served):
     assert main.ACTIVE is None
     session, ws = doubles.new_session()

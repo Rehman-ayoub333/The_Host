@@ -524,14 +524,18 @@ class LiveSession:
     # ------------------------------------------------------------ announcement
 
     async def announce(self, order) -> None:
-        """16 section 2e item 1: speak it now only if nobody is mid-turn.
+        """16 section 2e items 1 and 1a: speak it now only if nothing is in the way.
 
         A model turn counts as in progress from its first output until its
         `turn_complete`, tool responses included; a non-empty visitor buffer
-        means the guest is still in the middle of a sentence. Either way the
-        announcement waits for the gap instead of cutting someone off.
+        means the guest is still in the middle of a sentence. `self.session` is
+        None for the whole Gemini connect, because `main` publishes `ACTIVE` as
+        soon as the socket opens (item 1a: the connect window is not a gap
+        either, and `ACTIVE` deliberately stays where it is so the
+        one-conversation guard keeps working). In every case the announcement
+        waits and leaves from the next end of turn.
         """
-        if self.turn_in_progress or self.transcripts["visitor"]:
+        if self.session is None or self.turn_in_progress or self.transcripts["visitor"]:
             log.info(
                 "announce deferred session %s order %s",
                 self.ctx["session_id"],
@@ -544,15 +548,23 @@ class LiveSession:
 
     async def _announce_now(self, order) -> None:
         """2c item 3 / 04 section 5 step 3: THE HOST's own voice, this turn only."""
-        self.announcing = True
         log.info(
             "announce session %s order %s", self.ctx["session_id"], order["id"]
         )
-        await self.session.send_realtime_input(
-            text=prompts.ANNOUNCE_TEMPLATE.format(
-                order_id=order["id"], name=order.get("guest_name") or "a guest"
+        try:
+            await self.session.send_realtime_input(
+                text=prompts.ANNOUNCE_TEMPLATE.format(
+                    order_id=order["id"], name=order.get("guest_name") or "a guest"
+                )
             )
-        )
+        except Exception:
+            # 2e item 1a (ii): nothing was said, so the next turn must not be
+            # labelled ANNOUNCING. The caller logs and swallows (2c item 3).
+            self.announcing = False
+            self.announcing_turn = False
+            raise
+        # Only a send that really left sets the flag.
+        self.announcing = True
 
     # -------------------------------------------------------------- tool calls
 

@@ -262,7 +262,7 @@ cd campusai-v1\backend
 ..\..\.venv\Scripts\python.exe -m pytest -q
 ```
 
-**300 tests pass.** They cover the data model, all 13 tools, the system prompt, the event bus
+**304 tests pass.** They cover the data model, all 13 tools, the system prompt, the event bus
 and its role filtering, the activity labels, the state machine, both WebSockets, every REST
 endpoint including its error cases, the operator controls, visitor correction, metrics and
 the order-ready announcement. The tools and the live session are tested against fakes, so
