@@ -49,7 +49,7 @@ export interface DetectedObject {
 export interface OrderItem {
   name: string;
   quantity: number;
-  price?: number;
+  price?: number | undefined;
 }
 
 export type OrderStatus =
@@ -66,21 +66,21 @@ export interface Order {
   id: string;
   items: OrderItem[];
   status: OrderStatus;
-  guest_name?: string | null;
-  total?: number | null;
-  timestamp?: number;
-  estimated_ready_at?: number | null;
-  ready_at?: number | null;
+  guest_name?: string | null | undefined;
+  total?: number | null | undefined;
+  timestamp?: number | undefined;
+  estimated_ready_at?: number | null | undefined;
+  ready_at?: number | null | undefined;
 }
 
 export interface Visitor {
-  name_key?: string;
+  name_key?: string | undefined;
   name: string;
   visits: number;
-  favorite_item?: string | null;
-  last_order?: string | null;
-  first_seen?: number;
-  last_seen?: number;
+  favorite_item?: string | null | undefined;
+  last_order?: string | null | undefined;
+  first_seen?: number | undefined;
+  last_seen?: number | undefined;
   returning: boolean;
 }
 
@@ -88,9 +88,9 @@ export interface MemoryEntry {
   id: string;
   name: string;
   visits: number;
-  favorite_item?: string | null;
-  last_order?: string | null;
-  last_seen?: number;
+  favorite_item?: string | null | undefined;
+  last_order?: string | null | undefined;
+  last_seen?: number | undefined;
   returning: boolean;
 }
 
@@ -126,10 +126,10 @@ export interface MenuItem {
   name: string;
   category: string;
   price: string | number;
-  description?: string;
-  image_url?: string | null;
+  description?: string | undefined;
+  image_url?: string | null | undefined;
   available: boolean;
-  prep_seconds?: number | null;
+  prep_seconds?: number | null | undefined;
 }
 
 /** Events the backend sends over /ws/events (exact shapes). */

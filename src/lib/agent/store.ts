@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { Activity, ActivityKind, AgentEvent, AgentSnapshot, AgentStateName, BackendState, LocalAction } from "./types";
+import type { Activity, ActivityKind, AgentEvent, AgentSnapshot, AgentStateName, BackendState, LocalAction, Order } from "./types";
 
 export const initialSnapshot: AgentSnapshot = {
   mode: "live",
