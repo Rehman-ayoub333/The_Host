@@ -68,7 +68,7 @@ let state = "booth_off";
 let endingByUs = false;
 let lastActivity = 0;
 let sessionStartedAt = 0;
-let timers = { tick: null, recover: null, toast: null, snapshot: null };
+let timers = { tick: null, recover: null, toast: null, snapshot: null, voiceActivity: null };
 let armed = true;
 let lastAutoGreetAt = 0;
 let micAvailable = false;
@@ -78,6 +78,7 @@ let autoGreetEnabled = els.autoGreet.checked;
 let cameraStream = null;
 let lastLine = null;
 const vision = { sentPresent: null, sentPeople: null, sentAt: 0, warned: false, timer: null };
+const voice = { onPolls: 0, belowSince: 0, sent: false };
 
 function now() {
   return Date.now();
@@ -176,6 +177,48 @@ function reportVision(force) {
     });
 }
 
+function sendVoiceActivity(active) {
+  // Never the same value twice in a row, and never a level: the backend only
+  // needs to know whether the guest is talking right now (16 section 2f item 2).
+  if (voice.sent === active) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  voice.sent = active;
+  ws.send(JSON.stringify({ type: "voice_activity", active }));
+}
+
+function pollVoiceActivity() {
+  if (!isSessionActive() || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (audio.getMicAmp() >= C.VOICE_ACTIVE_LEVEL) {
+    voice.belowSince = 0;
+    voice.onPolls += 1;
+    // 0.05 of playback means THE HOST is speaking, so this is its own voice
+    // coming back through the microphone, not the guest.
+    if (voice.onPolls >= C.VOICE_ON_POLLS && audio.getPlaybackAmp() < 0.05) {
+      sendVoiceActivity(true);
+    }
+    return;
+  }
+  voice.onPolls = 0;
+  if (!voice.belowSince) voice.belowSince = now();
+  if (now() - voice.belowSince >= C.VOICE_OFF_MS) sendVoiceActivity(false);
+}
+
+function startVoiceActivity() {
+  // The backend hears the guest only when Gemini transcribes them, a second or
+  // more after the first syllable, which is too late to hold an announcement
+  // back. The mic meter the robot face already uses knows sooner.
+  stopVoiceActivity();
+  voice.onPolls = 0;
+  voice.belowSince = 0;
+  voice.sent = false;
+  timers.voiceActivity = setInterval(pollVoiceActivity, C.VOICE_POLL_MS);
+}
+
+function stopVoiceActivity() {
+  clearInterval(timers.voiceActivity);
+  timers.voiceActivity = null;
+}
+
 function handleControl(message) {
   if (message.type === "agent_state_changed") {
     if (!isSessionActive()) return;
@@ -227,6 +270,7 @@ async function startSession(trigger) {
     sessionStartedAt = lastActivity = now();
     clearInterval(timers.tick);
     timers.tick = setInterval(tickCheck, 1000);
+    startVoiceActivity();
   };
   ws.onmessage = (event) => {
     if (event.data instanceof ArrayBuffer) {
@@ -252,6 +296,7 @@ function endSession(reason) {
   endingByUs = true;
   clearInterval(timers.tick);
   timers.tick = null;
+  stopVoiceActivity();
   audio.stopMic();
   audio.flushPlayback();
   if (ws && ws.readyState === WebSocket.OPEN) ws.close();
@@ -403,6 +448,7 @@ window.addEventListener("keydown", (event) => {
 });
 window.addEventListener("beforeunload", () => {
   clearInterval(vision.timer);
+  stopVoiceActivity();
   endingByUs = true;
   if (ws && ws.readyState === WebSocket.OPEN) ws.close();
   audio.stopMic();
