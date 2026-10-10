@@ -10,7 +10,7 @@ export function AIOrb({ state, className }: { state: AgentStateName; className?:
   const rings = meta.rings;
 
   return (
-    <div className={cn("nexa-orb relative aspect-square", className)} data-tone={meta.tone} aria-label={`THE HOST is ${meta.label}`} role="img">
+    <div className={cn("host-orb relative aspect-square", className)} data-tone={meta.tone} aria-label={`THE HOST is ${meta.label}`} role="img">
       <svg viewBox="0 0 400 400" className="absolute inset-0 h-full w-full overflow-visible">
         <defs>
           <radialGradient id="orb-core" cx="50%" cy="45%" r="55%">
