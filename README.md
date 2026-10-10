@@ -24,17 +24,17 @@ a screen comes from the database — never from a guess.
    knows their usual. It never recognises a face.
 6. The guest can hold something up and ask "what is this?" — or THE HOST can ask the page
    for a picture itself when a question needs eyes.
-7. The operator marks the order ready. THE HOST announces it out loud in the middle of
-   whatever conversation it is having, and the public display shows it.
+7. The operator marks the order ready. THE HOST waits for a gap in the conversation and
+   then announces it out loud, and the public display shows it.
 
 ## Key features
 
 - **Unprompted greeting** from on-device presence detection — no wake word, no button.
 - **Live voice both ways** through the Gemini Live API (16 kHz in, 24 kHz out).
-- **Vision on demand**: the guest can show the camera something, and the agent can also
-  request a snapshot itself mid-sentence.
+- **Vision on demand**: the guest can show the camera something, and THE HOST takes a
+  picture itself when the guest asks it to look.
 - **13 tools** the model can call, each validating its own input and reading live data.
-- **Two-step confirmed orders**: nothing is charged without a spoken yes.
+- **Two-step confirmed orders**: nothing is placed without a spoken yes.
 - **Name-based memory**, never face recognition.
 - **An 11-state conversation machine** that drives the robot face and the dashboard label.
 - **One event bus, two audiences**: the operator's dashboard sees everything; the public
@@ -125,9 +125,11 @@ completed transcript lines, never partials.
 **The announcement.** Moving an order to `READY` flips an atomic `announced` flag, so the
 same order can never be announced twice. The order-ready event goes to both screens, and if
 a conversation is running THE HOST speaks the announcement itself. It waits for a gap: an
-announcement is never injected while a model turn is producing output or while the guest is
-mid-sentence, because doing so makes the model cut its own sentence off. Deferred
-announcements leave one per turn end.
+announcement is never injected while a model turn is producing output, while the guest is
+mid-sentence, or while the voice page's microphone meter says the guest is talking, because
+doing so makes the model cut its own sentence off. Even in a gap it waits 0.8 seconds and
+looks again, since a guest's first syllable reaches the room before it reaches the backend.
+Deferred announcements leave one per turn end, or as soon as the guest falls silent.
 
 **Memory by name, never by face.** A profile is created only when a guest clearly says a
 name. The key is the lower-cased name; there is no biometric data anywhere in the system,
@@ -232,6 +234,14 @@ anything requires it.
 | `/ws/events?role=dashboard` | Read-only observer stream for the operator. Also needs the operator token, passed as a query parameter because a browser cannot set a header on a WebSocket handshake |
 | `/ws/events?role=smd` | Read-only observer stream for the public display, filtered in the backend |
 
+**What the voice page sends back on `/ws/session`:** microphone audio as raw PCM,
+`vision_frame` (one JPEG, when the guest shows the camera something or THE HOST asks for a
+picture), `text_input` (a typed line, when the microphone is unavailable) and
+`voice_activity` — `{"active": true}` or `{"active": false}`, nothing else. It comes from
+the microphone meter the robot face already uses: no audio and no level ever leaves the
+page in it. It exists so the backend knows the guest has started speaking before Gemini
+transcribes them, which is a second or more earlier, and can hold an announcement back.
+
 **Events on `/ws/events`.** Every one carries `event_id`, `timestamp` and `session_id`.
 
 | Event | Meaning |
@@ -262,11 +272,11 @@ cd campusai-v1\backend
 ..\..\.venv\Scripts\python.exe -m pytest -q
 ```
 
-**304 tests pass.** They cover the data model, all 13 tools, the system prompt, the event bus
+**315 tests pass.** They cover the data model, all 13 tools, the system prompt, the event bus
 and its role filtering, the activity labels, the state machine, both WebSockets, every REST
 endpoint including its error cases, the operator controls, visitor correction, metrics and
-the order-ready announcement. The tools and the live session are tested against fakes, so
-the suite needs no API key and makes no network call.
+the order-ready announcement with every condition that defers it. The tools and the live
+session are tested against fakes, so the suite needs no API key and makes no network call.
 
 ## Reliability, privacy and security
 
