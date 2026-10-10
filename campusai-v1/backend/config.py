@@ -49,3 +49,6 @@ EVENT_SEND_TIMEOUT_S = 1
 VISION_MAX_PEOPLE = 50
 VISION_MAX_OBJECTS = 10
 LOOK_TIMEOUT_S = 6
+# 16 section 2f item 5: how long an immediate announcement waits and looks again,
+# so a guest who has only just started speaking is not talked over.
+ANNOUNCE_GRACE_S = 0.8

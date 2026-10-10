@@ -94,6 +94,11 @@ class LiveSession:
         # response, so an announcement cannot be injected into the gap between a
         # tool result and the audio it produces (the order #12 sequence).
         self.turn_in_progress = False
+        # 16 section 2f item 3: what the voice page's mic meter reports. The
+        # backend's own evidence that the guest is talking (an input
+        # transcription fragment) arrives a second or more after the first
+        # syllable, which is too late to stop an announcement.
+        self.guest_voice_active = False
         self.greeted = False
         self.recommended_this_turn = False
         self.announcing = False
@@ -282,6 +287,7 @@ class LiveSession:
         # 16 section 2d item 3: a deferred announcement dies with the session. The
         # order is already READY and order_ready reached both screens long ago.
         self.pending_announcements.clear()
+        self.guest_voice_active = False
         if self.stack is not None:
             try:
                 await self.stack.aclose()
@@ -419,6 +425,20 @@ class LiveSession:
                     await self._flush_transcript("visitor")
                     await self._emit_transcript("visitor", text, True)
                     await self.session.send_realtime_input(text=text)
+            elif message_type == "voice_activity":
+                try:
+                    voice_message = schemas.VoiceActivityMessage.model_validate(payload)
+                except ValidationError:
+                    log.warning("ignored invalid voice_activity message")
+                    continue
+                log.info(
+                    "voice_activity session %s active=%s",
+                    self.ctx["session_id"],
+                    "true" if voice_message.active else "false",
+                )
+                self.guest_voice_active = voice_message.active
+                if not voice_message.active:
+                    await self._announce_on_silence()
             else:
                 log.warning("ignored unknown browser message type: %s", message_type)
 
@@ -509,10 +529,12 @@ class LiveSession:
         if self.announcing_turn:
             self.announcing = False
             self.announcing_turn = False
-        if self.pending_announcements:
+        if self.pending_announcements and not self.guest_voice_active:
             # 16 section 2d item 3: one deferred announcement per turn end, after
             # the resting state is set. Injecting it mid-turn made Gemini cut its
             # own greeting off at the booth, so it waits for a gap instead.
+            # 2f item 4: the end of THE HOST's turn is not a gap at all if the
+            # guest has already started talking into it.
             order = self.pending_announcements.pop(0)
             try:
                 await self._announce_now(order)
@@ -523,28 +545,64 @@ class LiveSession:
 
     # ------------------------------------------------------------ announcement
 
-    async def announce(self, order) -> None:
-        """16 section 2e items 1 and 1a: speak it now only if nothing is in the way.
+    def _announcement_blocked(self) -> bool:
+        """Everything that makes this moment the wrong one to speak into.
 
         A model turn counts as in progress from its first output until its
         `turn_complete`, tool responses included; a non-empty visitor buffer
         means the guest is still in the middle of a sentence. `self.session` is
         None for the whole Gemini connect, because `main` publishes `ACTIVE` as
-        soon as the socket opens (item 1a: the connect window is not a gap
-        either, and `ACTIVE` deliberately stays where it is so the
-        one-conversation guard keeps working). In every case the announcement
-        waits and leaves from the next end of turn.
+        soon as the socket opens (16 section 2e item 1a: the connect window is
+        not a gap either, and `ACTIVE` deliberately stays where it is so the
+        one-conversation guard keeps working). `guest_voice_active` is the voice
+        page's mic meter (2f item 4), which hears the guest before Gemini
+        transcribes them.
         """
-        if self.session is None or self.turn_in_progress or self.transcripts["visitor"]:
-            log.info(
-                "announce deferred session %s order %s",
-                self.ctx["session_id"],
-                order["id"],
-            )
-            if all(pending["id"] != order["id"] for pending in self.pending_announcements):
-                self.pending_announcements.append(order)
+        return bool(
+            self.session is None
+            or self.turn_in_progress
+            or self.transcripts["visitor"]
+            or self.guest_voice_active
+        )
+
+    def _defer_announcement(self, order) -> None:
+        log.info(
+            "announce deferred session %s order %s",
+            self.ctx["session_id"],
+            order["id"],
+        )
+        if all(pending["id"] != order["id"] for pending in self.pending_announcements):
+            self.pending_announcements.append(order)
+
+    async def announce(self, order) -> None:
+        """16 section 2e items 1 and 1a and 2f items 4 and 5: speak it now only
+        if nothing is in the way, and only if nothing turns up during the grace.
+
+        A deferred announcement leaves from the next end of turn, or from the
+        `voice_activity` message that says the guest has stopped talking.
+        """
+        if self._announcement_blocked():
+            self._defer_announcement(order)
+            return
+        # 2f item 5: a guest who has only just started speaking is still
+        # invisible here, so wait a moment and look at every condition again.
+        await asyncio.sleep(config.ANNOUNCE_GRACE_S)
+        if self._announcement_blocked():
+            self._defer_announcement(order)
             return
         await self._announce_now(order)
+
+    async def _announce_on_silence(self) -> None:
+        """2f item 4: the guest stopped talking, so this is a gap to speak into."""
+        if self.turn_in_progress or not self.pending_announcements:
+            return
+        order = self.pending_announcements.pop(0)
+        try:
+            await self._announce_now(order)
+        except Exception:
+            # The order is READY and order_ready already reached both screens;
+            # a failed injection must never end the conversation (2c item 3).
+            log.exception("the deferred order-ready announcement could not be spoken")
 
     async def _announce_now(self, order) -> None:
         """2c item 3 / 04 section 5 step 3: THE HOST's own voice, this turn only."""

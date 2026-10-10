@@ -87,3 +87,10 @@ class TextInputMessage(BaseModel):
 
     type: Literal["text_input"]
     text: str
+
+
+class VoiceActivityMessage(BaseModel):
+    """Browser -> backend (16 section 2f item 3). The flag only, never a level."""
+
+    type: Literal["voice_activity"]
+    active: bool

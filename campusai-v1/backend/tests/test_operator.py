@@ -49,6 +49,16 @@ def served(monkeypatch):
         yield client
 
 
+@pytest.fixture(autouse=True)
+def no_grace(monkeypatch):
+    """16 section 2f item 5 makes an immediate announcement wait
+    `ANNOUNCE_GRACE_S` and look again. These tests are about what is sent and
+    what it is labelled, not about the wait, so the grace is zero here. The
+    grace itself is tested in `test_voice_activity.py`.
+    """
+    monkeypatch.setattr(config, "ANNOUNCE_GRACE_S", 0)
+
+
 def confirmed(guest_name="Ahmed", items=(BURGER,)):
     order_id = data.create_order_draft(list(items), guest_name, "s-1")["order_id"]
     data.update_order_status(order_id, "CONFIRMED")

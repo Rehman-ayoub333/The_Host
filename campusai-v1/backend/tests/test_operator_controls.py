@@ -47,6 +47,14 @@ def served(monkeypatch):
         yield client
 
 
+@pytest.fixture(autouse=True)
+def no_grace(monkeypatch):
+    """The announce endpoint's grace (16 section 2f item 5) is tested in
+    `test_voice_activity.py`; here it would only slow the suite down.
+    """
+    monkeypatch.setattr(config, "ANNOUNCE_GRACE_S", 0)
+
+
 def of_type(event_type):
     return [event for event in event_bus.PUBLISHED if event["type"] == event_type]
 
