@@ -3,6 +3,7 @@ import base64
 import contextlib
 import json
 import logging
+import time
 from datetime import datetime
 from uuid import uuid4
 
@@ -44,6 +45,14 @@ TOOL_STATES = {
 # 16 section 2a item 11: the source tag a tool result falls back to.
 MENU_TOOLS = ("check_item_availability", "get_business_info")
 UNSOURCED_TOOLS = ("recommend_item", "signal_confirmation_request")
+
+# 16 section 2g item 4: how often the watcher looks at a pending announcement.
+ANNOUNCE_WATCH_INTERVAL_S = 1
+
+
+def _now() -> float:
+    """The monotonic clock, in one place so a test can wind it forward."""
+    return time.monotonic()
 
 
 def failure_message(exc: Exception) -> str:
@@ -99,12 +108,22 @@ class LiveSession:
         # transcription fragment) arrives a second or more after the first
         # syllable, which is too late to stop an announcement.
         self.guest_voice_active = False
+        # 16 section 2g item 4: when the flag last turned true, and when Gemini
+        # last proved the guest really is talking. A flag that stays true with
+        # no transcription behind it is room noise, not a guest.
+        self.voice_active_since = None
+        self.last_input_transcript_at = None
+        self.voice_stale_logged = False
         self.greeted = False
         self.recommended_this_turn = False
         self.announcing = False
         self.announcing_turn = False
         # 16 section 2d item 3: announcements that arrived mid-turn, newest last.
         self.pending_announcements = []
+        # 16 section 2g item 4: order id -> when it was first deferred, and the
+        # one task that makes sure none of them waits for ever.
+        self.pending_deferred_at = {}
+        self.announce_watcher = None
         # 09 section 17: the timer waiting for a picture we asked the page for.
         self.look_timer = None
         self.transcripts = {"visitor": "", "agent": ""}
@@ -284,10 +303,14 @@ class LiveSession:
         if self.tasks:
             await asyncio.gather(*self.tasks, return_exceptions=True)
         self._cancel_look_timer()
-        # 16 section 2d item 3: a deferred announcement dies with the session. The
-        # order is already READY and order_ready reached both screens long ago.
-        self.pending_announcements.clear()
+        self._cancel_announce_watcher()
+        # 16 section 2d item 3: a deferred announcement does not survive the
+        # session -- but 2g item 4 says it is logged and handed to the display
+        # rather than dropped in silence.
+        self._drop_pending_announcements()
         self.guest_voice_active = False
+        self.voice_active_since = None
+        self.voice_stale_logged = False
         if self.stack is not None:
             try:
                 await self.stack.aclose()
@@ -436,9 +459,30 @@ class LiveSession:
                     self.ctx["session_id"],
                     "true" if voice_message.active else "false",
                 )
+                was_active = self.guest_voice_active
                 self.guest_voice_active = voice_message.active
-                if not voice_message.active:
+                if voice_message.active:
+                    # A new latch starts its own clock and may log once (2g item 4).
+                    if not was_active:
+                        self.voice_active_since = _now()
+                        self.voice_stale_logged = False
+                else:
+                    self.voice_active_since = None
+                    self.voice_stale_logged = False
                     await self._announce_on_silence()
+            elif message_type == "session_end":
+                try:
+                    end_message = schemas.SessionEndMessage.model_validate(payload)
+                except ValidationError:
+                    log.warning("ignored invalid session_end message")
+                    continue
+                # 16 section 2g item 3: recorded only. The socket close that
+                # follows is what actually ends the conversation.
+                log.info(
+                    "session end requested session %s reason=%s",
+                    self.ctx["session_id"],
+                    end_message.reason,
+                )
             else:
                 log.warning("ignored unknown browser message type: %s", message_type)
 
@@ -479,6 +523,9 @@ class LiveSession:
                 server_content.input_transcription
                 and server_content.input_transcription.text
             ):
+                # 16 section 2g item 4: Gemini's own proof that the guest really
+                # is talking, which is what keeps the voice flag believable.
+                self.last_input_transcript_at = _now()
                 await self._on_transcript_fragment(
                     "visitor", server_content.input_transcription.text
                 )
@@ -529,13 +576,14 @@ class LiveSession:
         if self.announcing_turn:
             self.announcing = False
             self.announcing_turn = False
-        if self.pending_announcements and not self.guest_voice_active:
+        if self.pending_announcements and not self.voice_active_effective():
             # 16 section 2d item 3: one deferred announcement per turn end, after
             # the resting state is set. Injecting it mid-turn made Gemini cut its
             # own greeting off at the booth, so it waits for a gap instead.
             # 2f item 4: the end of THE HOST's turn is not a gap at all if the
             # guest has already started talking into it.
             order = self.pending_announcements.pop(0)
+            self.pending_deferred_at.pop(order["id"], None)
             try:
                 await self._announce_now(order)
             except Exception:
@@ -544,6 +592,34 @@ class LiveSession:
                 log.exception("the deferred order-ready announcement could not be spoken")
 
     # ------------------------------------------------------------ announcement
+
+    def voice_active_effective(self) -> bool:
+        """16 section 2g item 4: the voice flag, with a latched one disbelieved.
+
+        `C.VOICE_ACTIVE_LEVEL` is low enough that room noise holds the page's
+        flag true indefinitely (seen at the booth: 45 s in session 334855a7,
+        which swallowed an announcement). A flag that has been true for
+        `VOICE_ACTIVE_STALE_S` with no input transcription in that window is
+        noise, so the deferral stops believing it.
+        """
+        if not self.guest_voice_active:
+            return False
+        if self.voice_active_since is None:
+            return True
+        now = _now()
+        if now - self.voice_active_since < config.VOICE_ACTIVE_STALE_S:
+            return True
+        last = self.last_input_transcript_at
+        if last is not None and now - last < config.VOICE_ACTIVE_STALE_S:
+            return True
+        if not self.voice_stale_logged:
+            # Once per latch, not once per check.
+            self.voice_stale_logged = True
+            log.info(
+                "voice_activity stale session %s, treated as inactive",
+                self.ctx["session_id"],
+            )
+        return False
 
     def _announcement_blocked(self) -> bool:
         """Everything that makes this moment the wrong one to speak into.
@@ -562,7 +638,7 @@ class LiveSession:
             self.session is None
             or self.turn_in_progress
             or self.transcripts["visitor"]
-            or self.guest_voice_active
+            or self.voice_active_effective()
         )
 
     def _defer_announcement(self, order) -> None:
@@ -573,6 +649,8 @@ class LiveSession:
         )
         if all(pending["id"] != order["id"] for pending in self.pending_announcements):
             self.pending_announcements.append(order)
+            self.pending_deferred_at[order["id"]] = _now()
+        self._start_announce_watcher()
 
     async def announce(self, order) -> None:
         """16 section 2e items 1 and 1a and 2f items 4 and 5: speak it now only
@@ -597,12 +675,102 @@ class LiveSession:
         if self.turn_in_progress or not self.pending_announcements:
             return
         order = self.pending_announcements.pop(0)
+        self.pending_deferred_at.pop(order["id"], None)
         try:
             await self._announce_now(order)
         except Exception:
             # The order is READY and order_ready already reached both screens;
             # a failed injection must never end the conversation (2c item 3).
             log.exception("the deferred order-ready announcement could not be spoken")
+
+    # -------------------------------------------------- the deferral watchdog
+
+    def _start_announce_watcher(self) -> None:
+        if self.announce_watcher is not None and not self.announce_watcher.done():
+            return
+        if self.closed or not self.pending_announcements:
+            return
+        self.announce_watcher = asyncio.create_task(self._watch_pending())
+
+    def _cancel_announce_watcher(self) -> None:
+        if self.announce_watcher is not None and not self.announce_watcher.done():
+            self.announce_watcher.cancel()
+        self.announce_watcher = None
+
+    async def _watch_pending(self) -> None:
+        """16 section 2g item 4: one task per session, so nothing waits for ever.
+
+        `_end_of_turn` and the `active: false` message are still the ordinary
+        ways out; this only catches the case where neither ever happens --
+        a latched voice flag, or a guest who simply never stops making noise.
+        """
+        try:
+            while self.pending_announcements and not self.closed:
+                await asyncio.sleep(ANNOUNCE_WATCH_INTERVAL_S)
+                if self.closed or not self.pending_announcements:
+                    break
+                order = self.pending_announcements[0]
+                waited = _now() - self.pending_deferred_at.get(order["id"], _now())
+                a_real_gap = (
+                    self.session is not None
+                    and not self.turn_in_progress
+                    and not self.transcripts["visitor"]
+                    and not self.voice_active_effective()
+                )
+                # Past the cap the guest's noise no longer counts, but a model
+                # turn still does: cutting Gemini off is what 2e item 1 fixed.
+                overdue = (
+                    waited >= config.ANNOUNCE_MAX_DEFER_S
+                    and self.session is not None
+                    and not self.turn_in_progress
+                )
+                if not (a_real_gap or overdue):
+                    continue
+                if await self._announce_pending(order, overdue=overdue):
+                    self.pending_announcements.remove(order)
+                    self.pending_deferred_at.pop(order["id"], None)
+        finally:
+            self.announce_watcher = None
+
+    async def _announce_pending(self, order, *, overdue: bool) -> bool:
+        """The 2f item 5 grace, then speak. True if the order is finished with.
+
+        Past `ANNOUNCE_MAX_DEFER_S` the re-check deliberately ignores the
+        visitor buffer and the voice flag -- 2g item 4 says they are ignored at
+        the cap, and believing them again here is what let order #2 be lost.
+        `session is None` and a running turn are always respected.
+        """
+        await asyncio.sleep(config.ANNOUNCE_GRACE_S)
+        if self.session is None or self.turn_in_progress:
+            return False
+        if not overdue and (self.transcripts["visitor"] or self.voice_active_effective()):
+            return False
+        try:
+            await self._announce_now(order)
+        except Exception:
+            log.exception("the deferred order-ready announcement could not be spoken")
+        return True
+
+    def _drop_pending_announcements(self) -> None:
+        """16 section 2g item 4: nothing is lost silently. The order is READY, so
+        the public display shows and speaks it instead (04 section 5).
+        """
+        for order in self.pending_announcements:
+            log.info(
+                "announce dropped session %s order %s, handed to display",
+                self.ctx["session_id"],
+                order["id"],
+            )
+            event_bus.publish(
+                {
+                    "type": "order_ready",
+                    "order_id": order["id"],
+                    "customer_name": order.get("guest_name"),
+                    "session_id": None,
+                }
+            )
+        self.pending_announcements.clear()
+        self.pending_deferred_at.clear()
 
     async def _announce_now(self, order) -> None:
         """2c item 3 / 04 section 5 step 3: THE HOST's own voice, this turn only."""

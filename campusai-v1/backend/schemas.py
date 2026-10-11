@@ -94,3 +94,11 @@ class VoiceActivityMessage(BaseModel):
 
     type: Literal["voice_activity"]
     active: bool
+
+
+class SessionEndMessage(BaseModel):
+    """Browser -> backend (16 section 2g item 3). Why the page ended the session;
+    the socket close is still what ends it."""
+
+    type: Literal["session_end"]
+    reason: Literal["timeout", "cap", "user", "absent"]

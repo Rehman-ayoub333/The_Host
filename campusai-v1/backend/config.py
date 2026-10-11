@@ -52,3 +52,9 @@ LOOK_TIMEOUT_S = 6
 # 16 section 2f item 5: how long an immediate announcement waits and looks again,
 # so a guest who has only just started speaking is not talked over.
 ANNOUNCE_GRACE_S = 0.8
+# 16 section 2g item 4: room noise latches the page's voice flag, so a flag that
+# has been true this long with no transcription behind it is treated as inactive.
+VOICE_ACTIVE_STALE_S = 10
+# 16 section 2g item 4: however busy the conversation looks, a ready order waits
+# no longer than this before it is spoken.
+ANNOUNCE_MAX_DEFER_S = 20

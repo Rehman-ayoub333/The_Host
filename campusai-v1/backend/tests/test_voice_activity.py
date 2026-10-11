@@ -47,13 +47,21 @@ def no_wait(monkeypatch, on_wait=None):
     `on_wait` is what happens at the booth during the wait -- the guest starting
     to speak, the model starting to answer -- so the re-check has something to
     find.
+
+    Only the grace is intercepted. Every other `asyncio.sleep` keeps its real
+    behaviour, because the announcement watcher (16 section 2g item 4) sleeps on
+    the same function, and a sleep that never yields would starve the loop.
     """
     waits = []
+    real_sleep = asyncio.sleep
 
-    async def fake_sleep(seconds):
+    async def fake_sleep(seconds, *args, **kwargs):
+        if seconds != config.ANNOUNCE_GRACE_S:
+            return await real_sleep(seconds, *args, **kwargs)
         waits.append(seconds)
         if on_wait is not None:
             on_wait()
+        return await real_sleep(0)
 
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
     return waits
@@ -281,6 +289,67 @@ def test_a_turn_starting_during_the_grace_defers_it_as_well(monkeypatch):
     assert waits == [config.ANNOUNCE_GRACE_S]
     assert session.session.inputs == []
     assert [order["id"] for order in session.pending_announcements] == [27]
+
+
+# ------------------------------------ 2g item 3: the end reason is recorded
+
+
+def test_a_session_end_message_is_logged_with_its_reason(caplog):
+    session, ws = listening()
+    session_id = session.ctx["session_id"]
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        for reason in ("timeout", "cap", "user", "absent"):
+            feed(session, ws, {"type": "session_end", "reason": reason})
+
+    messages = [record.getMessage() for record in caplog.records]
+    for line in messages:
+        print("log:", line)
+    for reason in ("timeout", "cap", "user", "absent"):
+        assert f"session end requested session {session_id} reason={reason}" in messages
+    # It records and nothing else: the socket close is what ends the session.
+    print("states:", doubles.states(ws))
+    print("Gemini inputs:", session.session.inputs)
+    assert doubles.states(ws) == ["LISTENING"]
+    assert session.session.inputs == []
+    assert session.closed is False
+
+
+def test_an_invalid_session_end_message_is_ignored(caplog):
+    session, ws = listening()
+
+    with caplog.at_level(logging.WARNING, logger="live_session"):
+        for bad in (
+            {"type": "session_end"},
+            {"type": "session_end", "reason": "because"},
+            {"type": "session_end", "reason": None},
+            {"type": "session_end", "reason": "error"},
+        ):
+            feed(session, ws, bad)
+
+    messages = [record.getMessage() for record in caplog.records]
+    print("warnings:", messages)
+    assert messages == ["ignored invalid session_end message"] * 4
+    assert session.closed is False
+    assert session.session.inputs == []
+
+
+def test_the_session_end_model_takes_only_the_four_reasons():
+    for reason in ("timeout", "cap", "user", "absent"):
+        valid = schemas.SessionEndMessage.model_validate(
+            {"type": "session_end", "reason": reason}
+        )
+        print("validated:", valid.model_dump())
+        assert valid.reason == reason
+    for bad in (
+        {"type": "session_end"},
+        {"type": "session_end", "reason": "error"},
+        {"type": "session_end", "reason": ""},
+        {"type": "session_ended", "reason": "user"},
+    ):
+        with pytest.raises(Exception) as caught:
+            schemas.SessionEndMessage.model_validate(bad)
+        print(f"rejected {bad}: {type(caught.value).__name__}")
 
 
 def test_a_blocked_announcement_never_waits_at_all(monkeypatch):
