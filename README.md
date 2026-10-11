@@ -106,7 +106,10 @@ Two WebSockets, deliberately separate:
 `IDLE`, `GREETING`, `SEEING`, `LISTENING`, `THINKING`, `SPEAKING`, `RECOMMENDING`,
 `TAKING_ORDER`, `ANNOUNCING`, `REMEMBERING`, `NEEDS_HELP`. While an order is being taken the
 label holds at `TAKING_ORDER`; only `SEEING`, `REMEMBERING`, `ANNOUNCING` and `NEEDS_HELP`
-may interrupt it, each returning to the resting state at the end of the turn.
+may interrupt it, each returning to the resting state at the end of the turn. The
+conversation ends after 45 seconds of real silence, or gently after about 5 minutes: audio
+still playing and a guest still talking both count as activity, so neither a long answer
+nor a reply is ever cut off mid-sentence.
 
 **Two-step orders.** `build_order` creates a draft in `PENDING_CONFIRMATION`,
 `signal_confirmation_request` puts the question on screen, and only `confirm_order` — after
@@ -241,6 +244,8 @@ picture), `text_input` (a typed line, when the microphone is unavailable) and
 the microphone meter the robot face already uses: no audio and no level ever leaves the
 page in it. It exists so the backend knows the guest has started speaking before Gemini
 transcribes them, which is a second or more earlier, and can hold an announcement back.
+Last, `session_end` with the reason the page stopped (`timeout`, `cap`, `user`), which the
+backend records; the socket closing is what actually ends the conversation.
 
 **Events on `/ws/events`.** Every one carries `event_id`, `timestamp` and `session_id`.
 
@@ -272,7 +277,7 @@ cd campusai-v1\backend
 ..\..\.venv\Scripts\python.exe -m pytest -q
 ```
 
-**315 tests pass.** They cover the data model, all 13 tools, the system prompt, the event bus
+**326 tests pass.** They cover the data model, all 13 tools, the system prompt, the event bus
 and its role filtering, the activity labels, the state machine, both WebSockets, every REST
 endpoint including its error cases, the operator controls, visitor correction, metrics and
 the order-ready announcement with every condition that defers it. The tools and the live
