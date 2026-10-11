@@ -139,6 +139,12 @@ export const audio = {
     envelope.length = 0;
   },
 
+  isPlaying() {
+    // 16 section 2g item 2: THE HOST's reply arrives far faster than it plays,
+    // so "scheduled audio is still to come" is what the idle clock must see.
+    return Boolean(playCtx) && nextPlayTime > playCtx.currentTime;
+  },
+
   getMicAmp() {
     return micAmp;
   },

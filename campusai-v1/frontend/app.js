@@ -68,7 +68,10 @@ let state = "booth_off";
 let endingByUs = false;
 let lastActivity = 0;
 let sessionStartedAt = 0;
-let timers = { tick: null, recover: null, toast: null, snapshot: null, voiceActivity: null };
+let timers = {
+  tick: null, recover: null, toast: null, snapshot: null,
+  voiceActivity: null, micDebug: null,
+};
 let armed = true;
 let lastAutoGreetAt = 0;
 let micAvailable = false;
@@ -79,6 +82,12 @@ let cameraStream = null;
 let lastLine = null;
 const vision = { sentPresent: null, sentPeople: null, sentAt: 0, warned: false, timer: null };
 const voice = { onPolls: 0, belowSince: 0, sent: false };
+// 16 section 2g item 5: only with ?debug=mic, so Rehman can read the real
+// levels at the booth. Without the flag nothing here runs or prints.
+const MIC_DEBUG = new URLSearchParams(location.search).get("debug") === "mic";
+const MIC_DEBUG_WINDOW_MS = 5000;
+const MIC_DEBUG_PRINT_MS = 500;
+const micDebug = { samples: [] };
 
 function now() {
   return Date.now();
@@ -186,8 +195,35 @@ function sendVoiceActivity(active) {
   ws.send(JSON.stringify({ type: "voice_activity", active }));
 }
 
+function recordMicSample(level) {
+  const cutoff = now() - MIC_DEBUG_WINDOW_MS;
+  micDebug.samples.push({ at: now(), level });
+  micDebug.samples = micDebug.samples.filter((sample) => sample.at >= cutoff);
+}
+
+function printMicLevel() {
+  if (!isSessionActive()) return;
+  const level = audio.getMicAmp();
+  recordMicSample(level);
+  const peak = micDebug.samples.reduce((top, s) => (s.level > top ? s.level : top), 0);
+  console.info("mic level", Number(level.toFixed(2)), "peak", Number(peak.toFixed(2)));
+}
+
+function startMicDebug() {
+  if (!MIC_DEBUG) return;
+  stopMicDebug();
+  micDebug.samples = [];
+  timers.micDebug = setInterval(printMicLevel, MIC_DEBUG_PRINT_MS);
+}
+
+function stopMicDebug() {
+  clearInterval(timers.micDebug);
+  timers.micDebug = null;
+}
+
 function pollVoiceActivity() {
   if (!isSessionActive() || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (MIC_DEBUG) recordMicSample(audio.getMicAmp());
   if (audio.getMicAmp() >= C.VOICE_ACTIVE_LEVEL) {
     voice.belowSince = 0;
     voice.onPolls += 1;
@@ -220,12 +256,14 @@ function stopVoiceActivity() {
 }
 
 function handleControl(message) {
+  // 16 section 2g item 2: anything the backend says is proof the conversation
+  // is alive, whatever its type.
+  if (isSessionActive()) lastActivity = now();
   if (message.type === "agent_state_changed") {
     if (!isSessionActive()) return;
     const local = BACKEND_STATE_MAP[message.state];
     if (local) setState(local);
   } else if (message.type === "speech_transcript") {
-    lastActivity = now();
     appendTranscript(message.role, message.text, Boolean(message.final));
   } else if (message.type === "capture_request") {
     if (isSessionActive()) captureSnapshot();
@@ -271,6 +309,7 @@ async function startSession(trigger) {
     clearInterval(timers.tick);
     timers.tick = setInterval(tickCheck, 1000);
     startVoiceActivity();
+    startMicDebug();
   };
   ws.onmessage = (event) => {
     if (event.data instanceof ArrayBuffer) {
@@ -297,21 +336,47 @@ function endSession(reason) {
   clearInterval(timers.tick);
   timers.tick = null;
   stopVoiceActivity();
+  stopMicDebug();
   audio.stopMic();
   audio.flushPlayback();
-  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+  // 16 section 2g item 3: tell the backend why before the socket goes. On the
+  // error path the socket is already gone, so there is nothing to tell.
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    if (reason !== "error") {
+      try {
+        ws.send(JSON.stringify({ type: "session_end", reason }));
+      } catch {
+        // The close below ends the conversation either way.
+      }
+    }
+    ws.close();
+  }
+  console.info("session end reason=" + reason);
   ws = null;
   armed = presence.state === "absent";
   if (reason === "cap") showToast("Conversation ended — tap to talk again.", 5000);
   if (reason !== "error") setState("idle");
 }
 
+function speechInFlight() {
+  return audio.isPlaying() || voice.sent === true;
+}
+
 function tickCheck() {
   const current = now();
+  // 16 section 2g item 2: the clock counts real silence only. THE HOST's audio
+  // arrives long before it finishes playing, and a talking guest is activity
+  // too -- without this a 30-second answer looked like 30 seconds of idling.
+  if (speechInFlight()) lastActivity = current;
   if (current - lastActivity >= C.AUTO_RESET_MS) {
     endSession("timeout");
   } else if (current - sessionStartedAt >= C.MAX_SESSION_MS) {
-    endSession("cap");
+    // The cap is soft: it waits for a gap rather than cutting a sentence in
+    // half, but it never waits longer than CAP_GRACE_MS.
+    if (!speechInFlight()
+      || current - sessionStartedAt >= C.MAX_SESSION_MS + C.CAP_GRACE_MS) {
+      endSession("cap");
+    }
   }
 }
 
@@ -449,6 +514,7 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("beforeunload", () => {
   clearInterval(vision.timer);
   stopVoiceActivity();
+  stopMicDebug();
   endingByUs = true;
   if (ws && ws.readyState === WebSocket.OPEN) ws.close();
   audio.stopMic();
