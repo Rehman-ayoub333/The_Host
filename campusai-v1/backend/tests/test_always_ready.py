@@ -13,7 +13,6 @@ import logging
 from datetime import datetime
 
 import pytest
-from google.genai import types
 from pydantic import ValidationError
 
 import config

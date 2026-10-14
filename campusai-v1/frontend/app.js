@@ -70,7 +70,7 @@ let lastActivity = 0;
 let sessionStartedAt = 0;
 let timers = {
   tick: null, recover: null, toast: null, snapshot: null,
-  voiceActivity: null, micDebug: null, wake: null,
+  voiceActivity: null, micDebug: null, wake: null, busy: null,
 };
 let armed = true;
 let lastAutoGreetAt = 0;
@@ -91,6 +91,12 @@ const wake = { face: null, speechSince: 0, lastEndAt: 0, lastFaceAt: 0 };
 // waits before it may end the conversation.
 const WRAP_UP_SETTLE_MS = 3000;
 const cap = { sentAt: 0 };
+// 16 section 2j item 3: the one refusal that is retried quietly instead of
+// shown. The backend sends it while the previous conversation is still being
+// cleaned up, which at the booth is a second at most -- and a guest who has
+// just started talking should not be met with an error for it.
+const BUSY_REFUSAL = "Another conversation is already active.";
+const busy = { tries: 0, trigger: null };
 // 16 section 2g item 5: only with ?debug=mic, so Rehman can read the real
 // levels at the booth. Without the flag nothing here runs or prints.
 const MIC_DEBUG = new URLSearchParams(location.search).get("debug") === "mic";
@@ -338,21 +344,57 @@ function handleControl(message) {
   } else if (message.type === "interrupted") {
     audio.flushPlayback();
   } else if (message.type === "error") {
+    // 16 section 2j item 3: this one refusal, and only this one, is retried
+    // quietly. A paused refusal shows its message at once, like any other.
+    if (message.message === BUSY_REFUSAL && busy.tries < C.BUSY_RETRY_LIMIT) {
+      retryAfterBusy();
+      return;
+    }
     fail(message.message);
   }
+}
+
+function retryAfterBusy() {
+  // The refused socket is already closing behind this message. It is taken down
+  // the quiet way -- no error state, no "Connection lost." from onclose -- and
+  // the page simply stays on "Connecting…" until the retry lands.
+  busy.tries += 1;
+  endingByUs = true;
+  clearInterval(timers.tick);
+  timers.tick = null;
+  stopVoiceActivity();
+  audio.stopMic();
+  if (ws) {
+    try {
+      ws.close();
+    } catch {
+      // Already gone: the backend closes the socket straight after refusing.
+    }
+    ws = null;
+  }
+  openIdleMic();
+  setState("connecting");
+  clearTimeout(timers.busy);
+  timers.busy = setTimeout(() => startSession(busy.trigger, true), C.BUSY_RETRY_MS);
 }
 
 function onMicFrame(buffer) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(buffer);
 }
 
-async function startSession(trigger) {
-  if (isSessionActive()) return;
+async function startSession(trigger, retry = false) {
+  // 16 section 2j item 3: a quiet retry is the exception to the guard -- the
+  // page is deliberately still showing `connecting` from the refused attempt.
+  if (isSessionActive() && !retry) return;
+  busy.trigger = trigger;
+  if (!retry) busy.tries = 0;
   els.transcript.replaceChildren();
   lastLine = null;
   clearTimeout(timers.recover);
   timers.recover = null;
-  setState(trigger === "presence" ? "noticed" : "connecting");
+  // A quiet retry stays on "Connecting…": the guest has already been noticed
+  // once, and "Oh — hello!" a second time would be a tell (2j item 3).
+  setState(!retry && trigger === "presence" ? "noticed" : "connecting");
 
   if (micAvailable) {
     try {
@@ -407,6 +449,10 @@ function endSession(reason) {
   endingByUs = true;
   clearInterval(timers.tick);
   timers.tick = null;
+  // 16 section 2j item 3: a retry that has not fired yet is no longer wanted.
+  clearTimeout(timers.busy);
+  timers.busy = null;
+  busy.tries = 0;
   stopVoiceActivity();
   // The ?debug=mic readout is not stopped: it keeps running while the booth is
   // idle (2h item 6). Only the page unloading stops it.
@@ -456,6 +502,10 @@ function tickCheck() {
   // arrives long before it finishes playing, and a talking guest is activity
   // too -- without this a 30-second answer looked like 30 seconds of idling.
   if (speechInFlight()) lastActivity = current;
+  // 16 section 2j item 8: behind another window the detector is paused, so no
+  // face is reported however many people are at the counter. The empty-room
+  // timer pauses with it rather than counting a hidden page as an empty room.
+  if (document.hidden) wake.lastFaceAt = current;
   // 16 section 2h item 4: nobody has been in front of the camera for a long
   // time and nothing is being said, so THE HOST is talking to an empty room.
   // Only when the detector is actually running: without it no face is ever
