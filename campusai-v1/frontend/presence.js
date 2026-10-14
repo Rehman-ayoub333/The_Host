@@ -14,6 +14,20 @@ let callbacks = {
   onFace() {},
 };
 
+function isFrontal(detection) {
+  // 16 section 2h item 2: a face pointed at the screen has its nose close to the
+  // midpoint between the eyes; a face turned away does not. Measured against the
+  // eye separation so it does not change with distance. Without keypoints there
+  // is no evidence the guest is looking at THE HOST, so the face does not count.
+  const points = detection.keypoints;
+  if (!points || points.length < 3) return false;
+  const [rightEye, leftEye, nose] = points;
+  if (!rightEye || !leftEye || !nose) return false;
+  const span = Math.abs(leftEye.x - rightEye.x);
+  if (!span) return false;
+  return Math.abs(nose.x - (leftEye.x + rightEye.x) / 2) / span < C.WAKE_FRONTAL_MAX;
+}
+
 function tick() {
   if (
     !detector
@@ -26,13 +40,17 @@ function tick() {
     const now = performance.now();
     const result = detector.detectForVideo(videoEl, now);
     let largest = null;
+    let largestDetection = null;
     let people = 0;
 
     for (const detection of result.detections) {
       const box = detection.boundingBox;
       if (!box || box.width / videoEl.videoWidth < C.MIN_FACE_WIDTH_RATIO) continue;
       people += 1;
-      if (!largest || box.width > largest.width) largest = box;
+      if (!largest || box.width > largest.width) {
+        largest = box;
+        largestDetection = detection;
+      }
     }
     lastPeople = people;
 
@@ -40,6 +58,10 @@ function tick() {
       ? {
           x: (largest.originX + largest.width / 2) / videoEl.videoWidth,
           y: (largest.originY + largest.height / 2) / videoEl.videoHeight,
+          // 16 section 2h items 2 and 6: what wake-on-speech tests and what the
+          // ?debug=mic readout prints. The robot face ignores both.
+          ratio: largest.width / videoEl.videoWidth,
+          frontal: isFrontal(largestDetection),
         }
       : null;
     callbacks.onFace(face);

@@ -70,7 +70,7 @@ let lastActivity = 0;
 let sessionStartedAt = 0;
 let timers = {
   tick: null, recover: null, toast: null, snapshot: null,
-  voiceActivity: null, micDebug: null,
+  voiceActivity: null, micDebug: null, wake: null,
 };
 let armed = true;
 let lastAutoGreetAt = 0;
@@ -82,12 +82,24 @@ let cameraStream = null;
 let lastLine = null;
 const vision = { sentPresent: null, sentPeople: null, sentAt: 0, warned: false, timer: null };
 const voice = { onPolls: 0, belowSince: 0, sent: false };
+// 16 section 2h item 2: what wake-on-speech is watching. `face` is the newest
+// reading from the detector (null when nobody is there), `speechSince` when the
+// mic level first rose above the threshold and stayed there, `lastEndAt` when
+// the last conversation finished, `lastFaceAt` the last time a face was seen.
+const wake = { face: null, speechSince: 0, lastEndAt: 0, lastFaceAt: 0 };
+// 16 section 2i item 3: how long after the wrap-up line is asked for the page
+// waits before it may end the conversation.
+const WRAP_UP_SETTLE_MS = 3000;
+const cap = { sentAt: 0 };
 // 16 section 2g item 5: only with ?debug=mic, so Rehman can read the real
 // levels at the booth. Without the flag nothing here runs or prints.
 const MIC_DEBUG = new URLSearchParams(location.search).get("debug") === "mic";
 const MIC_DEBUG_WINDOW_MS = 5000;
 const MIC_DEBUG_PRINT_MS = 500;
 const micDebug = { samples: [] };
+// 16 section 2i item 2: printed once at load, so Rehman can see at a glance
+// that the flag took effect even before the booth is started.
+if (MIC_DEBUG) console.info("mic debug on");
 
 function now() {
   return Date.now();
@@ -145,6 +157,10 @@ function makeTranscriptLine(role, text) {
 }
 
 function appendTranscript(role, text, final) {
+  // 16 section 2i item 6: the booth screen faces the queue, and at the 5c test
+  // it showed garbled guest speech for the next guest to read. The backend
+  // still sends and logs these lines; only this screen stops printing them.
+  if (!C.SHOW_GUEST_TRANSCRIPT && role === "visitor") return;
   if (lastLine && lastLine.role === role && lastLine.final === false) {
     lastLine.txtEl.textContent = text;
   } else {
@@ -202,11 +218,17 @@ function recordMicSample(level) {
 }
 
 function printMicLevel() {
-  if (!isSessionActive()) return;
+  // 16 section 2h item 6 / 2i item 2: the readout runs whenever the booth is
+  // started, idle or in a session, because the levels Rehman has to measure are
+  // the idle ones too.
   const level = audio.getMicAmp();
   recordMicSample(level);
   const peak = micDebug.samples.reduce((top, s) => (s.level > top ? s.level : top), 0);
   console.info("mic level", Number(level.toFixed(2)), "peak", Number(peak.toFixed(2)));
+  const face = wake.face;
+  if (face) {
+    console.info("face ratio", Number(face.ratio.toFixed(2)), "frontal", face.frontal);
+  }
 }
 
 function startMicDebug() {
@@ -255,6 +277,52 @@ function stopVoiceActivity() {
   timers.voiceActivity = null;
 }
 
+function openIdleMic() {
+  // 16 section 2h item 2: while the booth sits idle the microphone stays open
+  // for a level reading only. `onMicFrame` sends nothing while the socket is
+  // closed, so no audio leaves the browser until a conversation starts.
+  if (!micAvailable) return;
+  audio.startMic(onMicFrame).catch(() => {
+    micAvailable = false;
+  });
+}
+
+function wakeReady() {
+  // 16 section 2h item 2: a face that is close AND looking at the screen, with a
+  // voice behind it. Sound on its own is the nearby-chatter problem, not a guest.
+  const face = wake.face;
+  return Boolean(
+    face
+    && face.ratio >= C.WAKE_MIN_FACE_RATIO
+    && face.frontal
+    && wake.speechSince
+    && now() - wake.speechSince >= C.WAKE_SPEECH_MS
+    && now() - wake.lastEndAt >= C.WAKE_AFTER_END_MS,
+  );
+}
+
+function wakeCheck() {
+  if (state !== "idle" || !micAvailable || document.visibilityState !== "visible") {
+    wake.speechSince = 0;
+    return;
+  }
+  if (audio.getMicAmp() >= C.VOICE_ACTIVE_LEVEL) {
+    if (!wake.speechSince) wake.speechSince = now();
+  } else {
+    wake.speechSince = 0;
+  }
+  if (!wakeReady()) return;
+  wake.speechSince = 0;
+  // A refused start (paused, another conversation) arrives as the usual error
+  // event and is handled like any other refusal (2h item 2).
+  startSession("voice");
+}
+
+function startWakeWatch() {
+  clearInterval(timers.wake);
+  timers.wake = setInterval(wakeCheck, C.VOICE_POLL_MS);
+}
+
 function handleControl(message) {
   // 16 section 2g item 2: anything the backend says is proof the conversation
   // is alive, whatever its type.
@@ -296,6 +364,10 @@ async function startSession(trigger) {
   }
 
   endingByUs = false;
+  cap.sentAt = 0;
+  // A session may begin with nobody yet detected (the button, or a wake where
+  // the detector is between ticks); the empty-room timer starts counting now.
+  wake.lastFaceAt = now();
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   try {
     ws = new WebSocket(`${protocol}://${location.host}/ws/session?trigger=${trigger}`);
@@ -336,7 +408,8 @@ function endSession(reason) {
   clearInterval(timers.tick);
   timers.tick = null;
   stopVoiceActivity();
-  stopMicDebug();
+  // The ?debug=mic readout is not stopped: it keeps running while the booth is
+  // idle (2h item 6). Only the page unloading stops it.
   audio.stopMic();
   audio.flushPlayback();
   // 16 section 2g item 3: tell the backend why before the socket goes. On the
@@ -354,8 +427,23 @@ function endSession(reason) {
   console.info("session end reason=" + reason);
   ws = null;
   armed = presence.state === "absent";
+  // 16 section 2h item 2: wake on speech waits WAKE_AFTER_END_MS from here, so
+  // the guest's last words cannot immediately start the next conversation.
+  wake.lastEndAt = now();
+  wake.speechSince = 0;
+  cap.sentAt = 0;
   if (reason === "cap") showToast("Conversation ended — tap to talk again.", 5000);
   if (reason !== "error") setState("idle");
+  openIdleMic();
+}
+
+function sendWrapUp() {
+  // 16 section 2i item 3: at the cap THE HOST says goodbye itself instead of the
+  // page cutting the conversation off mid-answer, which is what Rehman saw.
+  if (cap.sentAt) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  cap.sentAt = now();
+  ws.send(JSON.stringify({ type: "wrap_up" }));
 }
 
 function speechInFlight() {
@@ -368,15 +456,42 @@ function tickCheck() {
   // arrives long before it finishes playing, and a talking guest is activity
   // too -- without this a 30-second answer looked like 30 seconds of idling.
   if (speechInFlight()) lastActivity = current;
+  // 16 section 2h item 4: nobody has been in front of the camera for a long
+  // time and nothing is being said, so THE HOST is talking to an empty room.
+  // Only when the detector is actually running: without it no face is ever
+  // reported and every conversation would end here.
+  if (
+    presenceAvailable
+    && current - wake.lastFaceAt >= C.NO_FACE_END_MS
+    && !speechInFlight()
+  ) {
+    endSession("absent");
+    return;
+  }
   if (current - lastActivity >= C.AUTO_RESET_MS) {
     endSession("timeout");
-  } else if (current - sessionStartedAt >= C.MAX_SESSION_MS) {
-    // The cap is soft: it waits for a gap rather than cutting a sentence in
-    // half, but it never waits longer than CAP_GRACE_MS.
-    if (!speechInFlight()
-      || current - sessionStartedAt >= C.MAX_SESSION_MS + C.CAP_GRACE_MS) {
-      endSession("cap");
-    }
+    return;
+  }
+  const elapsed = current - sessionStartedAt;
+  // 16 section 2i item 3: the hard limit, however the wrap-up goes.
+  if (elapsed >= C.MAX_SESSION_MS + C.CAP_GRACE_MS) {
+    endSession("cap");
+    return;
+  }
+  if (elapsed < C.MAX_SESSION_MS) return;
+  if (!cap.sentAt) {
+    // Never interrupt an order being taken, a question being worked on, or a
+    // sentence being spoken: wait for the conversation to come up for air.
+    if (state === "taking_order" || state === "thinking" || speechInFlight()) return;
+    sendWrapUp();
+    return;
+  }
+  if (
+    current - cap.sentAt >= WRAP_UP_SETTLE_MS
+    && state === "listening"
+    && !speechInFlight()
+  ) {
+    endSession("cap");
   }
 }
 
@@ -416,6 +531,10 @@ function onAbsent() {
 
 function onFace(face) {
   robot.setEyeTarget(face);
+  // 16 section 2h items 2 and 4: the newest reading, for wake on speech, the
+  // empty-room timer and the ?debug=mic readout.
+  wake.face = face;
+  if (face) wake.lastFaceAt = now();
 }
 
 async function startBooth() {
@@ -463,6 +582,13 @@ async function startBooth() {
   els.startOverlay.hidden = true;
   els.startOverlay.style.display = "none";
   setState("idle");
+  // 16 section 2h items 2 and 6: from here the microphone is open for a level
+  // reading, wake on speech is watching, and the debug readout (if asked for)
+  // prints while the booth is idle as well as in a conversation.
+  wake.lastFaceAt = now();
+  openIdleMic();
+  startWakeWatch();
+  startMicDebug();
   if (notes.length) showToast(notes.join(" "), 8000);
 }
 
@@ -513,6 +639,7 @@ window.addEventListener("keydown", (event) => {
 });
 window.addEventListener("beforeunload", () => {
   clearInterval(vision.timer);
+  clearInterval(timers.wake);
   stopVoiceActivity();
   stopMicDebug();
   endingByUs = true;
