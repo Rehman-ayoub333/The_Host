@@ -621,12 +621,18 @@ class LiveSession:
             if message["type"] == "websocket.disconnect":
                 return
             if message.get("bytes") is not None:
-                await self.session.send_realtime_input(
-                    audio=types.Blob(
-                        data=message["bytes"],
-                        mime_type=config.INPUT_AUDIO_MIME,
+                # 16 section 2j item 4: the browser socket deliberately stays
+                # open across a reconnect, so the page goes on streaming audio
+                # while there is no connection to put it on. Those few hundred
+                # milliseconds are dropped -- the reconnect turn asks the guest
+                # to say it again anyway -- and must never end the session.
+                if self.session is not None:
+                    await self.session.send_realtime_input(
+                        audio=types.Blob(
+                            data=message["bytes"],
+                            mime_type=config.INPUT_AUDIO_MIME,
+                        )
                     )
-                )
                 continue
             if message.get("text") is None:
                 continue
@@ -640,6 +646,20 @@ class LiveSession:
                 continue
 
             message_type = payload.get("type")
+            # Same reconnect window as the audio above: a message that needs
+            # Gemini waits for nothing, because the whole point of 2j item 4 is
+            # that the conversation survives. `voice_activity` and `session_end`
+            # need no connection at all, so they are always handled.
+            if (
+                self.session is None
+                and message_type in ("vision_frame", "text_input", "wrap_up")
+            ):
+                log.info(
+                    "browser message %s dropped during a reconnect session %s",
+                    message_type,
+                    self.ctx["session_id"],
+                )
+                continue
             if message_type == "vision_frame":
                 try:
                     vision_message = schemas.VisionFrameMessage.model_validate(payload)
@@ -760,35 +780,44 @@ class LiveSession:
         return min(deadlines) if deadlines else None
 
     async def _pump(self) -> None:
-        """Read one connection until it drops, stalls or is told to go away."""
-        stream = self.session.receive().__aiter__()
-        got_any = False
+        """Read one connection until it drops, stalls or is told to go away.
+
+        `session.receive()` is **one turn**, not the conversation: the SDK's
+        generator yields until the turn is complete and then ends, so a new one
+        is opened for every turn. That outer loop is not optional -- reading a
+        single generator to its end and calling that a dropped connection is
+        what made every conversation end after the greeting. A fresh generator
+        that yields nothing at all is the connection really being finished, and
+        that is the pre-existing `Live session ended` case.
+        """
         while True:
-            nxt = asyncio.ensure_future(stream.__anext__())
-            deadline = self._stall_deadline()
-            timeout = None if deadline is None else max(0.0, deadline - _now())
-            done, _pending = await asyncio.wait({nxt}, timeout=timeout)
-            if not done:
-                # Nothing arrived inside STALL_S of output being owed. Nothing
-                # can have changed the clocks either: they only move when a
-                # message is handled, which is this loop's own work.
-                nxt.cancel()
-                await asyncio.gather(nxt, return_exceptions=True)
-                log.info("live stalled session %s", self.ctx["session_id"])
-                raise LiveDropped("stall")
-            try:
-                message = nxt.result()
-            except StopAsyncIteration:
-                if not got_any:
-                    raise RuntimeError("Live session ended") from None
-                # The stream ended under us mid-conversation: a drop by any
-                # other name (2j item 4).
-                raise LiveDropped("StopAsyncIteration") from None
-            got_any = True
-            await self._handle_message(message)
-            if self.recover_pending is not None:
-                kind, self.recover_pending = self.recover_pending, None
-                raise LiveDropped(kind)
+            stream = self.session.receive().__aiter__()
+            got_any = False
+            while True:
+                nxt = asyncio.ensure_future(stream.__anext__())
+                deadline = self._stall_deadline()
+                timeout = None if deadline is None else max(0.0, deadline - _now())
+                done, _pending = await asyncio.wait({nxt}, timeout=timeout)
+                if not done:
+                    # Nothing arrived inside STALL_S of output being owed.
+                    # Nothing can have changed the clocks either: they only move
+                    # when a message is handled, which is this loop's own work.
+                    nxt.cancel()
+                    await asyncio.gather(nxt, return_exceptions=True)
+                    log.info("live stalled session %s", self.ctx["session_id"])
+                    raise LiveDropped("stall")
+                try:
+                    message = nxt.result()
+                except StopAsyncIteration:
+                    # The end of this turn. The conversation carries on.
+                    break
+                got_any = True
+                await self._handle_message(message)
+                if self.recover_pending is not None:
+                    kind, self.recover_pending = self.recover_pending, None
+                    raise LiveDropped(kind)
+            if not got_any:
+                raise RuntimeError("Live session ended")
 
     async def _close_live(self) -> None:
         """Drop the dead connection. It is already gone, so errors are expected."""
@@ -1113,7 +1142,11 @@ class LiveSession:
 
     async def _announce_on_silence(self) -> None:
         """2f item 4: the guest stopped talking, so this is a gap to speak into."""
-        if self.turn_in_progress or not self.pending_announcements:
+        if self.session is None or self.turn_in_progress:
+            # No connection to speak over: mid-reconnect (2j item 4). The
+            # announcement stays pending, and the watcher takes it from there.
+            return
+        if not self.pending_announcements:
             return
         order = self.pending_announcements.pop(0)
         self.pending_deferred_at.pop(order["id"], None)

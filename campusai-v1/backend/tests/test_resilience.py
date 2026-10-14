@@ -187,6 +187,35 @@ def test_what_the_page_sent_during_the_connect_is_not_lost(monkeypatch):
     assert session.session.inputs[0]["audio"].data == b"audio-from-the-connect-window"
 
 
+def test_the_page_may_keep_talking_while_a_reconnect_is_running():
+    """The second half of the 5e regression, and why the force-close check missed it.
+
+    2j item 4 keeps the browser socket open across a reconnect, so the page goes
+    on streaming audio while `self.session` is None. Sending that audio straight
+    at None raised `AttributeError: 'NoneType' object has no attribute
+    'send_realtime_input'` out of the uplink, which killed the session the
+    reconnect was busy saving. The build-time check never saw it because its
+    fake page sent no audio at all.
+    """
+    session, ws = doubles.new_session()
+    live = session.session
+    session.session = None  # mid-reconnect
+    ws.messages.extend([
+        {"type": "websocket.receive", "bytes": b"audio-mid-reconnect"},
+        {"type": "websocket.receive", "text": json.dumps({"type": "text_input", "text": "hello?"})},
+        {"type": "websocket.receive", "text": json.dumps({"type": "wrap_up"})},
+        {"type": "websocket.receive", "text": json.dumps({"type": "voice_activity", "active": True})},
+    ])
+
+    # No exception: the uplink runs to the disconnect and the session lives.
+    asyncio.run(session._uplink())
+
+    # Nothing was sent anywhere, and the one message that needs no connection
+    # was still handled.
+    assert live.inputs == []
+    assert session.guest_voice_active is True
+
+
 def test_the_uplink_stops_at_a_page_that_has_already_gone():
     session, ws = doubles.new_session()
     session.page_ended = True
@@ -201,6 +230,150 @@ def test_the_uplink_stops_at_a_page_that_has_already_gone():
 
 
 # --------------------------------------- 2j item 4: resume with a handle
+
+
+class Scripted(doubles.FakeLiveApiSession):
+    """A Gemini connection whose `receive()` behaves like the real SDK's.
+
+    This is the double whose absence caused the 5e regression. `receive()` is
+    **one turn**, not the conversation: it yields that turn's messages and then
+    ends, and the caller is expected to open it again for the next turn. A
+    `receive()` with no turns left yields nothing at all, which is how the SDK
+    says the connection itself is finished.
+    """
+
+    def __init__(self, turns):
+        super().__init__()
+        self.turns = [list(turn) for turn in turns]
+        self.opened = 0
+        self.then_raise = None
+        # `hold` is a real gap in the conversation: the generator for turn
+        # number `hold_after` + 1 waits on it, so a test can hold the line open
+        # and silent for as long as it likes.
+        self.hold = None
+        self.hold_after = 0
+
+    async def receive(self):
+        self.opened += 1
+        if self.hold is not None and self.opened > self.hold_after:
+            hold, self.hold = self.hold, None
+            await hold.wait()
+        if not self.turns:
+            return
+        for message in self.turns.pop(0):
+            yield message
+        if self.then_raise is not None:
+            raise self.then_raise
+
+
+def greeting_turn(text="Hi! I'm THE HOST."):
+    """Audio, the agent's own transcript, then turn_complete -- a real greeting."""
+    return [
+        doubles.message(doubles.content(audio=b"greeting-chunk")),
+        doubles.message(doubles.content(agent=text)),
+        doubles.message(doubles.content(turn_complete=True)),
+    ]
+
+
+def reply_turn(asked, answered):
+    """The guest is transcribed, then answered, then the turn completes."""
+    return [
+        doubles.message(doubles.content(visitor=asked)),
+        doubles.message(doubles.content(audio=b"reply-chunk")),
+        doubles.message(doubles.content(agent=answered)),
+        doubles.message(doubles.content(turn_complete=True)),
+    ]
+
+
+# ------- 5e regression: the end of a turn is not the end of the conversation
+
+
+def test_the_greeting_ending_does_not_end_the_conversation(caplog):
+    """The 5e regression, exactly as Rehman saw it three times running.
+
+    `session.receive()` ends at every `turn_complete`. Reading one generator to
+    its end and calling that a dropped connection ended every conversation
+    moments after the greeting: `live dropped ... StopAsyncIteration`, then a
+    reconnect that killed the session outright. Fails on the old `_pump`.
+    """
+    session, ws = doubles.new_session()
+    session.session = Scripted([greeting_turn()])
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        with pytest.raises(RuntimeError, match="Live session ended"):
+            asyncio.run(session._pump())
+
+    # The greeting was spoken and the turn closed normally...
+    assert "GREETING" in doubles.states(ws)
+    assert doubles.states(ws)[-1] == "LISTENING"
+    # ...and none of the recovery machinery was touched.
+    assert "live dropped" not in caplog.text
+    assert "StopAsyncIteration" not in caplog.text
+    assert "live stalled" not in caplog.text
+    assert health.mode() == "ONLINE"
+    # A second generator really was opened: that is the whole fix.
+    assert session.session.opened == 2
+
+
+def test_greeting_then_silence_then_a_turn_runs_end_to_end(monkeypatch, caplog):
+    """Greeting, fifteen silent seconds, then one real exchange.
+
+    The silence is the part that matters: nothing is owed to us between turns,
+    so the stall watchdog must not be armed and the conversation must simply
+    wait. STALL_S is shortened so a real wait of less than a second stands in
+    for a wait far longer than the watchdog's eight.
+    """
+    monkeypatch.setattr(config, "STALL_S", 0.2)
+    session, ws = doubles.new_session()
+    connection = Scripted([greeting_turn(), reply_turn("what is good", "The burger.")])
+    # The gap sits between the greeting and the guest's question.
+    connection.hold_after = 1
+    session.session = connection
+
+    async def go():
+        gap = asyncio.Event()
+        connection.hold = gap
+        pump = asyncio.create_task(session._pump())
+        # Long enough that a wrongly-armed watchdog would have fired by now.
+        await asyncio.sleep(config.STALL_S * 3)
+        assert not pump.done(), "the conversation should still be waiting"
+        assert session._stall_deadline() is None
+        assert connection.opened == 2, "the next turn's generator is open and silent"
+        gap.set()  # the guest finally says something
+        with pytest.raises(RuntimeError, match="Live session ended"):
+            await pump
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(go())
+
+    assert "live stalled" not in caplog.text
+    assert "live dropped" not in caplog.text
+    # Both turns were really spoken, and the guest's question was answered.
+    assert doubles.states(ws) == ["GREETING", "LISTENING", "SPEAKING", "LISTENING"]
+    agent_lines = [
+        sent["text"] for sent in ws.sent
+        if sent["type"] == "speech_transcript" and sent["role"] == "agent"
+    ]
+    assert "The burger." in agent_lines
+    assert connection.opened == 3
+    # 2j item 9: the reply's latency was measured from the guest's fragment.
+    assert "turn latency" in caplog.text
+
+
+def test_a_tool_call_turn_survives_the_generator_ending(caplog):
+    """A tool call ends the generator too, and the response reopens it."""
+    session, ws = doubles.new_session()
+    session.session = Scripted([
+        [doubles.message(tool_call=doubles.call("get_business_info", {"topic": "hours"}))],
+        [doubles.message(doubles.content(agent="We are open all gala."))],
+    ])
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        with pytest.raises(RuntimeError, match="Live session ended"):
+            asyncio.run(session._pump())
+
+    assert len(session.session.responses) == 1
+    assert "live dropped" not in caplog.text
 
 
 class _Reconnecting:
@@ -385,28 +558,21 @@ def test_health_shows_recovering_while_the_attempt_runs(monkeypatch):
 
 def test_the_downlink_recovers_a_dropped_connection_and_carries_on(monkeypatch):
     """The whole of item 4, driven the way a real drop arrives: from the stream."""
+    first = Scripted([[doubles.message(doubles.content(agent="Hello"))]])
+    first.then_raise = _closed_error()
+    second = Scripted([[doubles.message(doubles.content(agent="Sorry about that"))]])
 
-    class FirstConnection(doubles.FakeLiveApiSession):
-        async def receive(self):
-            yield doubles.message(doubles.content(agent="Hello"))
-            raise _closed_error()
-
-    class SecondConnection(doubles.FakeLiveApiSession):
-        async def receive(self):
-            yield doubles.message(doubles.content(agent="Sorry about that"))
-
-    second = SecondConnection()
     session, ws = doubles.new_session()
-    session.session = FirstConnection()
+    session.session = first
     session.greeted = True
     session.resume_handle = "handle-1"
-    # The second connection's stream ends as well, and by then there is nothing
-    # left to rebuild with, so the conversation finally does end.
     connects = _Reconnecting([second])
     monkeypatch.setattr(LiveSession, "_connect", connects.hook())
 
     async def go():
-        with pytest.raises(LiveDropped):
+        # The rebuilt connection runs out of turns, which is the connection
+        # really being finished -- the pre-existing end, not a drop.
+        with pytest.raises(RuntimeError, match="Live session ended"):
             await session._downlink()
 
     asyncio.run(go())
@@ -627,17 +793,12 @@ def test_a_finished_turn_disarms_both_clocks():
 def test_the_pump_waits_for_ever_when_nothing_is_owed():
     """An armed watchdog is the exception; the ordinary state is no deadline."""
     session, _ws = doubles.new_session()
+    session.session = Scripted([[doubles.message(doubles.content())]])
 
-    class Quiet:
-        async def receive(self):
-            yield doubles.message(doubles.content())
-            await asyncio.sleep(0.2)
-
-    session.session = Quiet()
-    # No stall, and no deadline: it ends because the stream ended.
-    with pytest.raises(LiveDropped) as caught:
+    # Nothing is owed, so there is no deadline and no stall. It ends only
+    # because the connection ran out of turns entirely.
+    with pytest.raises(RuntimeError, match="Live session ended"):
         asyncio.run(session._pump())
-    assert caught.value.kind == "StopAsyncIteration"
 
 
 # ------------------------------------------- 2j item 9: the latency log line
