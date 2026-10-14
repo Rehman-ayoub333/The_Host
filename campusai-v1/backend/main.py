@@ -678,8 +678,10 @@ async def websocket_session(websocket: WebSocket):
     global ACTIVE
 
     await websocket.accept()
+    # 16 section 2h item 3: `voice` joins the triggers the page may ask for --
+    # the guest started speaking while the booth sat idle.
     trigger = websocket.query_params.get("trigger", "button")
-    if trigger != "presence":
+    if trigger not in ("presence", "voice"):
         trigger = "button"
 
     async def refuse(message: str) -> None:

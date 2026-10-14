@@ -49,10 +49,24 @@ UNSOURCED_TOOLS = ("recommend_item", "signal_confirmation_request")
 # 16 section 2g item 4: how often the watcher looks at a pending announcement.
 ANNOUNCE_WATCH_INTERVAL_S = 1
 
+# 16 section 2h item 5: cleared for the rest of the process the first time a
+# connect carrying proactive audio is refused, so the next guest does not pay
+# for the same refusal again. `config.PROACTIVE_AUDIO` decides whether it is
+# tried at all; at build time gemini-3.8-live rejected the field outright.
+_proactive_audio_ok = True
+_proactive_unsupported_logged = False
+
 
 def _now() -> float:
     """The monotonic clock, in one place so a test can wind it forward."""
     return time.monotonic()
+
+
+def redact(text: str) -> str:
+    """The API key never reaches a log line or an error message."""
+    if config.GEMINI_API_KEY:
+        return text.replace(config.GEMINI_API_KEY, "[REDACTED]")
+    return text
 
 
 def failure_message(exc: Exception) -> str:
@@ -65,8 +79,8 @@ def failure_message(exc: Exception) -> str:
     return "Something went wrong. Please try again."
 
 
-def build_live_config(now: datetime) -> types.LiveConnectConfig:
-    return types.LiveConnectConfig(
+def build_live_config(now: datetime, proactive: bool = False) -> types.LiveConnectConfig:
+    settings = dict(
         response_modalities=["AUDIO"],
         system_instruction=types.Content(
             parts=[types.Part(text=prompts.build_system_instruction(now))]
@@ -81,7 +95,20 @@ def build_live_config(now: datetime) -> types.LiveConnectConfig:
         ),
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
+        # 16 section 2h item 5: a quieter or more distant voice is less likely to
+        # start a turn, so the people talking next to the booth interrupt less
+        # often. Every other VAD field stays at the server default.
+        realtime_input_config=types.RealtimeInputConfig(
+            automatic_activity_detection=types.AutomaticActivityDetection(
+                start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_LOW,
+            )
+        ),
     )
+    if proactive:
+        # 16 section 2h item 5: only when the model accepts it. The field is
+        # documented for the Live API but not supported on every model.
+        settings["proactivity"] = types.ProactivityConfig(proactive_audio=True)
+    return types.LiveConnectConfig(**settings)
 
 
 class LiveSession:
@@ -200,19 +227,37 @@ class LiveSession:
 
     # --------------------------------------------------------------- lifecycle
 
+    async def _open(self, client, proactive: bool):
+        return await asyncio.wait_for(
+            self.stack.enter_async_context(
+                client.aio.live.connect(
+                    model=config.GEMINI_LIVE_MODEL,
+                    config=build_live_config(datetime.now(), proactive),
+                )
+            ),
+            timeout=config.CONNECT_TIMEOUT_S,
+        )
+
     async def _start(self):
+        global _proactive_audio_ok, _proactive_unsupported_logged
+
         client = genai.Client(api_key=config.GEMINI_API_KEY)
         self.stack = contextlib.AsyncExitStack()
+        proactive = config.PROACTIVE_AUDIO and _proactive_audio_ok
         try:
-            self.session = await asyncio.wait_for(
-                self.stack.enter_async_context(
-                    client.aio.live.connect(
-                        model=config.GEMINI_LIVE_MODEL,
-                        config=build_live_config(datetime.now()),
-                    )
-                ),
-                timeout=config.CONNECT_TIMEOUT_S,
-            )
+            try:
+                self.session = await self._open(client, proactive)
+            except Exception as exc:
+                if not proactive:
+                    raise
+                # 16 section 2h item 5: the model refused the setup, so proactive
+                # audio goes off and the guest still gets their conversation.
+                _proactive_audio_ok = False
+                if not _proactive_unsupported_logged:
+                    _proactive_unsupported_logged = True
+                    log.info("proactive_audio unsupported")
+                log.info("proactive_audio refused: %s", redact(str(exc)))
+                self.session = await self._open(client, False)
         except Exception as exc:
             health.connect_failed(failure_message(exc))
             raise
@@ -228,11 +273,9 @@ class LiveSession:
             "system", "Conversation started", None, self.ctx["session_id"]
         )
         await self.session.send_realtime_input(
-            text=(
-                prompts.GREETING_PRESENCE
-                if self.trigger == "presence"
-                else prompts.GREETING_BUTTON
-            )
+            # 16 section 2h item 3: `voice` means the guest was already talking,
+            # so the opening line asks them to say it again instead of welcoming.
+            text=prompts.OPENING_INSTRUCTIONS.get(self.trigger, prompts.GREETING_BUTTON)
         )
         self.tasks = [
             asyncio.create_task(self._uplink()),
@@ -261,10 +304,7 @@ class LiveSession:
             await self.stop()
 
     async def _fail(self, exc: Exception) -> None:
-        error_text = str(exc)
-        if config.GEMINI_API_KEY:
-            error_text = error_text.replace(config.GEMINI_API_KEY, "[REDACTED]")
-        log.error("Live session failed: %s: %s", type(exc).__name__, error_text)
+        log.error("Live session failed: %s: %s", type(exc).__name__, redact(str(exc)))
 
         message = failure_message(exc)
         await self._send_state("NEEDS_HELP")
@@ -470,6 +510,17 @@ class LiveSession:
                     self.voice_active_since = None
                     self.voice_stale_logged = False
                     await self._announce_on_silence()
+            elif message_type == "wrap_up":
+                try:
+                    schemas.WrapUpMessage.model_validate(payload)
+                except ValidationError:
+                    log.warning("ignored invalid wrap_up message")
+                    continue
+                # 16 section 2i item 3: the conversation has reached its cap, so
+                # THE HOST says goodbye itself. Any open draft is left to the
+                # existing end-of-session rules (2a item 17).
+                log.info("wrap_up session %s", self.ctx["session_id"])
+                await self.session.send_realtime_input(text=prompts.WRAP_UP_PROMPT)
             elif message_type == "session_end":
                 try:
                     end_message = schemas.SessionEndMessage.model_validate(payload)

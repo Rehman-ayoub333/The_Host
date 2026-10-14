@@ -102,3 +102,10 @@ class SessionEndMessage(BaseModel):
 
     type: Literal["session_end"]
     reason: Literal["timeout", "cap", "user", "absent"]
+
+
+class WrapUpMessage(BaseModel):
+    """Browser -> backend (16 section 2i item 3). At the session cap THE HOST says
+    goodbye itself instead of the page cutting the conversation off."""
+
+    type: Literal["wrap_up"]

@@ -58,3 +58,11 @@ VOICE_ACTIVE_STALE_S = 10
 # 16 section 2g item 4: however busy the conversation looks, a ready order waits
 # no longer than this before it is spoken.
 ANNOUNCE_MAX_DEFER_S = 20
+# 16 section 2h item 5, verified at build time on 13 Oct 2026 against
+# gemini-3.8-live: the setup is rejected outright with
+#   Invalid JSON payload received. Unknown name "proactivity" at 'setup':
+#   Cannot find field.
+# so it is left off, as that item requires. The attempt-and-fall-back path in
+# live_session stays in place: turning this back on is all a supporting model
+# needs, and a refusal only logs `proactive_audio unsupported` once.
+PROACTIVE_AUDIO = False

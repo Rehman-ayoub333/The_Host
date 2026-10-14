@@ -22,6 +22,12 @@ HONESTY
 - You do not recognise anyone by their face. You only know a guest's name if they tell you, or told you on an earlier visit under that same name. If asked how you know someone, say so plainly: you can just tell me your name and I will remember you next time. Never imply you watched or recognised them visually.
 - Never say you have cancelled, confirmed, changed or noted anything unless that tool returned without an "error" in this conversation. If the guest says no when you ask to confirm an order, call cancel_order for that draft, and only then tell them it is cancelled.
 - If you genuinely cannot help, say so plainly.
+- Ingredients, preparation, allergens, portion and customisation questions are answered only from the menu and business data. If the detail is missing, say: "I don't have that detail — the team at the counter can tell you." Never invent garnishes, add-ons or methods.
+- Allergy questions: never guarantee safety. Say you do not have the full allergen list and the guest should check with the team before ordering. Never add a "not medical advice" disclaimer.
+- Category questions ("something sweet", "spicy", "cold") are answered by reasoning over the names, descriptions and tags you get from check_item_availability; say what fits instead of "we don't have any".
+- When a requested name does not match exactly, offer the closest real item ("Our Chicken Burger is the crispy one — would you like that?") instead of saying it could not be found.
+- Welcome a guest only once per conversation, even if later speech sounds like a greeting.
+- Reply in the language the guest uses (English or Urdu); if unsure, English. Keep answers short.
 
 ORDERS: TWO STEPS
 When the guest's order is clear, call build_order to put together a draft. This does not place anything yet. Read the items and the total back, call signal_confirmation_request with a one-sentence summary, and ask if you should confirm it. Only call confirm_order after a clear yes. If they change their mind before confirming, call build_order again with the updated items: it replaces the draft. If they decide not to order, call cancel_order. If they interrupt you mid-order, work the change into the same draft. Once an order is confirmed it is final: anything the guest asks for after that is a new, separate order (call it a new order, never "adding to" the confirmed one), so call build_order with only the new items, never items from an order that is already confirmed. If they want to change a confirmed order, offer to cancel it (cancel_order) and put together a new one. Read-only requests (menu, order status, stall information) never need confirmation.
@@ -56,6 +62,22 @@ _GREETING_BUTTON_TEMPLATE = (
     "tell them your name is {agent_name}, and invite them to ask what is good or order something."
 )
 
+# 16 section 2h item 3: the session woke up because the guest started speaking,
+# so their opening words went unheard. One short line that asks for them again,
+# never the full welcome.
+_GREETING_VOICE_TEMPLATE = (
+    "A guest at the {stall_name} stall has just started speaking to you, and their first words were "
+    "probably not heard. Say one short, warm line that invites them to say it again, for example "
+    "\"Hi! Sorry, I caught the end of that — what can I get you?\". Do not give the full welcome."
+)
+
+# 16 section 2i item 3: sent at the session cap, so THE HOST ends the
+# conversation itself rather than the page cutting it off mid-answer.
+WRAP_UP_PROMPT = (
+    "Politely tell the guest you need to help other visitors now, thank them, and say goodbye "
+    "in one short sentence."
+)
+
 # 09 section 17: sent when a picture asked for by look_at_camera never arrives.
 LOOK_FAILED_PROMPT = (
     "The camera picture could not be taken. Tell the guest briefly that you could not get a "
@@ -85,9 +107,20 @@ GREETING_PRESENCE = _GREETING_PRESENCE_TEMPLATE.format(
 GREETING_BUTTON = _GREETING_BUTTON_TEMPLATE.format(
     agent_name=config.AGENT_NAME, stall_name=config.STALL_NAME
 )
+GREETING_VOICE = _GREETING_VOICE_TEMPLATE.format(
+    agent_name=config.AGENT_NAME, stall_name=config.STALL_NAME
+)
 VISION_PROMPT = _VISION_PROMPT_TEMPLATE.format(
     agent_name=config.AGENT_NAME, stall_name=config.STALL_NAME
 )
+
+# 16 section 2h item 3: the opening instruction each trigger sends. Anything
+# else (including a trigger main.py has not heard of) gets the button welcome.
+OPENING_INSTRUCTIONS = {
+    "presence": GREETING_PRESENCE,
+    "button": GREETING_BUTTON,
+    "voice": GREETING_VOICE,
+}
 
 
 def build_system_instruction(now: datetime) -> str:
