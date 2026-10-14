@@ -1000,6 +1000,19 @@ class LiveSession:
                     "agent", server_content.output_transcription.text
                 )
 
+            if server_content.generation_complete:
+                # 16 section 2j item 5: the model has finished producing this
+                # turn, so nothing is owed and the audio clock stops. What is
+                # left is the server pacing `turn_complete` to the answer's
+                # real-time duration -- measured at build time on
+                # gemini-3.8-live: 1.77 s after the last chunk of a 1.8 s
+                # greeting, and about 8.5 s after a 57-chunk answer. Leaving the
+                # audio clock running through that made the watchdog fire on
+                # every reply longer than STALL_S, which is a healthy
+                # conversation, not the dead connection item 5 is about.
+                self._model_output()
+                self.last_audio_chunk_at = None
+
             if server_content.turn_complete:
                 await self._end_of_turn()
 

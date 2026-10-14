@@ -96,7 +96,15 @@ def new_session(messages=(), trigger="button"):
     return session, ws
 
 
-def content(*, interrupted=False, audio=None, visitor=None, agent=None, turn_complete=False):
+def content(
+    *,
+    interrupted=False,
+    audio=None,
+    visitor=None,
+    agent=None,
+    turn_complete=False,
+    generation_complete=False,
+):
     parts = [SimpleNamespace(inline_data=SimpleNamespace(data=audio))] if audio else None
     return SimpleNamespace(
         interrupted=interrupted,
@@ -104,6 +112,10 @@ def content(*, interrupted=False, audio=None, visitor=None, agent=None, turn_com
         input_transcription=SimpleNamespace(text=visitor) if visitor else None,
         output_transcription=SimpleNamespace(text=agent) if agent else None,
         turn_complete=turn_complete,
+        # 16 section 2j item 5: the real API sends this when the model has
+        # finished producing a turn, about one audio-duration before
+        # turn_complete arrives.
+        generation_complete=generation_complete,
     )
 
 

@@ -778,6 +778,70 @@ def test_a_turn_that_stops_mid_word_is_a_stall(monkeypatch, caplog):
     assert "live stalled session" in caplog.text
 
 
+def test_a_long_answer_waiting_for_turn_complete_is_not_a_stall(monkeypatch, caplog):
+    """The real end-of-turn sequence, measured on gemini-3.8-live.
+
+    The server paces `turn_complete` to the answer's real-time duration: the
+    build-time probe saw it 1.77 s after the last chunk of a 1.8 s greeting and
+    about 8.5 s after a 57-chunk answer. `generation_complete` arrives with the
+    last chunk. Leaving the audio clock running through the play-out made the
+    watchdog fire on every reply longer than STALL_S -- a healthy conversation,
+    not the dead connection item 5 is about (it fired live, session 57033d2d).
+    """
+    monkeypatch.setattr(config, "STALL_S", 0.2)
+    session, ws = doubles.new_session()
+    session.session = Scripted([
+        [
+            doubles.message(doubles.content(audio=b"chunk", agent="Our drinks are")),
+            doubles.message(doubles.content(generation_complete=True)),
+            # A long answer: turn_complete lags the audio by much more than
+            # STALL_S, because the guest is still listening to it.
+            doubles.message(doubles.content(turn_complete=True)),
+        ]
+    ])
+    gap = None
+
+    async def go():
+        nonlocal gap
+        gap = asyncio.Event()
+        # Hold the line after generation_complete, the way the play-out does.
+        session.session.hold = gap
+        session.session.hold_after = 1
+        pump = asyncio.create_task(session._pump())
+        await asyncio.sleep(config.STALL_S * 4)
+        assert session._stall_deadline() is None, "the model has finished generating"
+        assert not pump.done()
+        gap.set()
+        with pytest.raises(RuntimeError, match="Live session ended"):
+            await pump
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(go())
+
+    assert "live stalled" not in caplog.text
+    assert "live dropped" not in caplog.text
+    assert doubles.states(ws)[-1] == "LISTENING"
+
+
+def test_a_turn_with_no_generation_complete_is_still_a_stall(monkeypatch, caplog):
+    """Session d9386dcc: it stopped mid-word, having never finished generating."""
+    monkeypatch.setattr(config, "STALL_S", 0.05)
+    session, _ws = doubles.new_session()
+
+    class Trailing:
+        async def receive(self):
+            yield doubles.message(doubles.content(audio=b"chunk"))
+            await asyncio.sleep(30)
+
+    session.session = Trailing()
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        with pytest.raises(LiveDropped):
+            asyncio.run(session._pump())
+
+    assert "live stalled session" in caplog.text
+
+
 def test_a_finished_turn_disarms_both_clocks():
     session, _ws = doubles.new_session()
 
