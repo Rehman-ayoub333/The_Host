@@ -107,9 +107,23 @@ Two WebSockets, deliberately separate:
 `TAKING_ORDER`, `ANNOUNCING`, `REMEMBERING`, `NEEDS_HELP`. While an order is being taken the
 label holds at `TAKING_ORDER`; only `SEEING`, `REMEMBERING`, `ANNOUNCING` and `NEEDS_HELP`
 may interrupt it, each returning to the resting state at the end of the turn. The
-conversation ends after 45 seconds of real silence, or gently after about 5 minutes: audio
+conversation ends after 45 seconds of real silence, or gently after about 8 minutes: audio
 still playing and a guest still talking both count as activity, so neither a long answer
-nor a reply is ever cut off mid-sentence.
+nor a reply is ever cut off mid-sentence. It also ends if nobody has been in front of the
+camera for 20 seconds, so THE HOST never talks to an empty room.
+
+**Waking up.** A guest never has to press anything. THE HOST greets whoever walks up, and
+once a conversation is over it can also start again on speech alone — but only when a face
+is close to the counter **and** looking at the screen **and** a voice is heard for more
+than half a second. All three together, because sound on its own cannot tell a guest from
+two people chatting beside the stall. While the booth waits, the microphone is open for a
+loudness reading only: nothing is recorded, and no audio leaves the browser until a
+conversation actually starts.
+
+**The polite wrap-up.** At about 8 minutes THE HOST is asked to say goodbye in one short
+sentence rather than the screen cutting the conversation off. It waits for a gap first —
+never mid-order, mid-answer or mid-sentence — and only then ends, so the last thing a guest
+hears is a thank-you and not silence.
 
 **Two-step orders.** `build_order` creates a draft in `PENDING_CONFIRMATION`,
 `signal_confirmation_request` puts the question on screen, and only `confirm_order` — after
@@ -138,6 +152,14 @@ Deferred announcements leave one per turn end, or as soon as the guest falls sil
 name. The key is the lower-cased name; there is no biometric data anywhere in the system,
 and the camera is used only for presence counting and for pictures the guest asks about.
 An operator can correct a misheard name or delete a profile outright.
+
+**What the menu can say.** Besides a name, category, price and description, a menu item may
+carry four optional facts: `ingredients`, `allergens`, `tags` (any of `spicy`, `sweet`,
+`vegetarian`, `cold`, `hot`) and `add_ons` — the extras the stall genuinely offers. They are
+answered from the data or not at all: a field that is missing means **unknown**, never
+"none", so THE HOST says it does not have that detail and points the guest at the counter
+rather than inventing a garnish. Allergy questions are never answered with a guarantee.
+Fill these in alongside the real menu in `data/menu.json`; leaving one out is always safe.
 
 ## Tech stack
 
@@ -244,8 +266,10 @@ picture), `text_input` (a typed line, when the microphone is unavailable) and
 the microphone meter the robot face already uses: no audio and no level ever leaves the
 page in it. It exists so the backend knows the guest has started speaking before Gemini
 transcribes them, which is a second or more earlier, and can hold an announcement back.
-Last, `session_end` with the reason the page stopped (`timeout`, `cap`, `user`), which the
-backend records; the socket closing is what actually ends the conversation.
+Then `wrap_up`, sent once when the conversation reaches its 8-minute cap, which asks THE
+HOST to thank the guest and say goodbye in one sentence. Last, `session_end` with the reason
+the page stopped (`timeout`, `cap`, `user`, `absent`), which the backend records; the socket
+closing is what actually ends the conversation.
 
 **Events on `/ws/events`.** Every one carries `event_id`, `timestamp` and `session_id`.
 
@@ -303,6 +327,15 @@ session are tested against fakes, so the suite needs no API key and makes no net
 - **No face recognition, ever.** Visitors are matched by a name they said out loud. The
   camera reports a person count and takes pictures the guest asks about; no image is stored
   and no biometric data exists anywhere in the system.
+- **The idle microphone is a loudness meter, nothing more.** So that a guest can start
+  talking without pressing anything, the microphone stays open while the booth waits. It is
+  read only as a single loudness number, the same one that animates the robot's face. While
+  no conversation is running nothing is recorded, nothing is transcribed, and no audio and
+  no level ever leaves the browser — the first audio to reach the backend is the audio of a
+  conversation that has already started.
+- **Guest words are not put on the screen.** The booth display faces the queue, so a guest's
+  own transcript lines are not printed on it; only THE HOST's replies appear. The backend
+  still receives them, because the conversation needs them.
 - **Honesty rules in the prompt.** The agent may not claim to have cancelled, created or
   remembered anything it did not actually do through a tool call, and may not state a fact
   about the stall it did not look up.
