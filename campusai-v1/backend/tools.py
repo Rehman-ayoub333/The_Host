@@ -76,16 +76,22 @@ def check_item_availability(item=None, category=None) -> dict:
             item=str(item).strip() if item else None,
             category=str(category).strip() if category else None,
         )
-        items = [
-            {
+        items = []
+        for row in rows[:20]:
+            item = {
                 "name": row["name"],
                 "category": row["category"],
                 "price": row["price"],
                 "description": row["description"],
                 "available": bool(row["available"]),
             }
-            for row in rows[:20]
-        ]
+            # 16 section 2i item 4: returned only when the menu really carries
+            # them. A missing field means unknown, so it is left out rather than
+            # sent as an empty list, which would read as "none".
+            for field in data.MENU_OPTIONAL_FIELDS:
+                if field in row:
+                    item[field] = row[field]
+            items.append(item)
         return _finish(
             "check_item_availability",
             args,

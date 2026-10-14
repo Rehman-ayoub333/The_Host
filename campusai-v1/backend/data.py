@@ -35,7 +35,15 @@ ORDER_STATUSES = tuple(ALLOWED_TRANSITIONS)
 # The forward chain, used only to word a refusal ("mark it PREPARING before READY").
 _STATUS_CHAIN = ("PENDING_CONFIRMATION", "CONFIRMED", "PREPARING", "READY", "COLLECTED")
 
-_MENU_COLUMNS = "name, category, price, description, image_url, available, prep_seconds"
+_MENU_COLUMNS = (
+    "name, category, price, description, image_url, available, prep_seconds, "
+    "ingredients, allergens, tags, add_ons"
+)
+# 16 section 2i item 4: the four optional facts guests ask about, stored as JSON
+# text. NULL means "unknown", which is never the same as "none" -- the five
+# current items carry no invented values, so they simply leave these out.
+MENU_OPTIONAL_FIELDS = ("ingredients", "allergens", "tags", "add_ons")
+MENU_TAGS = ("spicy", "sweet", "vegetarian", "cold", "hot")
 _ORDER_COLUMNS = (
     "id, timestamp, guest_name, items, status, announced, session_id, "
     "cancel_reason, estimated_ready_at, ready_at"
@@ -61,6 +69,47 @@ def _like(value: str) -> str:
     return f"%{escaped}%"
 
 
+def _encode_menu_list(field: str, value, row_number: int) -> str | None:
+    """16 section 2i item 4: a list of real strings, or NULL for "unknown"."""
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        log.warning("menu row %s: %s is not a list, ignored", row_number, field)
+        return None
+    cleaned: list[str] = []
+    for entry in value:
+        text = " ".join(str(entry).split())
+        if not text:
+            continue
+        if field == "tags":
+            text = text.lower()
+            if text not in MENU_TAGS:
+                log.warning("menu row %s: unknown tag %r, ignored", row_number, text)
+                continue
+        if text not in cleaned:
+            cleaned.append(text)
+    # An empty result would claim the stall has none of these, which is a
+    # different statement from not knowing. It stays unknown.
+    return json.dumps(cleaned) if cleaned else None
+
+
+def _menu_from_row(row) -> dict:
+    """The menu row as the tools see it: an optional field absent when unknown."""
+    item = dict(row)
+    for field in MENU_OPTIONAL_FIELDS:
+        raw = item.pop(field, None)
+        if raw is None:
+            continue
+        try:
+            value = json.loads(raw)
+        except (TypeError, ValueError):
+            log.warning("menu item %r: unreadable %s, ignored", item.get("name"), field)
+            continue
+        if isinstance(value, list) and value:
+            item[field] = value
+    return item
+
+
 def _load_json_list(path, label: str) -> list:
     try:
         with path.open(encoding="utf-8") as file:
@@ -82,9 +131,21 @@ def init_db() -> None:
                 description TEXT NOT NULL DEFAULT '',
                 image_url TEXT NOT NULL DEFAULT '',
                 available INTEGER NOT NULL DEFAULT 1,
-                prep_seconds INTEGER NOT NULL DEFAULT 0
+                prep_seconds INTEGER NOT NULL DEFAULT 0,
+                ingredients TEXT,
+                allergens TEXT,
+                tags TEXT,
+                add_ons TEXT
             )"""
         )
+        # 16 section 2i item 4: a database from an earlier phase has none of the
+        # optional columns yet. They arrive NULL, which reads as unknown.
+        existing = {
+            row["name"] for row in conn.execute("PRAGMA table_info(menu_items)")
+        }
+        for field in MENU_OPTIONAL_FIELDS:
+            if field not in existing:
+                conn.execute(f"ALTER TABLE menu_items ADD COLUMN {field} TEXT")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,7 +215,7 @@ def init_db() -> None:
                         raise ValueError("empty name")
                     conn.execute(
                         f"""INSERT OR IGNORE INTO menu_items ({_MENU_COLUMNS})
-                            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             name,
                             str(row.get("category", "")),
@@ -163,6 +224,10 @@ def init_db() -> None:
                             str(row.get("image_url", "")),
                             int(bool(row.get("available", True))),
                             max(0, int(row.get("prep_seconds", 0))),
+                            *(
+                                _encode_menu_list(field, row.get(field), row_number)
+                                for field in MENU_OPTIONAL_FIELDS
+                            ),
                         ),
                     )
                 except (AttributeError, KeyError, TypeError, ValueError) as exc:
@@ -211,7 +276,7 @@ def get_menu(item=None, category=None) -> list[dict]:
             f"SELECT {_MENU_COLUMNS} FROM menu_items{where} ORDER BY LOWER(category), LOWER(name)",
             params,
         ).fetchall()
-    return [dict(row) for row in rows]
+    return [_menu_from_row(row) for row in rows]
 
 
 def get_menu_item(name) -> dict | None:
@@ -224,12 +289,12 @@ def get_menu_item(name) -> dict | None:
             (needle.lower(),),
         ).fetchone()
         if row is not None:
-            return dict(row)
+            return _menu_from_row(row)
         rows = conn.execute(
             f"SELECT {_MENU_COLUMNS} FROM menu_items WHERE LOWER(name) LIKE ? ESCAPE '\\'",
             (_like(needle),),
         ).fetchall()
-    return dict(rows[0]) if len(rows) == 1 else None
+    return _menu_from_row(rows[0]) if len(rows) == 1 else None
 
 
 def set_menu_availability(name, available) -> dict | None:
@@ -246,7 +311,7 @@ def set_menu_availability(name, available) -> dict | None:
             f"SELECT {_MENU_COLUMNS} FROM menu_items WHERE LOWER(name) = ?",
             (needle.lower(),),
         ).fetchone()
-    return dict(row) if row else None
+    return _menu_from_row(row) if row else None
 
 
 def compute_total(items) -> str | None:
