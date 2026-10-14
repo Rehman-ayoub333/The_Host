@@ -95,13 +95,12 @@ def test_the_other_triggers_keep_their_own_opening():
 # ------------------------------------------- 2h item 5: the VAD field it sets
 
 
-def test_the_connect_config_asks_for_low_start_sensitivity():
+def test_the_start_sensitivity_field_is_gone():
+    # 16 section 2j item 6 removed it: with the handheld microphone it is not
+    # needed, and it may be why short replies went unheard (session 2b4d1ebc).
     built = live_session.build_live_config(datetime.now())
     detection = built.realtime_input_config.automatic_activity_detection
-    assert (
-        detection.start_of_speech_sensitivity
-        == types.StartSensitivity.START_SENSITIVITY_LOW
-    )
+    assert detection.start_of_speech_sensitivity is None
 
 
 def test_every_other_vad_field_stays_at_the_server_default():
@@ -110,7 +109,6 @@ def test_every_other_vad_field_stays_at_the_server_default():
     assert detection.disabled is None
     assert detection.end_of_speech_sensitivity is None
     assert detection.prefix_padding_ms is None
-    assert detection.silence_duration_ms is None
 
 
 # ------------------------------- 2h item 5: proactive audio, both paths
@@ -153,7 +151,7 @@ class _Refusing:
 
 
 def _patch_open(monkeypatch, client):
-    async def fake_open(self, _client, proactive):
+    async def fake_open(self, _client, proactive, _handle=None):
         return client.attempt(proactive)
 
     monkeypatch.setattr(LiveSession, "_open", fake_open)
@@ -222,7 +220,7 @@ def test_nothing_is_attempted_when_it_is_switched_off(monkeypatch, caplog):
 def test_a_real_connect_failure_is_not_swallowed(monkeypatch):
     _reset_proactive_state(monkeypatch, False)
 
-    async def always_fails(self, _client, _proactive):
+    async def always_fails(self, _client, _proactive, _handle=None):
         raise RuntimeError("the network is down")
 
     monkeypatch.setattr(LiveSession, "_open", always_fails)

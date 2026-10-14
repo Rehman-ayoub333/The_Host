@@ -107,9 +107,25 @@ def content(*, interrupted=False, audio=None, visitor=None, agent=None, turn_com
     )
 
 
-def message(server_content=None, tool_call=None):
+def message(server_content=None, tool_call=None, go_away=None, resumption=None):
     return SimpleNamespace(
-        server_content=server_content, tool_call=tool_call, tool_call_cancellation=None
+        server_content=server_content,
+        tool_call=tool_call,
+        tool_call_cancellation=None,
+        # 16 section 2j item 4: the two fields the SDK always carries and
+        # live_session now reads on every message.
+        go_away=go_away,
+        session_resumption_update=resumption,
+    )
+
+
+def go_away(time_left="1s"):
+    return SimpleNamespace(time_left=time_left)
+
+
+def resumption(new_handle="handle-1", resumable=True):
+    return SimpleNamespace(
+        new_handle=new_handle, resumable=resumable, last_consumed_client_message_index=None
     )
 
 

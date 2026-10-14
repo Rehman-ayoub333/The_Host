@@ -57,9 +57,71 @@ _proactive_audio_ok = True
 _proactive_unsupported_logged = False
 
 
+class PageEnded(Exception):
+    """16 section 2j item 2: the browser ended the conversation during the connect.
+
+    Not a failure: nobody is left to show an error to, so `run` treats it exactly
+    like the socket closing and goes straight to `stop()`.
+    """
+
+
+class LiveDropped(Exception):
+    """16 section 2j item 4: the Gemini connection went away mid-conversation.
+
+    `kind` is what goes in the log line: the exception type for a real drop,
+    `stall` for the watchdog, `GoAway` for the server saying goodbye.
+    """
+
+    def __init__(self, kind: str):
+        super().__init__(kind)
+        self.kind = kind
+
+
 def _now() -> float:
     """The monotonic clock, in one place so a test can wind it forward."""
     return time.monotonic()
+
+
+# The connection-closed errors the Live API can raise at us. The google-genai
+# SDK speaks websockets, so these are its exceptions; the names are matched as
+# well as the classes, because a drop that reaches us wrapped in something else
+# is still a drop (16 section 2j item 4 says any connection-closed error).
+_CLOSED_NAMES = frozenset(
+    {
+        "ConnectionClosed",
+        "ConnectionClosedError",
+        "ConnectionClosedOK",
+        "ConnectionResetError",
+        "IncompleteReadError",
+        "WebSocketException",
+    }
+)
+
+
+def is_connection_closed(exc: BaseException) -> bool:
+    """True when `exc` means the Gemini connection itself has gone."""
+    if isinstance(exc, LiveDropped):
+        return True
+    for klass in type(exc).__mro__:
+        if klass.__name__ in _CLOSED_NAMES:
+            return True
+    return False
+
+
+def goaway_seconds(go_away) -> float:
+    """The seconds left in a GoAway, 0.0 when the server did not say.
+
+    `time_left` arrives as a duration string ("9.5s"). An unreadable or absent
+    value counts as no time left, so the connection is rebuilt at once rather
+    than gambling on a turn finishing first (16 section 2j item 4).
+    """
+    raw = getattr(go_away, "time_left", None)
+    if raw is None:
+        return 0.0
+    try:
+        return float(str(raw).strip().rstrip("s") or 0.0)
+    except ValueError:
+        return 0.0
 
 
 def redact(text: str) -> str:
@@ -79,7 +141,9 @@ def failure_message(exc: Exception) -> str:
     return "Something went wrong. Please try again."
 
 
-def build_live_config(now: datetime, proactive: bool = False) -> types.LiveConnectConfig:
+def build_live_config(
+    now: datetime, proactive: bool = False, resume_handle: str | None = None
+) -> types.LiveConnectConfig:
     settings = dict(
         response_modalities=["AUDIO"],
         system_instruction=types.Content(
@@ -95,12 +159,20 @@ def build_live_config(now: datetime, proactive: bool = False) -> types.LiveConne
         ),
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
-        # 16 section 2h item 5: a quieter or more distant voice is less likely to
-        # start a turn, so the people talking next to the booth interrupt less
-        # often. Every other VAD field stays at the server default.
+        # 16 section 2j item 4: a handle lets a rebuilt connection carry on the
+        # same conversation. `handle=None` is the fresh connect: it asks the
+        # server to start issuing handles, which is what makes a resume possible
+        # at all. Handles stay valid for two hours.
+        session_resumption=types.SessionResumptionConfig(handle=resume_handle),
+        # 16 section 2j item 6: the server waits about 800 ms of silence before it
+        # decides the guest has finished, which is most of the pause Rehman heard
+        # before every reply. START_SENSITIVITY_LOW is deliberately gone (it was
+        # 2h item 5): with the handheld microphone it is not needed, and it may be
+        # why short replies went unheard. Every other VAD field, the end-of-speech
+        # sensitivity included, stays at the server default.
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
-                start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_LOW,
+                silence_duration_ms=config.SILENCE_DURATION_MS,
             )
         ),
     )
@@ -156,6 +228,29 @@ class LiveSession:
         self.transcripts = {"visitor": "", "agent": ""}
         self.last_state = None
         self.closed = False
+        # 16 section 2j item 2: the Gemini connect blocks for seconds, and until
+        # now nothing read the browser socket while it did, so a guest who left
+        # in that window was only noticed afterwards. `prebuffer` holds whatever
+        # the page sent during the connect so the uplink still gets it in order.
+        self.client = None
+        self.prebuffer = []
+        self.page_ended = False
+        # 16 section 2j item 4: the newest resumable handle, and the live client
+        # kept so a reconnect does not need the caller again.
+        self.resume_handle = None
+        # 2j item 4: set from inside message handling, acted on by the pump --
+        # recovery belongs to the one task that owns the Gemini stream.
+        self.recover_pending = None
+        self.go_away_waiting = False
+        # 16 section 2j item 5: the stall watchdog's two clocks. `awaiting_model_
+        # since` runs when Gemini owes us output (it heard the guest, or it has a
+        # tool result); `last_audio_chunk_at` catches a turn that stops mid-word
+        # and never completes. Both are None when nothing is owed, which is how
+        # silence alone can never trigger the watchdog.
+        self.awaiting_model_since = None
+        self.last_audio_chunk_at = None
+        # 16 section 2j item 9: one latency line per turn, and no words in it.
+        self.turn_latency_logged = False
 
     # ---------------------------------------------------------------- sending
 
@@ -227,40 +322,105 @@ class LiveSession:
 
     # --------------------------------------------------------------- lifecycle
 
-    async def _open(self, client, proactive: bool):
+    async def _open(self, client, proactive: bool, handle: str | None = None):
         return await asyncio.wait_for(
             self.stack.enter_async_context(
                 client.aio.live.connect(
                     model=config.GEMINI_LIVE_MODEL,
-                    config=build_live_config(datetime.now(), proactive),
+                    config=build_live_config(datetime.now(), proactive, handle),
                 )
             ),
             timeout=config.CONNECT_TIMEOUT_S,
         )
 
-    async def _start(self):
+    async def _connect(self, client, handle: str | None = None):
+        """One connect, with the 2h item 5 proactive-audio fall-back around it."""
         global _proactive_audio_ok, _proactive_unsupported_logged
 
-        client = genai.Client(api_key=config.GEMINI_API_KEY)
-        self.stack = contextlib.AsyncExitStack()
         proactive = config.PROACTIVE_AUDIO and _proactive_audio_ok
         try:
+            return await self._open(client, proactive, handle)
+        except Exception as exc:
+            if not proactive:
+                raise
+            # 16 section 2h item 5: the model refused the setup, so proactive
+            # audio goes off and the guest still gets their conversation.
+            _proactive_audio_ok = False
+            if not _proactive_unsupported_logged:
+                _proactive_unsupported_logged = True
+                log.info("proactive_audio unsupported")
+            log.info("proactive_audio refused: %s", redact(str(exc)))
+            return await self._open(client, False, handle)
+
+    async def _watch_page_end(self) -> None:
+        """16 section 2j item 2: read the browser socket while the connect runs.
+
+        Only two things end the conversation here -- the socket closing and a
+        `session_end` message. Everything else the page sent during the connect
+        is kept in order for the uplink, which is the only reader once the
+        conversation is actually live.
+        """
+        while True:
+            message = await self.ws.receive()
+            if message["type"] == "websocket.disconnect":
+                self.page_ended = True
+                return
+            text = message.get("text")
+            if text is not None:
+                payload = None
+                try:
+                    payload = json.loads(text)
+                except json.JSONDecodeError:
+                    log.warning("ignored invalid JSON from browser")
+                    continue
+                if isinstance(payload, dict) and payload.get("type") == "session_end":
+                    try:
+                        end_message = schemas.SessionEndMessage.model_validate(payload)
+                    except ValidationError:
+                        log.warning("ignored invalid session_end message")
+                        continue
+                    log.info(
+                        "session end requested session %s reason=%s",
+                        self.ctx["session_id"],
+                        end_message.reason,
+                    )
+                    self.page_ended = True
+                    return
+            self.prebuffer.append(message)
+
+    async def _start(self):
+        self.client = genai.Client(api_key=config.GEMINI_API_KEY)
+        self.stack = contextlib.AsyncExitStack()
+        # 16 section 2j item 2: the connect and the browser socket are watched
+        # together. The connect task is created first, so a page that has
+        # already gone can never cancel a connect that has already finished.
+        connecting = asyncio.create_task(self._connect(self.client))
+        watching = asyncio.create_task(self._watch_page_end())
+
+        async def cancel_on_page_end():
             try:
-                self.session = await self._open(client, proactive)
-            except Exception as exc:
-                if not proactive:
-                    raise
-                # 16 section 2h item 5: the model refused the setup, so proactive
-                # audio goes off and the guest still gets their conversation.
-                _proactive_audio_ok = False
-                if not _proactive_unsupported_logged:
-                    _proactive_unsupported_logged = True
-                    log.info("proactive_audio unsupported")
-                log.info("proactive_audio refused: %s", redact(str(exc)))
-                self.session = await self._open(client, False)
+                await watching
+            except asyncio.CancelledError:
+                return
+            connecting.cancel()
+
+        canceller = asyncio.create_task(cancel_on_page_end())
+        try:
+            self.session = await connecting
+        except asyncio.CancelledError:
+            if not self.page_ended:
+                raise
+            # The guest ended it while we were still connecting: nothing failed,
+            # so health is left alone and `stop()` does the rest.
+            log.info("session cancelled during connect session %s", self.ctx["session_id"])
+            raise PageEnded from None
         except Exception as exc:
             health.connect_failed(failure_message(exc))
             raise
+        finally:
+            watching.cancel()
+            canceller.cancel()
+            await asyncio.gather(watching, canceller, return_exceptions=True)
         health.connect_ok()
         await self._send_state("LISTENING")
         await asyncio.to_thread(
@@ -296,7 +456,9 @@ class LiveSession:
                 if task.cancelled():
                     continue
                 task.result()
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, PageEnded):
+            # 16 section 2j item 2: the page ending during the connect is as
+            # ordinary an end as the socket closing, and just as silent.
             pass
         except Exception as exc:
             await self._fail(exc)
@@ -351,6 +513,12 @@ class LiveSession:
         self.guest_voice_active = False
         self.voice_active_since = None
         self.voice_stale_logged = False
+        # 16 section 2j items 4 and 5: nothing is owed to a session that is over,
+        # and a reconnect this session asked for is no longer wanted.
+        self.awaiting_model_since = None
+        self.last_audio_chunk_at = None
+        self.recover_pending = None
+        self.go_away_waiting = False
         if self.stack is not None:
             try:
                 await self.stack.aclose()
@@ -426,7 +594,16 @@ class LiveSession:
 
     async def _uplink(self):
         while not self.closed:
-            message = await self.ws.receive()
+            if self.prebuffer:
+                # 16 section 2j item 2: whatever arrived during the connect, in
+                # the order the page sent it.
+                message = self.prebuffer.pop(0)
+            elif self.page_ended:
+                # The page said goodbye while we were connecting. Starlette
+                # refuses a second receive() after a disconnect anyway.
+                return
+            else:
+                message = await self.ws.receive()
             if message["type"] == "websocket.disconnect":
                 return
             if message.get("bytes") is not None:
@@ -540,15 +717,198 @@ class LiveSession:
     # ---------------------------------------------------------------- downlink
 
     async def _downlink(self):
+        """16 section 2j item 4: the one task that owns the Gemini stream.
+
+        Because it owns it, it is also the only place a connection is rebuilt:
+        a drop, a stall or a GoAway comes out of `_pump` as `LiveDropped`, and
+        the conversation carries on over a new connection if one can be had.
+        """
         while True:
-            got_any = False
-            async for message in self.session.receive():
-                got_any = True
-                await self._handle_message(message)
-            if not got_any:
-                raise RuntimeError("Live session ended")
+            try:
+                await self._pump()
+            except Exception as exc:
+                if self.closed or not is_connection_closed(exc):
+                    raise
+                if not await self._recover(exc):
+                    raise
+
+    def _stall_deadline(self) -> float | None:
+        """16 section 2j item 5: when the watchdog runs out of patience, or None.
+
+        None means nothing is owed to us, which is the whole of "never on
+        silence alone": a guest who says nothing arms neither clock.
+        """
+        deadlines = []
+        if self.awaiting_model_since is not None:
+            deadlines.append(self.awaiting_model_since + config.STALL_S)
+        if self.turn_in_progress and self.last_audio_chunk_at is not None:
+            deadlines.append(self.last_audio_chunk_at + config.STALL_S)
+        return min(deadlines) if deadlines else None
+
+    async def _pump(self) -> None:
+        """Read one connection until it drops, stalls or is told to go away."""
+        stream = self.session.receive().__aiter__()
+        got_any = False
+        while True:
+            nxt = asyncio.ensure_future(stream.__anext__())
+            deadline = self._stall_deadline()
+            timeout = None if deadline is None else max(0.0, deadline - _now())
+            done, _pending = await asyncio.wait({nxt}, timeout=timeout)
+            if not done:
+                # Nothing arrived inside STALL_S of output being owed. Nothing
+                # can have changed the clocks either: they only move when a
+                # message is handled, which is this loop's own work.
+                nxt.cancel()
+                await asyncio.gather(nxt, return_exceptions=True)
+                log.info("live stalled session %s", self.ctx["session_id"])
+                raise LiveDropped("stall")
+            try:
+                message = nxt.result()
+            except StopAsyncIteration:
+                if not got_any:
+                    raise RuntimeError("Live session ended") from None
+                # The stream ended under us mid-conversation: a drop by any
+                # other name (2j item 4).
+                raise LiveDropped("StopAsyncIteration") from None
+            got_any = True
+            await self._handle_message(message)
+            if self.recover_pending is not None:
+                kind, self.recover_pending = self.recover_pending, None
+                raise LiveDropped(kind)
+
+    async def _close_live(self) -> None:
+        """Drop the dead connection. It is already gone, so errors are expected."""
+        old, self.stack = self.stack, contextlib.AsyncExitStack()
+        self.session = None
+        if old is not None:
+            with contextlib.suppress(Exception):
+                await old.aclose()
+
+    async def _recover(self, exc: Exception) -> bool:
+        """16 section 2j item 4: rebuild the connection instead of ending.
+
+        The browser socket is never touched: as far as the guest is concerned
+        this is the same conversation, and `self.ctx` -- the draft, the visitor,
+        the announcements still pending -- travels with it, because it is.
+        """
+        kind = exc.kind if isinstance(exc, LiveDropped) else type(exc).__name__
+        await self._send_control({"type": "interrupted"})
+        # Whatever either side was half-way through saying was cut off, exactly
+        # as in the ordinary `interrupted` path: an unfinished agent line is
+        # marked, and a half-finished visitor line does not sit there afterwards
+        # looking like a guest still mid-sentence.
+        await self._flush_transcripts(interrupted=True)
+        log.info("live dropped session %s: %s", self.ctx["session_id"], kind)
+        health.recovering()
+        await self._close_live()
+        self.turn_in_progress = False
+        self.first_audio_sent = False
+        self.awaiting_model_since = None
+        self.last_audio_chunk_at = None
+        self.go_away_waiting = False
+        self.recover_pending = None
+
+        # Once with the handle, then once without it. A fresh connection has
+        # none of the conversation behind it, so the draft is handed back in the
+        # opening turn (step 4).
+        handles = [self.resume_handle, None] if self.resume_handle else [None]
+        for handle in handles:
+            try:
+                self.session = await self._connect(self.client, handle)
+            except Exception as retry_exc:
+                log.info(
+                    "live reconnect attempt failed session %s resumed=%s: %s",
+                    self.ctx["session_id"],
+                    "true" if handle else "false",
+                    redact(str(retry_exc)),
+                )
+                await self._close_live()
+                continue
+            resumed = handle is not None
+            log.info(
+                "live reconnected session %s resumed=%s",
+                self.ctx["session_id"],
+                "true" if resumed else "false",
+            )
+            health.connect_ok()
+            await self.session.send_realtime_input(text=await self._reconnect_text(resumed))
+            return True
+
+        # Both attempts failed: the existing failure path takes it from here
+        # (NEEDS_HELP, then IDLE), and the mode follows 07 section 3's other
+        # exit from RECOVERING.
+        health.connect_failed(failure_message(exc))
+        return False
+
+    async def _reconnect_text(self, resumed: bool) -> str:
+        """The apology, plus the draft when the new connection has no history."""
+        text = prompts.RECONNECT_PROMPT
+        pending = self.ctx.get("pending_order_id")
+        if resumed or not pending:
+            return text
+        try:
+            order = await asyncio.to_thread(data.get_order, pending)
+        except Exception:
+            log.exception("could not read the open draft for the reconnect turn")
+            return text
+        if order is None or order["status"] != "PENDING_CONFIRMATION":
+            return text
+        items = ", ".join(
+            f"{entry.get('quantity')} x {entry.get('name')}"
+            for entry in order.get("items") or []
+            if entry
+        )
+        if not items:
+            return text
+        return text + " " + prompts.RECONNECT_DRAFT_TEMPLATE.format(
+            order_id=order["id"], items=items
+        )
+
+    def _model_output(self) -> None:
+        """16 section 2j item 5: Gemini has answered, so nothing is owed to us."""
+        self.awaiting_model_since = None
+
+    def _log_turn_latency(self) -> None:
+        """16 section 2j item 9: the first output of a turn, timed from the guest.
+
+        Only the number is written. There is nothing to measure before the first
+        fragment of a conversation (the opening instruction, an announcement),
+        and nothing to add after the first output of a turn.
+        """
+        if self.turn_latency_logged or self.last_input_transcript_at is None:
+            return
+        self.turn_latency_logged = True
+        log.info(
+            "turn latency session %s from_visitor=%.2f",
+            self.ctx["session_id"],
+            _now() - self.last_input_transcript_at,
+        )
 
     async def _handle_message(self, message):
+        # 16 section 2j item 4: the newest handle the server has given us, kept
+        # so a rebuilt connection can carry on the same conversation.
+        update = message.session_resumption_update
+        if update is not None and update.resumable and update.new_handle:
+            self.resume_handle = update.new_handle
+
+        if message.go_away is not None:
+            left = goaway_seconds(message.go_away)
+            if left > config.GOAWAY_TURN_GRACE_S and self.turn_in_progress:
+                # There is time: let THE HOST finish its sentence first.
+                log.info(
+                    "live go_away session %s seconds_left=%.1f, waiting for the turn",
+                    self.ctx["session_id"],
+                    left,
+                )
+                self.go_away_waiting = True
+            else:
+                log.info(
+                    "live go_away session %s seconds_left=%.1f",
+                    self.ctx["session_id"],
+                    left,
+                )
+                self.recover_pending = "GoAway"
+
         server_content = message.server_content
         if server_content is not None:
             if server_content.interrupted:
@@ -560,6 +920,9 @@ class LiveSession:
                 for part in server_content.model_turn.parts or []:
                     if part.inline_data and part.inline_data.data:
                         self.turn_in_progress = True
+                        self._model_output()
+                        self._log_turn_latency()
+                        self.last_audio_chunk_at = _now()
                         if not self.first_audio_sent:
                             self.first_audio_sent = True
                             state = self._first_audio_state()
@@ -577,6 +940,8 @@ class LiveSession:
                 # 16 section 2g item 4: Gemini's own proof that the guest really
                 # is talking, which is what keeps the voice flag believable.
                 self.last_input_transcript_at = _now()
+                # 2j item 5: it has heard the guest, so it owes us an answer.
+                self.awaiting_model_since = _now()
                 await self._on_transcript_fragment(
                     "visitor", server_content.input_transcription.text
                 )
@@ -586,6 +951,8 @@ class LiveSession:
                 and server_content.output_transcription.text
             ):
                 self.turn_in_progress = True
+                self._model_output()
+                self._log_turn_latency()
                 await self._on_transcript_fragment(
                     "agent", server_content.output_transcription.text
                 )
@@ -621,6 +988,15 @@ class LiveSession:
         self.first_audio_sent = False
         self.turn_in_progress = False
         self.recommended_this_turn = False
+        # 16 section 2j items 5 and 9: the turn is over, so nothing is owed and
+        # the next turn gets its own latency line.
+        self.awaiting_model_since = None
+        self.last_audio_chunk_at = None
+        self.turn_latency_logged = False
+        if self.go_away_waiting:
+            # 2j item 4: the server gave us time to finish the turn, and we have.
+            self.go_away_waiting = False
+            self.recover_pending = "GoAway"
         # Only the announcing turn's own end clears the flag (2c item 3).
         # Injecting the announcement mid-turn makes Gemini interrupt itself, and
         # that earlier turn's end must not cancel the announcement it caused.
@@ -855,6 +1231,11 @@ class LiveSession:
         # A tool call is model output: the turn is running and stays running
         # across the tool response below (16 section 2e item 1).
         self.turn_in_progress = True
+        self._model_output()
+        self._log_turn_latency()
+        # 16 section 2j item 5: from here the turn is waiting on us, not on
+        # Gemini, so the audio clock is parked until the response goes back.
+        self.last_audio_chunk_at = None
         function_responses = []
         look_requested = False
         for function_call in tool_call.function_calls:
@@ -898,6 +1279,8 @@ class LiveSession:
             )
         self.first_audio_sent = False
         await self.session.send_tool_response(function_responses=function_responses)
+        # 16 section 2j item 5: Gemini has its result; something must come back.
+        self.awaiting_model_since = _now()
         if look_requested:
             # 09 section 17: the page is asked for the picture only after the model
             # has its tool response, and a second call restarts the whole wait.

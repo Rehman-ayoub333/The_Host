@@ -58,6 +58,16 @@ VOICE_ACTIVE_STALE_S = 10
 # 16 section 2g item 4: however busy the conversation looks, a ready order waits
 # no longer than this before it is spoken.
 ANNOUNCE_MAX_DEFER_S = 20
+# 16 section 2j item 6: Google's guidance is 500-800 ms and the server default is
+# about 800, which made every reply feel a beat late at the booth.
+SILENCE_DURATION_MS = 500
+# 16 section 2j item 5: Gemini has heard the guest, or has been given a tool
+# result, and nothing has come back for this long. The conversation is not over,
+# so the connection is rebuilt rather than the session ended.
+STALL_S = 8
+# 16 section 2j item 4: a GoAway with more time left than this waits for the
+# current turn to finish before the connection is rebuilt.
+GOAWAY_TURN_GRACE_S = 5
 # 16 section 2h item 5, verified at build time on 13 Oct 2026 against
 # gemini-3.8-live: the setup is rejected outright with
 #   Invalid JSON payload received. Unknown name "proactivity" at 'setup':

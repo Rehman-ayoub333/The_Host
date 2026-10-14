@@ -78,6 +78,21 @@ WRAP_UP_PROMPT = (
     "in one short sentence."
 )
 
+# 16 section 2j item 4 step 4: sent on the rebuilt connection, so the guest hears
+# why THE HOST went quiet instead of being left waiting.
+RECONNECT_PROMPT = (
+    "The connection dropped for a moment. Briefly apologise and ask the guest to repeat "
+    "what they last said."
+)
+
+# 2j item 4 step 4: a connection rebuilt without a resumption handle has none of
+# the conversation behind it, so the draft the guest was building is handed back
+# with the apology. Kept as a template: the order is only known at the time.
+RECONNECT_DRAFT_TEMPLATE = (
+    "The guest was in the middle of ordering: order #{order_id}, with {items}. "
+    "That draft is still open, so carry on from it rather than starting again."
+)
+
 # 09 section 17: sent when a picture asked for by look_at_camera never arrives.
 LOOK_FAILED_PROMPT = (
     "The camera picture could not be taken. Tell the guest briefly that you could not get a "
