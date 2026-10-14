@@ -428,11 +428,42 @@ def _closed_error():
     return ConnectionClosedError(None, None)
 
 
+def _api_error(code, reason):
+    """What google-genai really raises: AsyncSession._receive catches the
+    websockets ConnectionClosed and re-raises it as an APIError carrying the
+    websocket close code. Found at build time by force-closing a real
+    connection; before that this path was missed and the session just ended.
+    """
+    from google.genai import errors
+
+    try:
+        errors.APIError.raise_error(code, reason, None)
+    except Exception as exc:  # noqa: BLE001 - the point is to capture it
+        return exc
+    raise AssertionError("raise_error did not raise")
+
+
 def test_a_connection_closed_error_is_recognised():
     assert live_session.is_connection_closed(_closed_error()) is True
     assert live_session.is_connection_closed(LiveDropped("stall")) is True
     # A tool blowing up is not the connection going away.
     assert live_session.is_connection_closed(ValueError("bad menu item")) is False
+
+
+def test_the_sdk_wrapped_close_codes_are_recognised():
+    # 1006 is the aborted transport of the build-time check; 1011 is what
+    # Rehman's session d9386dcc actually died of (keepalive ping timeout).
+    assert live_session.is_connection_closed(_api_error(1006, "abnormal closure")) is True
+    assert live_session.is_connection_closed(_api_error(1011, "keepalive ping timeout")) is True
+    assert live_session.is_connection_closed(_api_error(1000, "going away")) is True
+
+
+def test_an_http_error_is_not_mistaken_for_a_dropped_connection():
+    """429 and 500 keep the existing failure path and their own messages."""
+    busy = _api_error(429, {"code": 429, "message": "quota"})
+    assert live_session.is_connection_closed(busy) is False
+    assert "busy right now" in live_session.failure_message(busy)
+    assert live_session.is_connection_closed(_api_error(500, {"code": 500})) is False
 
 
 # ------------------------------------------------- 2j item 4: GoAway, both ways

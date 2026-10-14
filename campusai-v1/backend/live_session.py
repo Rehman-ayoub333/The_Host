@@ -82,10 +82,15 @@ def _now() -> float:
     return time.monotonic()
 
 
-# The connection-closed errors the Live API can raise at us. The google-genai
-# SDK speaks websockets, so these are its exceptions; the names are matched as
-# well as the classes, because a drop that reaches us wrapped in something else
-# is still a drop (16 section 2j item 4 says any connection-closed error).
+# The connection-closed errors the Live API can raise at us (16 section 2j item
+# 4: any connection-closed error). Verified at build time on 14 Oct 2026 by
+# force-closing a real connection: google-genai does not let the websockets
+# exception through at all. `AsyncSession._receive` catches ConnectionClosed and
+# re-raises it as `errors.APIError` carrying the websocket close code --
+#   APIError: 1006 None. abnormal closure [internal]
+# for an aborted transport, and 1011 for the keepalive timeout Rehman's session
+# d9386dcc died of. The names below are kept for a raw one reaching us by some
+# other path; the close-code range below is what actually fires.
 _CLOSED_NAMES = frozenset(
     {
         "ConnectionClosed",
@@ -97,6 +102,12 @@ _CLOSED_NAMES = frozenset(
     }
 )
 
+# RFC 6455 close codes. An APIError carrying one of these is the websocket
+# closing; an HTTP status (429, 500) is a different animal and keeps the
+# existing failure path, 429's "the AI service is busy" message included.
+WS_CLOSE_CODE_MIN = 1000
+WS_CLOSE_CODE_MAX = 1015
+
 
 def is_connection_closed(exc: BaseException) -> bool:
     """True when `exc` means the Gemini connection itself has gone."""
@@ -105,6 +116,9 @@ def is_connection_closed(exc: BaseException) -> bool:
     for klass in type(exc).__mro__:
         if klass.__name__ in _CLOSED_NAMES:
             return True
+    code = getattr(exc, "code", None)
+    if isinstance(code, int) and WS_CLOSE_CODE_MIN <= code <= WS_CLOSE_CODE_MAX:
+        return True
     return False
 
 
