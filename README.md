@@ -313,6 +313,24 @@ session are tested against fakes, so the suite needs no API key and makes no net
   state and an honest mode change. Real network failures during testing produced a clean
   recovery in under four seconds with no traceback. A tool that fails returns an error the
   model must tell the guest about; it never pretends to have succeeded.
+- **A dropped connection is rebuilt, not given up on.** If the Gemini connection dies
+  mid-conversation — the real case was a keepalive timeout that left THE HOST silent for
+  thirty-four seconds — the conversation is not ended. The browser socket stays open, the
+  page flushes whatever was half-played, and the backend reconnects: first with a session
+  resumption handle, so the model still has the conversation behind it, and failing that on
+  a fresh connection carrying any open order draft forward. THE HOST then apologises briefly
+  and asks the guest to say that again. The order being built, the guest's name and any
+  pending announcement all survive it, because it is the same conversation. Only if both
+  attempts fail does the conversation end the honest way. `/health` reports `RECOVERING`
+  while this is happening and `ONLINE` again the moment it works.
+- **A conversation that goes quiet is noticed.** If Gemini has heard the guest, or has been
+  handed a tool result, and then nothing comes back for eight seconds — or a reply stops
+  mid-word and never finishes — that is treated as a dead connection and recovered the same
+  way. Silence on its own never triggers it: a guest who simply says nothing is not a fault.
+- **The guest's end is honoured immediately.** Ending the page used to be noticed only after
+  the Gemini connect had finished, which could leave a finished conversation holding the
+  booth for six seconds and refuse the next guest. Closing the page or pressing Done now
+  cancels the connect in progress and frees the booth at once.
 - **Never invented data.** The agent reads availability, prices, orders and stall facts from
   the database on every call. The analytics and metrics endpoints return real counts or an
   explicit error — never a placeholder number.
