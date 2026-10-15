@@ -720,16 +720,21 @@ def test_there_are_at_least_eight_approved_greeting_lines():
     assert len(set(prompts.GREETING_LINES)) == len(prompts.GREETING_LINES)
 
 
-def test_every_approved_line_is_in_the_2l_item_2_style():
+def test_every_approved_line_is_in_the_2m_item_4_style():
+    """2m item 4 REPLACED this list and 2l item 2's twelve-word limit with it.
+
+    So the two 2l item 2 qualities the new list does not keep are no longer
+    asserted here: three of the twelve lines end in a full stop rather than a
+    question, and line 4's joke ("the host is artificial") does not spell THE
+    HOST in capitals. The exact list is pinned in test_voice_and_guests.py,
+    which is the authority on its contents; what is left here is what 2m item 4
+    does say, plus the 2l item 2 qualities it did not touch.
+    """
     for line in prompts.GREETING_LINES:
-        assert "THE HOST" in line, line
-        # One line, ending in a question, of about twelve words at most.
-        # "about": 2l item 2's own example lines run to thirteen real words,
-        # so word-like tokens are counted and those examples set the bar.
+        # One line, about 18 words at most (2m item 4), so about five seconds.
         assert "\n" not in line, line
-        assert line.rstrip().endswith("?"), line
         words = [token for token in line.split() if re.search(r"[A-Za-z]", token)]
-        assert len(words) <= 13, (line, len(words))
+        assert len(words) <= 18, (line, len(words))
         # No capability list, no camera, no introduction.
         for forbidden in ("camera", "I can ", "remember", "track"):
             assert forbidden not in line, (line, forbidden)
@@ -887,5 +892,6 @@ def test_the_accepted_decisions_from_the_5f_report_still_hold(ctx):
     # The identity rule tells the model where the topics come from.
     built = prompts.build_system_instruction(datetime.now())
     assert "Those topics live in get_business_info" in built
-    # The listing cap is 8, so six topics all come back.
-    assert len(tools.get_business_info()["answers"]) == 6
+    # The listing cap is 8, so all seven topics come back (six after 2k item 7,
+    # seven once 2m item 5 added complimentary_guests).
+    assert len(tools.get_business_info()["answers"]) == 7

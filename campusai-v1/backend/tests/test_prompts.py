@@ -54,7 +54,7 @@ def test_the_three_prompt_constants_are_plain_formatted_strings():
         assert "{" not in constant and "}" not in constant
 
     assert "Bite & Pour" in prompts.opening_instruction("presence")
-    # 2l item 7a: every approved line names THE HOST, and the stall or the food.
+    # 2m item 4: the lines are formatted strings too, with nothing left to fill.
     for line in prompts.GREETING_LINES:
-        assert "THE HOST" in line
+        assert "{" not in line and "}" not in line
     assert "Do not comment on any person's appearance." in prompts.VISION_PROMPT
