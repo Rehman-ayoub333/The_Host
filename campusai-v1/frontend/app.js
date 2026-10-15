@@ -97,6 +97,11 @@ const cap = { sentAt: 0 };
 // just started talking should not be met with an error for it.
 const BUSY_REFUSAL = "Another conversation is already active.";
 const busy = { tries: 0, trigger: null };
+// 16 section 2k item 3: true between the backend's `reconnecting` true and
+// false. While it is set the page shows "Reconnecting…", none of its clocks
+// advance, and wake-on-speech stays off. The microphone stays open: the
+// backend drops the audio itself while there is nowhere to send it.
+const link = { reconnecting: false, since: 0 };
 // 16 section 2g item 5: only with ?debug=mic, so Rehman can read the real
 // levels at the booth. Without the flag nothing here runs or prints.
 const MIC_DEBUG = new URLSearchParams(location.search).get("debug") === "mic";
@@ -121,7 +126,9 @@ function setState(nextState, errorMessage = "") {
   robot.setState(ROBOT_VISUAL[nextState] || nextState);
   els.statusLabel.textContent = nextState === "error"
     ? (errorMessage || STATE_LABELS.error)
-    : (STATE_LABELS[nextState] || "Ready");
+    : (link.reconnecting && ACTIVE_STATES.has(nextState)
+      ? C.RECONNECTING_LABEL
+      : (STATE_LABELS[nextState] || "Ready"));
 
   els.talkBtn.hidden = nextState !== "idle";
   els.doneBtn.hidden = !ACTIVE_STATES.has(nextState);
@@ -308,6 +315,11 @@ function wakeReady() {
 }
 
 function wakeCheck() {
+  // 2k item 3: no new conversation may start while one is being recovered.
+  if (link.reconnecting) {
+    wake.speechSince = 0;
+    return;
+  }
   if (state !== "idle" || !micAvailable || document.visibilityState !== "visible") {
     wake.speechSince = 0;
     return;
@@ -341,6 +353,8 @@ function handleControl(message) {
     appendTranscript(message.role, message.text, Boolean(message.final));
   } else if (message.type === "capture_request") {
     if (isSessionActive()) captureSnapshot();
+  } else if (message.type === "reconnecting") {
+    setReconnecting(Boolean(message.active));
   } else if (message.type === "interrupted") {
     audio.flushPlayback();
   } else if (message.type === "error") {
@@ -353,6 +367,25 @@ function handleControl(message) {
     fail(message.message);
   }
 }
+
+function setReconnecting(active) {
+  // 16 section 2k item 3: the conversation is not over -- the backend is
+  // rebuilding the connection underneath it, for up to 30 seconds.
+  if (link.reconnecting === active) return;
+  link.reconnecting = active;
+  if (active) {
+    link.since = now();
+  } else {
+    // The soft cap counts conversation, not outage: give back exactly the time
+    // the rebuild took, so an 8-minute chat is still 8 minutes of talking.
+    if (link.since) sessionStartedAt += now() - link.since;
+    link.since = 0;
+    lastActivity = now();
+  }
+  // Re-render the status line for the state the page is already in.
+  if (isSessionActive()) setState(state);
+}
+
 
 function retryAfterBusy() {
   // The refused socket is already closing behind this message. It is taken down
@@ -449,6 +482,8 @@ function endSession(reason) {
   endingByUs = true;
   clearInterval(timers.tick);
   timers.tick = null;
+  link.reconnecting = false;
+  link.since = 0;
   // 16 section 2j item 3: a retry that has not fired yet is no longer wanted.
   clearTimeout(timers.busy);
   timers.busy = null;
@@ -498,6 +533,14 @@ function speechInFlight() {
 
 function tickCheck() {
   const current = now();
+  // 16 section 2k item 3: while the backend is rebuilding the connection none of
+  // these clocks may run out. The guest is still standing there, and the
+  // conversation is meant to carry on when it comes back.
+  if (link.reconnecting) {
+    lastActivity = current;
+    wake.lastFaceAt = current;
+    return;
+  }
   // 16 section 2g item 2: the clock counts real silence only. THE HOST's audio
   // arrives long before it finishes playing, and a talking guest is activity
   // too -- without this a 30-second answer looked like 30 seconds of idling.

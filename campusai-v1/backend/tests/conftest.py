@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -19,10 +20,14 @@ MENU_SEED = [
     {"name": "Mixed Fruit Shake", "category": "Drinks", "price": "Rs. 350", "description": "Seasonal fruit, blended fresh.", "image_url": "/menu/fruit-shake.jpg", "available": True, "prep_seconds": 120},
 ]
 
-BUSINESS_INFO_SEED = [
-    {"topic": "hours", "answer": "We're open for the full duration of the gala."},
-    {"topic": "stall", "answer": "Bite & Pour serves fresh burgers, sandwiches, and cold drinks, made to order."},
-]
+# 16 section 2k item 7 requires four identity topics with EXACT text, so the
+# real seed file is the fixture: inlining a copy here would let the two drift
+# and the exactness test would be checking the copy.
+BUSINESS_INFO_SEED = json.loads(
+    (Path(__file__).resolve().parent.parent / "data" / "business_info.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
 @pytest.fixture(autouse=True)

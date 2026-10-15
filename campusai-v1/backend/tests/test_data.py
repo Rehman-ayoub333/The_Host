@@ -48,7 +48,8 @@ def test_init_db_creates_every_table_and_keeps_agent_log():
 
 def test_seeds_menu_and_business_info_only_when_empty():
     assert data.load_menu() == 5
-    assert len(data.get_business_info()) == 2
+    # 16 section 2k item 7 added the four identity topics to the seed file.
+    assert len(data.get_business_info()) == 6
     data.set_menu_availability("Blue Lemonade", False)
     data.init_db()
     assert data.get_menu_item("Blue Lemonade")["available"] == 0
@@ -435,7 +436,9 @@ def test_memory_event_shape():
 
 
 def test_get_business_info_substring_and_all():
-    assert [row["topic"] for row in data.get_business_info()] == ["hours", "stall"]
+    assert [row["topic"] for row in data.get_business_info()] == [
+        "about_the_host", "hours", "how_it_works", "project", "stall", "team",
+    ]
     assert data.get_business_info("HOUR")[0]["answer"].startswith("We're open")
     assert data.get_business_info("parking") == []
 

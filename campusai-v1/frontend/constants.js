@@ -27,4 +27,8 @@ export const C = {
   // the next one for a moment, and at the gala nobody should see an error for
   // that. Three quiet retries, then the refusal is shown like any other.
   BUSY_RETRY_LIMIT: 3, BUSY_RETRY_MS: 1500,
+  // 16 section 2k item 3: what the guest sees while the backend rebuilds a
+  // dropped connection. The backend keeps trying for 30 s, so none of the
+  // page's own clocks may run out underneath it.
+  RECONNECTING_LABEL: "Reconnecting…",
 };

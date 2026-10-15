@@ -434,7 +434,8 @@ def test_get_business_info_found_and_missing(ctx):
     assert result["answers"] == [
         {"topic": "hours", "answer": "We're open for the full duration of the gala."}
     ]
-    assert len(tools.get_business_info()["answers"]) == 2
+    # 2k item 7: six topics now, and the listing cap no longer drops one.
+    assert len(tools.get_business_info()["answers"]) == 6
     assert tools.get_business_info("parking") == {
         "source": "menu",
         "found": False,
