@@ -84,3 +84,17 @@ def test_the_readme_names_the_whole_team():
     for name in ("Rehman Ayoub", "Saad Saleem", "Umair Saddiqui"):
         assert name in text
     assert "Government College University Faisalabad" in text
+    # The Phase 5f README: the supervisor and the campus too.
+    assert "## Team" in text
+    assert "Ma'am Marva" in text
+    assert "Department of Computer Science" in text
+    assert "Samundri Campus" in text
+
+
+def test_the_readme_describes_the_phase_5f_reliability_work():
+    text = readme_text()
+    # 2k item 2's window, 2k item 3's status, 2l item 3's names, 2l item 4.
+    assert "thirty seconds" in text
+    assert "Reconnecting" in text
+    assert "number 5 for Rehman is ready!" in text
+    assert "cancelled as abandoned" in text

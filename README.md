@@ -313,16 +313,29 @@ session are tested against fakes, so the suite needs no API key and makes no net
   state and an honest mode change. Real network failures during testing produced a clean
   recovery in under four seconds with no traceback. A tool that fails returns an error the
   model must tell the guest about; it never pretends to have succeeded.
-- **A dropped connection is rebuilt, not given up on.** If the Gemini connection dies
-  mid-conversation — the real case was a keepalive timeout that left THE HOST silent for
-  thirty-four seconds — the conversation is not ended. The browser socket stays open, the
-  page flushes whatever was half-played, and the backend reconnects: first with a session
-  resumption handle, so the model still has the conversation behind it, and failing that on
-  a fresh connection carrying any open order draft forward. THE HOST then apologises briefly
-  and asks the guest to say that again. The order being built, the guest's name and any
-  pending announcement all survive it, because it is the same conversation. Only if both
-  attempts fail does the conversation end the honest way. `/health` reports `RECOVERING`
-  while this is happening and `ONLINE` again the moment it works.
+- **A dropped connection is rebuilt for a full thirty seconds.** If the Gemini connection
+  dies mid-conversation — a keepalive timeout, or the Wi-Fi simply going away — the
+  conversation is not ended. The browser socket stays open, the page says "Reconnecting…"
+  and holds all of its own clocks, and the backend tries again immediately and then every
+  three seconds until thirty seconds have passed. Every attempt carries the session
+  resumption handle, so the model can pick the conversation up where it left off; the handle
+  is dropped only if the server itself refuses it. On success THE HOST apologises briefly,
+  asks the guest to repeat what they last said, and is handed the open order again — its
+  number, items, total and the name on it, read fresh from the database, because resumption
+  is not trusted to have restored it. Only when the whole window is exhausted does the
+  conversation end the honest way. `/health` reports `RECOVERING` throughout and `ONLINE`
+  again the moment it works, and every drop is logged to one outcome either way.
+- **An order outlives a broken conversation.** Every order lives in the local database on
+  the laptop, so a confirmed order is never touched by an internet outage. An order still
+  waiting for confirmation used to die with its conversation; now, when a conversation ends
+  by failure rather than by the guest finishing, the draft is kept for three minutes. The
+  next guest to start a conversation is asked whether they want to continue it, and a yes
+  confirms it. A draft nobody comes back for is cancelled as abandoned.
+- **Orders are kept by name and number.** THE HOST asks once for a first name before the
+  confirmation question — the guest may decline — and the announcement uses it: "Order
+  number 5 for Rehman is ready!". Any question about an order is answered by looking it up
+  by number or by name, never from the conversation's memory, and an order that is still
+  waiting for confirmation is described as exactly that rather than as placed.
 - **A conversation that goes quiet is noticed.** If Gemini has heard the guest, or has been
   handed a tool result, and then nothing comes back for eight seconds — or a reply stops
   mid-word and never finishes — that is treated as a dead connection and recovered the same
@@ -385,7 +398,21 @@ of the contract above and are not part of this repository.
 - Connect the operator dashboard and the public display to this backend.
 - Work through every row of the failure matrix deliberately, then a full event-day rehearsal.
 
+## Team
+
+Supervised by **Ma'am Marva** — Department of Computer Science,
+Government College University Faisalabad, Samundri Campus.
+
+| Who | What they built |
+|---|---|
+| **Rehman Ayoub** — project lead | The agent architecture, the backend, and the way vision, speech and reasoning are combined |
+| **Saad Saleem** | The business logic: order management, system integration, and the stall's operational workflow |
+| **Umair Saddiqui** | The operator dashboard and the public display, and system testing |
+
+All three are BS Computer Science students at GCUF Samundri Campus.
+
 ## Credits
 
-Built by **Rehman Ayoub** (lead), **Saad Saleem** and **Umair Saddiqui** — BS Computer
-Science, Government College University Faisalabad.
+THE HOST runs on Google's Gemini Live API, which gives it language and voice. Everything
+around it — the ordering system, the memory, the operator dashboard and public display, the
+human oversight and the recovery when the network drops — is the team's own work.
