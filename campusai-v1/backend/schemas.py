@@ -60,6 +60,18 @@ class CaptureRequestEvent(EventEnvelope):
     type: Literal["capture_request"]
 
 
+class ReconnectingEvent(EventEnvelope):
+    """16 section 2k item 3: the sixth audio-socket event (Phase 5f).
+
+    True when recovery starts, false when it ends either way, so the voice page
+    can say "Reconnecting…" and hold its clocks instead of timing the guest out
+    while the backend is rebuilding the connection.
+    """
+
+    type: Literal["reconnecting"]
+    active: bool
+
+
 class ErrorEvent(EventEnvelope):
     type: Literal["error"]
     message: str

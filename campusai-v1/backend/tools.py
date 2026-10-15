@@ -154,7 +154,9 @@ def build_order(items, guest_name=None) -> dict:
                 args,
                 {"source": "order", "error": "I didn't catch any items."},
             )
-        who = (str(guest_name).strip()[:60] if guest_name else None) or c.get("visitor_name")
+        # 16 section 2l item 3: a first name, trimmed, at most 30 characters.
+        given = " ".join(str(guest_name or "").split())[:30]
+        who = given or c.get("visitor_name")
         result = data.create_order_draft(validated, who, c.get("session_id"))
         c["pending_order_id"] = result["order_id"]
         order = data.get_order(result["order_id"])
@@ -306,13 +308,13 @@ def cancel_order(order_id, reason=None) -> dict:
         )
 
 
-def get_order_status(order_id=None) -> dict:
-    args = {"order_id": order_id}
+def get_order_status(order_id=None, guest_name=None) -> dict:
+    """16 section 2l item 5: by number or by name, every status, from the database."""
+    args = {"order_id": order_id, "guest_name": guest_name}
     try:
         c = _ctx()
-        if order_id in (None, ""):
-            found = data.find_orders_for(c.get("session_id"), c.get("visitor_name"))[:3]
-        else:
+        name = " ".join(str(guest_name or "").split())[:30]
+        if order_id not in (None, ""):
             try:
                 oid = int(float(order_id))
             except (TypeError, ValueError):
@@ -323,14 +325,23 @@ def get_order_status(order_id=None) -> dict:
                 )
             order = data.get_order(oid)
             found = [order] if (order is not None and _owns_order(order)) else []
+        elif name:
+            found = data.find_orders_today(name)
+        else:
+            found = data.find_orders_for(c.get("session_id"), c.get("visitor_name"))[:3]
         orders = [
             {
                 "order_id": order["id"],
                 "status": order["status"],
+                # A draft is not a placed order, and the model must not imply it is.
+                "status_text": data.STATUS_TEXT.get(order["status"], order["status"]),
                 "items": order["items"],
+                "guest_name": order.get("guest_name"),
+                "total": data.compute_total(order["items"]),
                 "estimated_minutes_left": data.minutes_left(order),
             }
             for order in found
+            if order is not None
         ]
         return _finish(
             "get_order_status",
@@ -477,8 +488,10 @@ def get_business_info(topic=None) -> dict:
             {
                 "source": "menu",
                 "found": bool(rows),
+                # 16 section 2k item 7 brought the topic count to six, so the
+                # cap no longer silently drops one from a listing call.
                 "answers": [
-                    {"topic": row["topic"], "answer": row["answer"]} for row in rows[:5]
+                    {"topic": row["topic"], "answer": row["answer"]} for row in rows[:8]
                 ],
             },
         )
@@ -639,7 +652,10 @@ TOOL_DECLARATIONS = [
             },
             "guest_name": {
                 "type": "string",
-                "description": "The guest's name, only if they gave one.",
+                "description": (
+                    "The guest's first name for the order, only if they gave one. "
+                    "Ask once before the confirmation question."
+                ),
             },
         },
         ("items",),
@@ -666,8 +682,14 @@ TOOL_DECLARATIONS = [
     ),
     _decl(
         "get_order_status",
-        "Check the status and estimated time of this guest's own orders. Give the order number if the guest knows it; omit it to find their active orders.",
-        {"order_id": {"type": "integer", "description": "The order number, if known."}},
+        "Check this guest's orders in the database: status, what is in them, and estimated time. Give the order number if the guest knows it, or the name the order was placed under; omit both to find their own active orders. Always call this before answering any question about an order.",
+        {
+            "order_id": {"type": "integer", "description": "The order number, if known."},
+            "guest_name": {
+                "type": "string",
+                "description": "The first name the order was placed under, if that is all the guest has.",
+            },
+        },
     ),
     _decl(
         "report_feedback",
@@ -707,8 +729,15 @@ TOOL_DECLARATIONS = [
     ),
     _decl(
         "get_business_info",
-        "Look up facts about the stall itself: opening hours, promotions, what the stall is. Omit topic to list everything.",
-        {"topic": {"type": "string", "description": "e.g. 'hours' or 'stall'."}},
+        "Look up facts about the stall itself: opening hours, promotions, what the stall is -- and who THE HOST is, who built it, how it works and what the project is. Omit topic to list everything.",
+        {
+            "topic": {
+                "type": "string",
+                "description": (
+                    "One of 'hours', 'stall', 'about_the_host', 'team', 'how_it_works', 'project'."
+                ),
+            }
+        },
     ),
     _decl(
         "request_operator_help",

@@ -416,7 +416,7 @@ RULES = [
     "Welcome a guest only once per conversation, even if later speech sounds "
     "like a greeting.",
     # Language and length.
-    "Reply in the language the guest uses (English or Urdu); if unsure, English.",
+    "Reply in the language the guest uses. If the guest speaks Urdu or Punjabi, reply in Urdu: never Hindi, never Punjabi, never Gurmukhi or Devanagari script.",
 ]
 
 
@@ -446,5 +446,10 @@ def test_no_robotic_medical_disclaimer_is_asked_for():
 def test_the_agent_is_never_called_anything_but_the_host():
     built = prompts.build_system_instruction(datetime.now())
     assert config.AGENT_NAME == "THE HOST"
-    for other in ("CampusAI", "Campus AI", "Gemini", "assistant"):
+    # No other working name for the agent. "Gemini" is not one of those: 16
+    # section 2k item 7 requires the prompt to name the model THE HOST runs on,
+    # and to neither credit Google with building it nor deny using Gemini.
+    for other in ("CampusAI", "Campus AI", "assistant"):
         assert other not in built
+    assert "Gemini" in built
+    assert "never say Google built you" in built

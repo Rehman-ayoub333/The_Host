@@ -17,6 +17,7 @@ import doubles
 import event_bus
 import health
 import main
+import prompts
 
 
 TOKEN = "operator-token-for-tests"
@@ -316,12 +317,7 @@ def test_announce_repeats_a_ready_order_even_though_it_was_announced(served, mon
     assert of_type("order_ready")[0]["customer_name"] == "Ahmed"
     assert of_type("order_ready")[0]["session_id"] is None
     assert session.session.inputs == [
-        {
-            "text": (
-                f"An order just became ready: order #{order_id} for Ahmed. "
-                "Let the guests know, briefly and naturally, even if it is not their order."
-            )
-        }
+        {"text": prompts.ANNOUNCE_TEMPLATE.format(order_id=order_id, name=" for Ahmed")}
     ]
     assert f"Operator: repeated the announcement for order #{order_id}" in activity_labels()
     assert operator_actions()[-1] == {"action": "announce", "order_id": order_id}

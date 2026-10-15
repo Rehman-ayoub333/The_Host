@@ -14,13 +14,11 @@ import pytest
 
 import config
 import doubles
+import prompts
 import schemas
 
 
-ANNOUNCEMENT_27 = (
-    "An order just became ready: order #27 for Ahmed. "
-    "Let the guests know, briefly and naturally, even if it is not their order."
-)
+ANNOUNCEMENT_27 = prompts.ANNOUNCE_TEMPLATE.format(order_id=27, name=" for Ahmed")
 
 
 def listening():

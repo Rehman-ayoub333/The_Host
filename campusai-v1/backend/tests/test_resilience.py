@@ -24,7 +24,9 @@ import prompts
 from live_session import LiveDropped, LiveSession, PageEnded
 
 
-BURGER = {"name": "Chicken Burger", "quantity": 2}
+# Priced, because build_order always attaches the menu price before it
+# stores a draft -- and the total is read back on a reconnect (2k item 4).
+BURGER = {"name": "Chicken Burger", "quantity": 2, "price": "Rs. 650"}
 
 
 def texts(session):
@@ -376,6 +378,13 @@ def test_a_tool_call_turn_survives_the_generator_ending(caplog):
     assert "live dropped" not in caplog.text
 
 
+class _Raise:
+    """A scripted connect result that raises this exact error."""
+
+    def __init__(self, error):
+        self.error = error
+
+
 class _Reconnecting:
     """Scripted connects: each result in turn, `None` meaning this one fails."""
 
@@ -389,6 +398,8 @@ class _Reconnecting:
             self.handles.append(handle)
             self.modes.append(health.mode())
             result = self.results.pop(0) if self.results else None
+            if isinstance(result, _Raise):
+                raise result.error
             if result is None:
                 raise RuntimeError("the connection could not be rebuilt")
             return result
@@ -458,12 +469,16 @@ def test_the_session_keeps_its_context_across_a_reconnect(monkeypatch):
     assert [order["id"] for order in session.pending_announcements] == [4]
 
 
-# ------------------- 2j item 4: the fall-back connect, carrying the draft
+# ---------------- 2k item 2: the retry loop, and 2k item 4: the draft always
 
 
-def test_the_fallback_connect_drops_the_handle_and_carries_the_draft(
-    monkeypatch, caplog, host_data
-):
+def test_the_second_attempt_still_uses_the_handle(monkeypatch, caplog, host_data):
+    """2k item 2 supersedes 2j item 4's "once with the handle, once without".
+
+    A failed attempt says nothing about the handle unless the server refused
+    it, so the handle goes on every attempt.
+    """
+    monkeypatch.setattr(config, "RECOVER_RETRY_S", 0)
     order_id = host_data.create_order_draft(
         [BURGER], "Sara", "a1b2c3d4"
     )["order_id"]
@@ -475,19 +490,22 @@ def test_the_fallback_connect_drops_the_handle_and_carries_the_draft(
         recovered = asyncio.run(session._recover(LiveDropped("ConnectionClosedError")))
 
     assert recovered is True
-    # With the handle first, then without it.
-    assert connects.handles == ["handle-1", None]
-    assert "resumed=false" in caplog.text
-    # The new connection has none of the conversation, so the draft comes with
-    # the apology: its number and what is in it.
+    assert connects.handles == ["handle-1", "handle-1"]
+    assert "n=1 resumed=true result=RuntimeError" in caplog.text
+    assert "n=2 resumed=true result=ok" in caplog.text
+    # 2k item 4: the draft comes back with the apology -- its number, items,
+    # total and the name on it -- re-read from the database.
     sent = texts(session)
     assert len(sent) == 1
     assert sent[0].startswith(prompts.RECONNECT_PROMPT)
     assert f"#{order_id}" in sent[0]
     assert "2 x Chicken Burger" in sent[0]
+    assert "Rs. 1,300" in sent[0]
+    assert "for Sara" in sent[0]
 
 
-def test_the_fallback_connect_says_nothing_about_a_draft_that_is_not_there(monkeypatch):
+def test_the_reconnect_says_nothing_about_a_draft_that_is_not_there(monkeypatch):
+    monkeypatch.setattr(config, "RECOVER_RETRY_S", 0)
     session, _ws, connects = recovering_session([None, doubles.FakeLiveApiSession()])
     monkeypatch.setattr(LiveSession, "_connect", connects.hook())
 
@@ -496,8 +514,32 @@ def test_the_fallback_connect_says_nothing_about_a_draft_that_is_not_there(monke
     assert texts(session) == [prompts.RECONNECT_PROMPT]
 
 
-def test_a_resumed_connection_does_not_repeat_the_draft(monkeypatch, host_data):
-    """It has the conversation behind it, so handing the draft back would confuse."""
+def test_the_server_refusing_the_handle_drops_it(monkeypatch, caplog):
+    """2k item 2: only the server's own refusal throws the handle away."""
+    monkeypatch.setattr(config, "RECOVER_RETRY_S", 0)
+    refusal = _Raise(_api_error(400, {"code": 400, "message": "bad handle"}))
+    session, _ws, connects = recovering_session(
+        [refusal, doubles.FakeLiveApiSession()]
+    )
+    monkeypatch.setattr(LiveSession, "_connect", connects.hook())
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        assert asyncio.run(session._recover(LiveDropped("ConnectionClosedError"))) is True
+
+    # First attempt with it, refused by the server; every attempt after without.
+    assert connects.handles == ["handle-1", None]
+    assert "live resumption handle refused session" in caplog.text
+    assert session.resume_handle is None
+    assert "n=2 resumed=false result=ok" in caplog.text
+
+
+def test_a_resumed_connection_restates_the_draft_as_well(monkeypatch, host_data):
+    """16 section 2k item 4 inverted 2j item 4 here, and says why.
+
+    Resumption is not trusted to have restored the order: in the Wi-Fi tests
+    the conversation that followed knew nothing about the order the guest had
+    just placed. So the draft is restated after EVERY successful reconnect.
+    """
     order_id = host_data.create_order_draft(
         [BURGER], "Sara", "a1b2c3d4"
     )["order_id"]
@@ -507,6 +549,27 @@ def test_a_resumed_connection_does_not_repeat_the_draft(monkeypatch, host_data):
 
     asyncio.run(session._recover(LiveDropped("ConnectionClosedError")))
 
+    sent = texts(session)
+    assert len(sent) == 1
+    assert f"#{order_id}" in sent[0]
+    assert "2 x Chicken Burger" in sent[0]
+    assert "for Sara" in sent[0]
+
+
+def test_the_restated_draft_is_read_from_the_database(monkeypatch, host_data):
+    """2l item 5: with its current status, never from the session's memory."""
+    order_id = host_data.create_order_draft(
+        [BURGER], "Sara", "a1b2c3d4"
+    )["order_id"]
+    session, _ws, connects = recovering_session([doubles.FakeLiveApiSession()])
+    monkeypatch.setattr(LiveSession, "_connect", connects.hook())
+    session.ctx["pending_order_id"] = order_id
+    # The operator cancelled it behind the conversation's back.
+    host_data.update_order_status(order_id, "CANCELLED", "operator")
+
+    asyncio.run(session._recover(LiveDropped("ConnectionClosedError")))
+
+    # It is no longer an open draft, so it is not offered back.
     assert texts(session) == [prompts.RECONNECT_PROMPT]
 
 
@@ -527,8 +590,10 @@ def test_a_confirmed_order_is_not_handed_back_as_a_draft(monkeypatch, host_data)
 # ------------------------- 2j item 4: both attempts failing, and health
 
 
-def test_both_attempts_failing_falls_back_to_the_failure_path(monkeypatch):
-    session, ws, connects = recovering_session([None, None])
+def test_giving_up_falls_back_to_the_failure_path(monkeypatch, caplog):
+    monkeypatch.setattr(config, "RECOVER_RETRY_S", 0)
+    monkeypatch.setattr(config, "RECOVER_WINDOW_S", 0.05)
+    session, ws, connects = recovering_session([])
     monkeypatch.setattr(LiveSession, "_connect", connects.hook())
 
     async def go():
@@ -536,9 +601,11 @@ def test_both_attempts_failing_falls_back_to_the_failure_path(monkeypatch):
         # The downlink re-raises, which is the existing failure path.
         await session._fail(LiveDropped("ConnectionClosedError"))
 
-    asyncio.run(go())
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(go())
 
-    assert connects.handles == ["handle-1", None]
+    assert "live recovery failed session" in caplog.text
+    assert f"attempts={len(connects.handles)}" in caplog.text
     assert doubles.states(ws)[-1] == "NEEDS_HELP"
     assert any(sent["type"] == "error" for sent in ws.sent)
     # 07 section 3: RECOVERING's other exit.

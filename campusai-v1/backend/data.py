@@ -46,8 +46,21 @@ MENU_OPTIONAL_FIELDS = ("ingredients", "allergens", "tags", "add_ons")
 MENU_TAGS = ("spicy", "sweet", "vegetarian", "cold", "hot")
 _ORDER_COLUMNS = (
     "id, timestamp, guest_name, items, status, announced, session_id, "
-    "cancel_reason, estimated_ready_at, ready_at"
+    "cancel_reason, estimated_ready_at, ready_at, orphaned_at"
 )
+
+# 16 section 2l item 5: how each status is described to a guest. A draft is not
+# a placed order, and THE HOST must never let one sound like one.
+STATUS_TEXT = {
+    "PENDING_CONFIRMATION": "waiting for your confirmation",
+    "CONFIRMED": "confirmed and queued",
+    "PREPARING": "being prepared",
+    "READY": "ready to collect",
+    "COLLECTED": "collected",
+    "CANCELLED": "cancelled",
+    "FAILED": "failed",
+    "REQUIRES_ATTENTION": "with a team member",
+}
 
 
 def _now() -> str:
@@ -157,9 +170,15 @@ def init_db() -> None:
                 session_id TEXT,
                 cancel_reason TEXT,
                 estimated_ready_at TEXT,
-                ready_at TEXT
+                ready_at TEXT,
+                orphaned_at TEXT
             )"""
         )
+        # 16 section 2l item 4: when a conversation broke and left this draft
+        # behind. NULL for every order that ended its conversation normally.
+        order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)")}
+        if "orphaned_at" not in order_columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN orphaned_at TEXT")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS feedback (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -399,6 +418,120 @@ def expire_pending_orders(ttl_seconds: int = config.PENDING_ORDER_TTL_S) -> list
             }
         )
     return ids
+
+
+def orphan_draft(order_id) -> bool:
+    """16 section 2l item 4: a conversation broke; keep this draft and note when.
+
+    It stays PENDING_CONFIRMATION, so it is still a draft and nothing else about
+    it changes. 2a item 17 still cancels a draft whose conversation ended
+    normally -- this is only for an end by failure.
+    """
+    with closing(_connect()) as conn:
+        changed = conn.execute(
+            "UPDATE orders SET orphaned_at = ? "
+            "WHERE id = ? AND status = 'PENDING_CONFIRMATION'",
+            (_now(), int(order_id)),
+        ).rowcount
+        conn.commit()
+    return bool(changed)
+
+
+def latest_orphan_draft(within_seconds: int = None) -> dict | None:
+    """The most recent unclaimed orphan, if it is still inside the window.
+
+    2l item 4: only the most recent one is ever offered.
+    """
+    window = config.ORPHAN_DRAFT_S if within_seconds is None else within_seconds
+    cutoff = (datetime.now() - timedelta(seconds=window)).isoformat(timespec="seconds")
+    with closing(_connect()) as conn:
+        row = conn.execute(
+            f"SELECT {_ORDER_COLUMNS} FROM orders "
+            "WHERE status = 'PENDING_CONFIRMATION' AND orphaned_at IS NOT NULL "
+            "AND orphaned_at >= ? ORDER BY orphaned_at DESC, id DESC LIMIT 1",
+            (cutoff,),
+        ).fetchone()
+    return _order_from_row(row) if row is not None else None
+
+
+def claim_orphan_draft(order_id, session_id) -> dict | None:
+    """Hand the orphan to the conversation that is about to offer it.
+
+    The new session takes the draft over, so every existing order rule -- who
+    owns it, confirming it, cancelling it -- applies unchanged.
+    """
+    with closing(_connect()) as conn:
+        changed = conn.execute(
+            "UPDATE orders SET orphaned_at = NULL, session_id = ? "
+            "WHERE id = ? AND status = 'PENDING_CONFIRMATION'",
+            (session_id, int(order_id)),
+        ).rowcount
+        conn.commit()
+        if not changed:
+            return None
+        row = conn.execute(
+            f"SELECT {_ORDER_COLUMNS} FROM orders WHERE id = ?", (int(order_id),)
+        ).fetchone()
+    return _order_from_row(row) if row is not None else None
+
+
+def abandon_orphan_drafts(within_seconds: int = None) -> list[int]:
+    """2l item 4: an orphan nobody came back for is cancelled as `abandoned`."""
+    window = config.ORPHAN_DRAFT_S if within_seconds is None else within_seconds
+    cutoff = (datetime.now() - timedelta(seconds=window)).isoformat(timespec="seconds")
+    with closing(_connect()) as conn:
+        stale = conn.execute(
+            "SELECT id FROM orders WHERE status = 'PENDING_CONFIRMATION' "
+            "AND orphaned_at IS NOT NULL AND orphaned_at < ?",
+            (cutoff,),
+        ).fetchall()
+        if not stale:
+            return []
+        ids = [int(row["id"]) for row in stale]
+        placeholders = ",".join("?" * len(ids))
+        conn.execute(
+            "UPDATE orders SET status = 'CANCELLED', cancel_reason = 'abandoned', "
+            f"orphaned_at = NULL WHERE id IN ({placeholders})",
+            ids,
+        )
+        conn.commit()
+        rows = conn.execute(
+            f"SELECT {_ORDER_COLUMNS} FROM orders WHERE id IN ({placeholders}) ORDER BY id",
+            ids,
+        ).fetchall()
+    for row in rows:
+        order = _order_from_row(row)
+        log.info("draft abandoned order %s", order["id"])
+        event_bus.publish_threadsafe(
+            {"type": "order_updated", "order": order_view(order), "session_id": None}
+        )
+        _abandoned_row(order)
+    return ids
+
+
+def _abandoned_row(order) -> None:
+    """The `Order #<n> cancelled` activity row 2l item 4 asks for.
+
+    `summaries` is imported here rather than at module scope because it reads
+    this module, and a top-level import would be circular.
+    """
+    import summaries
+
+    summaries.emit_activity("order", f"Order #{order['id']} cancelled", None, None)
+
+
+def find_orders_today(guest_name) -> list[dict]:
+    """16 section 2l item 5: today's orders under this name, every status."""
+    name = " ".join(str(guest_name or "").split()).lower()
+    if not name:
+        return []
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            f"SELECT {_ORDER_COLUMNS} FROM orders "
+            "WHERE LOWER(guest_name) = ? AND DATE(timestamp) = ? ORDER BY id DESC",
+            (name, _today()),
+        ).fetchall()
+    return [_order_from_row(row) for row in rows]
 
 
 def create_order_draft(items, guest_name, session_id) -> dict:

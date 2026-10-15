@@ -23,6 +23,8 @@ EVENT_MODELS = {
     "interrupted": schemas.InterruptedEvent,
     "error": schemas.ErrorEvent,
     "capture_request": schemas.CaptureRequestEvent,
+    # 16 section 2k item 3
+    "reconnecting": schemas.ReconnectingEvent,
 }
 
 BURGER = {"name": "Chicken Burger", "quantity": 1}
@@ -789,7 +791,7 @@ def test_one_event_carries_one_id_on_both_paths():
     validate(ws)
 
 
-def test_the_audio_socket_never_carries_a_fifth_event_type():
+def test_the_audio_socket_never_carries_an_event_type_it_should_not():
     session, ws = listening()
 
     feed(
@@ -808,10 +810,15 @@ def test_the_audio_socket_never_carries_a_fifth_event_type():
 
 
 def test_a_pending_draft_is_cancelled_when_the_session_ends():
-    """16 section 2a item 17."""
+    """16 section 2a item 17, for a conversation that ended normally.
+
+    2l item 4 keeps the draft only when the conversation broke; a `session_end`
+    reason is what says it did not.
+    """
     session, ws = listening()
     feed(session, [message(tool_call=call("build_order", {"items": [BURGER]}))])
     order_id = session.ctx["pending_order_id"]
+    session.end_reason = "user"
     event_bus.PUBLISHED.clear()
 
     asyncio.run(session.stop())

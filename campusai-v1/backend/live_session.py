@@ -24,10 +24,18 @@ import tools
 
 log = logging.getLogger(__name__)
 
-# The audio socket carries only these five event types (03 section 2);
-# capture_request is the fifth, added in Phase 4.
+# The audio socket carries only these six event types (03 section 2);
+# capture_request is the fifth, added in Phase 4, and `reconnecting` the sixth,
+# added in Phase 5f for 16 section 2k item 3.
 AUDIO_SOCKET_EVENTS = frozenset(
-    {"agent_state_changed", "speech_transcript", "interrupted", "error", "capture_request"}
+    {
+        "agent_state_changed",
+        "speech_transcript",
+        "interrupted",
+        "error",
+        "capture_request",
+        "reconnecting",
+    }
 )
 
 # 07 section 2 rule 2: while a draft is pending these never replace TAKING_ORDER.
@@ -122,6 +130,19 @@ def is_connection_closed(exc: BaseException) -> bool:
     return False
 
 
+def handle_rejected(exc: BaseException) -> bool:
+    """True when a connect failed because the server refused the handle itself.
+
+    16 section 2k item 2 keeps the handle on every attempt but drops it once the
+    server rejects it. The distinction is where the refusal came from: an HTTP
+    status means we reached the server and it said no (a handle is only valid
+    for two hours), while a network-level failure -- DNS, a handshake timeout --
+    says nothing about the handle and must not throw it away.
+    """
+    code = getattr(exc, "code", None)
+    return isinstance(code, int) and 400 <= code < 500
+
+
 def goaway_seconds(go_away) -> float:
     """The seconds left in a GoAway, 0.0 when the server did not say.
 
@@ -136,6 +157,34 @@ def goaway_seconds(go_away) -> float:
         return float(str(raw).strip().rstrip("s") or 0.0)
     except ValueError:
         return 0.0
+
+
+def orphan_age_seconds(order) -> int:
+    """How long ago the conversation carrying this draft broke, in seconds."""
+    try:
+        broke = datetime.fromisoformat(order["orphaned_at"])
+    except (KeyError, TypeError, ValueError):
+        return 0
+    return max(0, int((datetime.now() - broke).total_seconds()))
+
+
+def describe_total(items) -> str:
+    """", total Rs. 1,300" -- or nothing at all when a price is missing.
+
+    `compute_total` returns None if any item has no price, and a prompt that
+    says "total Rs. None" would have THE HOST read that out loud.
+    """
+    total = data.compute_total(items or [])
+    return f", total {total}" if total else ""
+
+
+def describe_items(items) -> str:
+    """"2 x Chicken Burger, 1 x Blue Lemonade" -- for a prompt, never a log."""
+    return ", ".join(
+        f"{entry.get('quantity')} x {entry.get('name')}"
+        for entry in items or []
+        if entry
+    )
 
 
 def redact(text: str) -> str:
@@ -265,6 +314,12 @@ class LiveSession:
         self.last_audio_chunk_at = None
         # 16 section 2j item 9: one latency line per turn, and no words in it.
         self.turn_latency_logged = False
+        # 16 section 2l item 4: how this conversation ended decides what happens
+        # to an open draft. A reason only ever arrives from the page's
+        # `session_end`; a socket that closes without one, or a failure, is an
+        # end by failure, and the draft is kept for the guest to come back to.
+        self.end_reason = None
+        self.failed = False
 
     # ---------------------------------------------------------------- sending
 
@@ -398,6 +453,7 @@ class LiveSession:
                         self.ctx["session_id"],
                         end_message.reason,
                     )
+                    self.end_reason = end_message.reason
                     self.page_ended = True
                     return
             self.prebuffer.append(message)
@@ -446,15 +502,55 @@ class LiveSession:
         summaries.emit_activity(
             "system", "Conversation started", None, self.ctx["session_id"]
         )
-        await self.session.send_realtime_input(
-            # 16 section 2h item 3: `voice` means the guest was already talking,
-            # so the opening line asks them to say it again instead of welcoming.
-            text=prompts.OPENING_INSTRUCTIONS.get(self.trigger, prompts.GREETING_BUTTON)
-        )
+        await self.session.send_realtime_input(text=await self._opening_text())
         self.tasks = [
             asyncio.create_task(self._uplink()),
             asyncio.create_task(self._downlink()),
         ]
+
+    async def _opening_text(self) -> str:
+        """The greeting instruction, plus an order left behind by a broken one.
+
+        16 section 2h item 3: `voice` means the guest was already talking, so
+        that trigger keeps its own line. 2l item 4: whatever the trigger, a
+        draft orphaned less than `config.ORPHAN_DRAFT_S` ago is offered back,
+        and this conversation takes it over so the ordinary order rules apply.
+        """
+        text = prompts.OPENING_INSTRUCTIONS.get(self.trigger, prompts.GREETING_BUTTON)
+        try:
+            # Anything older than the window is cancelled rather than offered.
+            await asyncio.to_thread(data.abandon_orphan_drafts)
+            orphan = await asyncio.to_thread(data.latest_orphan_draft)
+        except Exception:
+            log.exception("could not look for an order left behind by a broken conversation")
+            return text
+        if orphan is None:
+            return text
+        items = describe_items(orphan.get("items"))
+        if not items:
+            return text
+        claimed = await asyncio.to_thread(
+            data.claim_orphan_draft, orphan["id"], self.ctx["session_id"]
+        )
+        if claimed is None:
+            return text
+        self.ctx["pending_order_id"] = claimed["id"]
+        who = str(claimed.get("guest_name") or "").strip() or None
+        if who:
+            # The guest named the order, so this conversation knows them too.
+            self.ctx["visitor_name"] = self.ctx.get("visitor_name") or who
+        log.info(
+            "draft offered session %s order %s",
+            self.ctx["session_id"],
+            claimed["id"],
+        )
+        return text + " " + prompts.ORPHAN_DRAFT_TEMPLATE.format(
+            seconds=orphan_age_seconds(orphan),
+            order_id=claimed["id"],
+            items=items,
+            total=describe_total(claimed.get("items")),
+            name=f", for {who}" if who else "",
+        )
 
     async def run(self):
         try:
@@ -481,6 +577,8 @@ class LiveSession:
 
     async def _fail(self, exc: Exception) -> None:
         log.error("Live session failed: %s: %s", type(exc).__name__, redact(str(exc)))
+        # 16 section 2l item 4: this end is a failure, so the draft is kept.
+        self.failed = True
 
         message = failure_message(exc)
         await self._send_state("NEEDS_HELP")
@@ -488,11 +586,39 @@ class LiveSession:
             {"type": "error", "message": message, "recoverable": True}
         )
 
+    def _ended_by_failure(self) -> bool:
+        """16 section 2l item 4: recovery gave up, or the socket went silently.
+
+        The page sends `session_end` with a reason for every end it means --
+        `user`, `timeout`, `cap`, `absent`. No reason at all means the browser
+        went away without saying goodbye, which is exactly the broken
+        conversation whose draft the guest should be able to come back to.
+        """
+        return bool(self.failed or self.end_reason is None)
+
     async def _cancel_pending_draft(self) -> None:
-        """16 section 2a item 17: an unconfirmed draft dies with the session."""
+        """16 section 2a item 17: an unconfirmed draft dies with the session.
+
+        2l item 4 carves out the exception: a conversation that broke keeps its
+        draft, orphaned with the time, for `config.ORPHAN_DRAFT_S` seconds.
+        """
         pending = self.ctx.get("pending_order_id")
         if not pending:
             return
+        if self._ended_by_failure():
+            try:
+                kept = await asyncio.to_thread(data.orphan_draft, pending)
+            except Exception:
+                log.exception("could not keep the open draft after a broken conversation")
+            else:
+                if kept:
+                    log.info(
+                        "draft kept session %s order %s, the conversation broke",
+                        self.ctx["session_id"],
+                        pending,
+                    )
+                    self.ctx["pending_order_id"] = None
+                    return
         try:
             order = await asyncio.to_thread(data.get_order, pending)
             if order is not None and order["status"] == "PENDING_CONFIRMATION":
@@ -606,6 +732,28 @@ class LiveSession:
 
     # ------------------------------------------------------------------ uplink
 
+    async def _to_live(self, awaitable) -> bool:
+        """Hand the browser's input to Gemini, surviving the connection dying.
+
+        16 section 2k item 8: a send that is already in flight when the
+        connection goes raises the close error here, in the uplink. That error
+        killed session `ced7bcbf` 19 ms into its own recovery -- `run()` saw the
+        uplink task finish with an exception and took the failure path, which
+        cancelled the downlink before it could make a single attempt. The drop
+        belongs to the downlink; all the uplink may do is lose the input.
+        """
+        try:
+            await awaitable
+            return True
+        except Exception as exc:
+            if not is_connection_closed(exc):
+                raise
+            log.info(
+                "browser input dropped on a dying connection session %s",
+                self.ctx["session_id"],
+            )
+            return False
+
     async def _uplink(self):
         while not self.closed:
             if self.prebuffer:
@@ -627,10 +775,12 @@ class LiveSession:
                 # milliseconds are dropped -- the reconnect turn asks the guest
                 # to say it again anyway -- and must never end the session.
                 if self.session is not None:
-                    await self.session.send_realtime_input(
-                        audio=types.Blob(
-                            data=message["bytes"],
-                            mime_type=config.INPUT_AUDIO_MIME,
+                    await self._to_live(
+                        self.session.send_realtime_input(
+                            audio=types.Blob(
+                                data=message["bytes"],
+                                mime_type=config.INPUT_AUDIO_MIME,
+                            )
                         )
                     )
                 continue
@@ -681,7 +831,7 @@ class LiveSession:
                 # A valid frame is the answer to any capture_request still waiting
                 # (09 section 17), whoever actually took the picture.
                 self._cancel_look_timer()
-                await self._send_vision(image_bytes)
+                await self._to_live(self._send_vision(image_bytes))
             elif message_type == "text_input":
                 try:
                     text_message = schemas.TextInputMessage.model_validate(payload)
@@ -698,7 +848,7 @@ class LiveSession:
                     await self._flush_transcript("agent")
                     await self._flush_transcript("visitor")
                     await self._emit_transcript("visitor", text, True)
-                    await self.session.send_realtime_input(text=text)
+                    await self._to_live(self.session.send_realtime_input(text=text))
             elif message_type == "voice_activity":
                 try:
                     voice_message = schemas.VoiceActivityMessage.model_validate(payload)
@@ -731,7 +881,9 @@ class LiveSession:
                 # THE HOST says goodbye itself. Any open draft is left to the
                 # existing end-of-session rules (2a item 17).
                 log.info("wrap_up session %s", self.ctx["session_id"])
-                await self.session.send_realtime_input(text=prompts.WRAP_UP_PROMPT)
+                await self._to_live(
+                    self.session.send_realtime_input(text=prompts.WRAP_UP_PROMPT)
+                )
             elif message_type == "session_end":
                 try:
                     end_message = schemas.SessionEndMessage.model_validate(payload)
@@ -739,12 +891,15 @@ class LiveSession:
                     log.warning("ignored invalid session_end message")
                     continue
                 # 16 section 2g item 3: recorded only. The socket close that
-                # follows is what actually ends the conversation.
+                # follows is what actually ends the conversation. 2l item 4 is
+                # why it is remembered: this is the one signal that the end was
+                # a normal one, so an open draft may be cancelled.
                 log.info(
                     "session end requested session %s reason=%s",
                     self.ctx["session_id"],
                     end_message.reason,
                 )
+                self.end_reason = end_message.reason
             else:
                 log.warning("ignored unknown browser message type: %s", message_type)
 
@@ -828,11 +983,16 @@ class LiveSession:
                 await old.aclose()
 
     async def _recover(self, exc: Exception) -> bool:
-        """16 section 2j item 4: rebuild the connection instead of ending.
+        """16 section 2k item 2: keep rebuilding the connection for 30 seconds.
 
         The browser socket is never touched: as far as the guest is concerned
         this is the same conversation, and `self.ctx` -- the draft, the visitor,
         the announcements still pending -- travels with it, because it is.
+
+        This supersedes 2j item 4's "once with the handle, once without": in the
+        Wi-Fi tests both of those attempts were spent inside ten seconds of the
+        network going down, so the conversation was lost to an outage it should
+        have sat through (sessions ced7bcbf and 03db21d2).
         """
         kind = exc.kind if isinstance(exc, LiveDropped) else type(exc).__name__
         await self._send_control({"type": "interrupted"})
@@ -843,6 +1003,8 @@ class LiveSession:
         await self._flush_transcripts(interrupted=True)
         log.info("live dropped session %s: %s", self.ctx["session_id"], kind)
         health.recovering()
+        # 2k item 3: the page stops its clocks and says "Reconnecting…".
+        await self._send_control({"type": "reconnecting", "active": True})
         await self._close_live()
         self.turn_in_progress = False
         self.first_audio_sent = False
@@ -850,44 +1012,90 @@ class LiveSession:
         self.last_audio_chunk_at = None
         self.go_away_waiting = False
         self.recover_pending = None
+        try:
+            return await self._reconnect_loop(exc)
+        finally:
+            # Either way: a page left on "Reconnecting…" for ever would be worse
+            # than the drop (2k item 3 -- "when it ends, either way").
+            await self._send_control({"type": "reconnecting", "active": False})
 
-        # Once with the handle, then once without it. A fresh connection has
-        # none of the conversation behind it, so the draft is handed back in the
-        # opening turn (step 4).
-        handles = [self.resume_handle, None] if self.resume_handle else [None]
-        for handle in handles:
+    async def _reconnect_loop(self, exc: Exception) -> bool:
+        """Attempt at once, then every RECOVER_RETRY_S until the window closes.
+
+        Exactly one of `live reconnected` or `live recovery failed` is logged
+        for every drop (2k item 2), whatever happens in between.
+        """
+        started = _now()
+        attempt = 0
+        while True:
+            attempt += 1
+            # 2k item 2: the handle goes on every attempt, not just the first.
+            handle = self.resume_handle
+            resumed = "true" if handle else "false"
             try:
                 self.session = await self._connect(self.client, handle)
             except Exception as retry_exc:
                 log.info(
-                    "live reconnect attempt failed session %s resumed=%s: %s",
+                    "live reconnect attempt session %s n=%s resumed=%s result=%s",
                     self.ctx["session_id"],
-                    "true" if handle else "false",
-                    redact(str(retry_exc)),
+                    attempt,
+                    resumed,
+                    type(retry_exc).__name__,
                 )
                 await self._close_live()
+                if handle and handle_rejected(retry_exc):
+                    # The server answered and refused the handle itself, so
+                    # every attempt after this one goes without it.
+                    log.info(
+                        "live resumption handle refused session %s",
+                        self.ctx["session_id"],
+                    )
+                    self.resume_handle = None
+                if _now() - started >= config.RECOVER_WINDOW_S:
+                    break
+                await asyncio.sleep(config.RECOVER_RETRY_S)
+                if _now() - started >= config.RECOVER_WINDOW_S:
+                    break
                 continue
-            resumed = handle is not None
+            log.info(
+                "live reconnect attempt session %s n=%s resumed=%s result=ok",
+                self.ctx["session_id"],
+                attempt,
+                resumed,
+            )
             log.info(
                 "live reconnected session %s resumed=%s",
                 self.ctx["session_id"],
-                "true" if resumed else "false",
+                resumed,
             )
             health.connect_ok()
-            await self.session.send_realtime_input(text=await self._reconnect_text(resumed))
+            await self.session.send_realtime_input(
+                text=await self._reconnect_text(handle is not None)
+            )
             return True
 
-        # Both attempts failed: the existing failure path takes it from here
-        # (NEEDS_HELP, then IDLE), and the mode follows 07 section 3's other
-        # exit from RECOVERING.
+        log.info(
+            "live recovery failed session %s attempts=%s",
+            self.ctx["session_id"],
+            attempt,
+        )
+        # The existing failure path takes it from here (NEEDS_HELP, then IDLE),
+        # and the mode follows 07 section 3's other exit from RECOVERING.
         health.connect_failed(failure_message(exc))
         return False
 
     async def _reconnect_text(self, resumed: bool) -> str:
-        """The apology, plus the draft when the new connection has no history."""
+        """The apology, always carrying the open draft (16 section 2k item 4).
+
+        `resumed` no longer decides this. Resumption is not trusted to have
+        restored the order: in the Wi-Fi tests the next conversation knew nothing
+        about the order the guest had just placed, so the draft is restated after
+        **every** successful reconnect. It is re-read from the database with its
+        current status (2l item 5), never taken from this session's memory.
+        """
         text = prompts.RECONNECT_PROMPT
         pending = self.ctx.get("pending_order_id")
-        if resumed or not pending:
+        if not pending:
             return text
         try:
             order = await asyncio.to_thread(data.get_order, pending)
@@ -896,15 +1104,16 @@ class LiveSession:
             return text
         if order is None or order["status"] != "PENDING_CONFIRMATION":
             return text
-        items = ", ".join(
-            f"{entry.get('quantity')} x {entry.get('name')}"
-            for entry in order.get("items") or []
-            if entry
-        )
+        items = describe_items(order.get("items"))
         if not items:
             return text
+        who = str(order.get("guest_name") or "").strip() or None
         return text + " " + prompts.RECONNECT_DRAFT_TEMPLATE.format(
-            order_id=order["id"], items=items
+            order_id=order["id"],
+            items=items,
+            total=describe_total(order.get("items")),
+            # The guest's name when the order carries one (2k item 4).
+            name=f", for {who}" if who else "",
         )
 
     def _model_output(self) -> None:
@@ -1267,7 +1476,14 @@ class LiveSession:
         try:
             await self.session.send_realtime_input(
                 text=prompts.ANNOUNCE_TEMPLATE.format(
-                    order_id=order["id"], name=order.get("guest_name") or "a guest"
+                    order_id=order["id"],
+                    # 16 section 2l item 3: "Order number 5 for Rehman is ready!"
+                    # -- and just the number when the order has no name on it.
+                    name=(
+                        f" for {order['guest_name'].strip()}"
+                        if str(order.get("guest_name") or "").strip()
+                        else ""
+                    ),
                 )
             )
         except Exception:

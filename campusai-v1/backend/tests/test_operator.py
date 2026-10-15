@@ -271,12 +271,9 @@ def test_ready_with_an_active_session_speaks_the_announcement(served, monkeypatc
     sent = session.session.inputs[-1]
     print("sent to Gemini:", json.dumps(sent, indent=2))
     assert sent == {
-        "text": (
-            f"An order just became ready: order #{order_id} for Ahmed. "
-            "Let the guests know, briefly and naturally, even if it is not their order."
-        )
+        "text": prompts.ANNOUNCE_TEMPLATE.format(order_id=order_id, name=" for Ahmed")
     }
-    assert sent["text"] == prompts.ANNOUNCE_TEMPLATE.format(order_id=order_id, name="Ahmed")
+    assert sent["text"] == prompts.ANNOUNCE_TEMPLATE.format(order_id=order_id, name=" for Ahmed")
     assert session.announcing is True
 
 
@@ -288,10 +285,12 @@ def test_an_order_with_no_name_announces_a_guest(served, monkeypatch):
     advance(served, order_id, "READY")
 
     print("sent to Gemini:", session.session.inputs[-1])
-    assert session.session.inputs[-1]["text"].endswith(
-        "Let the guests know, briefly and naturally, even if it is not their order."
+    # 16 section 2l item 3: no name on the order, so the announcement is just
+    # the number -- never an invented "a guest".
+    assert session.session.inputs[-1]["text"] == prompts.ANNOUNCE_TEMPLATE.format(
+        order_id=order_id, name=""
     )
-    assert f"order #{order_id} for a guest." in session.session.inputs[-1]["text"]
+    assert "guest" not in session.session.inputs[-1]["text"].replace("this guest's order", "")
     assert of_type("order_ready")[0]["customer_name"] is None
 
 
@@ -387,14 +386,8 @@ def test_an_ordinary_turn_is_not_announcing():
 # ------------------------------- Phase 4: the gentler announcement (2d item 3)
 
 
-ANNOUNCEMENT_27 = (
-    "An order just became ready: order #27 for Ahmed. "
-    "Let the guests know, briefly and naturally, even if it is not their order."
-)
-ANNOUNCEMENT_28 = (
-    "An order just became ready: order #28 for a guest. "
-    "Let the guests know, briefly and naturally, even if it is not their order."
-)
+ANNOUNCEMENT_27 = prompts.ANNOUNCE_TEMPLATE.format(order_id=27, name=" for Ahmed")
+ANNOUNCEMENT_28 = prompts.ANNOUNCE_TEMPLATE.format(order_id=28, name="")
 
 
 def speaking_session():
@@ -553,12 +546,7 @@ def test_the_order_12_sequence_defers_until_the_turn_really_ends(caplog):
 
     print("Gemini inputs after turn_complete:", session.session.inputs)
     assert session.session.inputs == [
-        {
-            "text": (
-                "An order just became ready: order #12 for Ahmed. "
-                "Let the guests know, briefly and naturally, even if it is not their order."
-            )
-        }
+        {"text": prompts.ANNOUNCE_TEMPLATE.format(order_id=12, name=" for Ahmed")}
     ]
     assert session.turn_in_progress is False
     messages = [record.getMessage() for record in caplog.records]
@@ -638,10 +626,7 @@ def test_turn_in_progress_is_cleared_by_an_interruption_as_well():
 # ------------------- Phase 5: the connect window (16 section 2e item 1a)
 
 
-ANNOUNCEMENT_20 = (
-    "An order just became ready: order #20 for a guest. "
-    "Let the guests know, briefly and naturally, even if it is not their order."
-)
+ANNOUNCEMENT_20 = prompts.ANNOUNCE_TEMPLATE.format(order_id=20, name="")
 
 
 class FailingLiveApiSession(doubles.FakeLiveApiSession):

@@ -16,6 +16,8 @@ EVENT_MODELS = {
     "interrupted": schemas.InterruptedEvent,
     "error": schemas.ErrorEvent,
     "capture_request": schemas.CaptureRequestEvent,
+    # 16 section 2k item 3
+    "reconnecting": schemas.ReconnectingEvent,
 }
 
 BURGER = {"name": "Chicken Burger", "quantity": 1}

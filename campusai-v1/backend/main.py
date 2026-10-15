@@ -466,6 +466,11 @@ async def _end_active_session() -> bool:
     session = ACTIVE
     if session is None:
         return False
+    # 16 section 2l item 4: an operator ending a conversation is a normal end,
+    # not a broken one (07 section 3: the same clean shutdown as any other), so
+    # 2a item 17 still applies and the open draft is cancelled with it.
+    if session.end_reason is None:
+        session.end_reason = "operator"
     try:
         await session.stop()
     except Exception:

@@ -68,6 +68,14 @@ STALL_S = 8
 # 16 section 2j item 4: a GoAway with more time left than this waits for the
 # current turn to finish before the connection is rebuilt.
 GOAWAY_TURN_GRACE_S = 5
+# 16 section 2k item 2: a real outage is not instant to come back from. Both of
+# 2j's attempts were spent inside ten seconds of the Wi-Fi going off (sessions
+# ced7bcbf and 03db21d2), so recovery now keeps trying across a whole window.
+RECOVER_RETRY_S = 3
+RECOVER_WINDOW_S = 30
+# 16 section 2l item 4: how long an unconfirmed draft from a conversation that
+# broke is held for the guest to come back and claim.
+ORPHAN_DRAFT_S = 180
 # 16 section 2h item 5, verified at build time on 13 Oct 2026 against
 # gemini-3.8-live: the setup is rejected outright with
 #   Invalid JSON payload received. Unknown name "proactivity" at 'setup':

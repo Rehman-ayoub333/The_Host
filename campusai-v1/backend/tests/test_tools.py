@@ -264,11 +264,15 @@ def test_get_order_status_with_an_id_is_scoped_to_the_owner(ctx):
 
     mine = tools.get_order_status(order_id)
     assert mine["found"] is True
+    # 16 section 2l item 5 added status_text, the name and the total.
     assert mine["orders"] == [
         {
             "order_id": order_id,
             "status": "CONFIRMED",
+            "status_text": "confirmed and queued",
             "items": [{"name": "Chicken Burger", "quantity": 1, "price": "Rs. 650"}],
+            "guest_name": None,
+            "total": "Rs. 650",
             "estimated_minutes_left": None,
         }
     ]

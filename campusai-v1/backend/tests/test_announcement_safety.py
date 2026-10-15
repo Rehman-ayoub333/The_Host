@@ -15,14 +15,12 @@ import config
 import doubles
 import event_bus
 import live_session
+import prompts
 
 
 ORDER_27 = {"id": 27, "guest_name": "Ahmed"}
 ORDER_28 = {"id": 28, "guest_name": None}
-ANNOUNCEMENT_27 = (
-    "An order just became ready: order #27 for Ahmed. "
-    "Let the guests know, briefly and naturally, even if it is not their order."
-)
+ANNOUNCEMENT_27 = prompts.ANNOUNCE_TEMPLATE.format(order_id=27, name=" for Ahmed")
 
 
 class Clock:
