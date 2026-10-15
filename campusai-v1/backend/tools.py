@@ -40,6 +40,18 @@ def _finish(tool: str, args: dict, result: dict) -> dict:
     return result
 
 
+def _flag(value) -> bool:
+    """A boolean argument as the model may send it (16 section 2m item 5).
+
+    A JSON `false` arrives as `False` and an omitted argument as `None`, but a
+    string that spells false must not come out as True: this one decides whether
+    a guest is charged.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "yes", "1")
+    return bool(value)
+
+
 def _queue_memory_row(order, old, profile) -> None:
     """09 section 15a: the `Memory updated` row only a tool can compute.
 
@@ -121,8 +133,8 @@ def recommend_item(item, reason) -> dict:
         return {"error": "I couldn't do that right now."}
 
 
-def build_order(items, guest_name=None) -> dict:
-    args = {"items": items, "guest_name": guest_name}
+def build_order(items, guest_name=None, complimentary=None) -> dict:
+    args = {"items": items, "guest_name": guest_name, "complimentary": complimentary}
     try:
         c = _ctx()
         validated = []
@@ -157,24 +169,30 @@ def build_order(items, guest_name=None) -> dict:
         # 16 section 2l item 3: a first name, trimmed, at most 30 characters.
         given = " ".join(str(guest_name or "").split())[:30]
         who = given or c.get("visitor_name")
-        result = data.create_order_draft(validated, who, c.get("session_id"))
+        # 16 section 2m item 5: set only under the guest-of-honour rule. The
+        # model may send it as a JSON false or omit it; both mean an ordinary,
+        # paid order.
+        result = data.create_order_draft(
+            validated, who, c.get("session_id"), complimentary=_flag(complimentary)
+        )
         c["pending_order_id"] = result["order_id"]
         order = data.get_order(result["order_id"])
         if result["action"] == "created":
             _pub({"type": "order_created", "order": data.order_view(order)})
         elif result["action"] == "updated":
             _pub({"type": "order_updated", "order": data.order_view(order)})
-        return _finish(
-            "build_order",
-            args,
-            {
-                "source": "order",
-                "order_id": result["order_id"],
-                "items": validated,
-                "total": data.compute_total(validated),
-                "status": "PENDING_CONFIRMATION",
-            },
-        )
+        drafted = {
+            "source": "order",
+            "order_id": result["order_id"],
+            "items": validated,
+            "total": data.compute_total(validated),
+            "status": "PENDING_CONFIRMATION",
+        }
+        # Only when it is set: an ordinary order is not told it is not free, and
+        # the model has no reason to mention the arrangement to anyone else.
+        if order.get("complimentary"):
+            drafted["complimentary"] = True
+        return _finish("build_order", args, drafted)
     except Exception:
         log.exception("build_order failed")
         return _finish(
@@ -236,17 +254,18 @@ def confirm_order(order_id) -> dict:
             if profile:
                 _pub(data.memory_event(profile))
                 _queue_memory_row(order, old_favourite, profile)
-        return _finish(
-            "confirm_order",
-            args,
-            {
-                "source": "order",
-                "order_id": oid,
-                "status": "CONFIRMED",
-                "items": order["items"],
-                "total": data.compute_total(order["items"]),
-            },
-        )
+        placed = {
+            "source": "order",
+            "order_id": oid,
+            "status": "CONFIRMED",
+            "items": order["items"],
+            "total": data.compute_total(order["items"]),
+        }
+        # 16 section 2m item 5: this is what gives the activity row its
+        # "(on the house)", so the team can see it and check.
+        if order.get("complimentary"):
+            placed["complimentary"] = True
+        return _finish("confirm_order", args, placed)
     except Exception:
         log.exception("confirm_order failed")
         return _finish(
@@ -657,6 +676,14 @@ TOOL_DECLARATIONS = [
                     "Ask once before the confirmation question."
                 ),
             },
+            "complimentary": {
+                "type": "boolean",
+                "description": (
+                    "True only for a guest of honour listed in the "
+                    "complimentary_guests topic, whose order is on the house. "
+                    "Leave it out for every ordinary order."
+                ),
+            },
         },
         ("items",),
     ),
@@ -734,7 +761,8 @@ TOOL_DECLARATIONS = [
             "topic": {
                 "type": "string",
                 "description": (
-                    "One of 'hours', 'stall', 'about_the_host', 'team', 'how_it_works', 'project'."
+                    "One of 'hours', 'stall', 'about_the_host', 'team', 'how_it_works', "
+                    "'project', 'complimentary_guests'."
                 ),
             }
         },

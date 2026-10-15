@@ -46,7 +46,7 @@ MENU_OPTIONAL_FIELDS = ("ingredients", "allergens", "tags", "add_ons")
 MENU_TAGS = ("spicy", "sweet", "vegetarian", "cold", "hot")
 _ORDER_COLUMNS = (
     "id, timestamp, guest_name, items, status, announced, session_id, "
-    "cancel_reason, estimated_ready_at, ready_at, orphaned_at"
+    "cancel_reason, estimated_ready_at, ready_at, orphaned_at, complimentary"
 )
 
 # 16 section 2l item 5: how each status is described to a guest. A draft is not
@@ -171,7 +171,8 @@ def init_db() -> None:
                 cancel_reason TEXT,
                 estimated_ready_at TEXT,
                 ready_at TEXT,
-                orphaned_at TEXT
+                orphaned_at TEXT,
+                complimentary INTEGER NOT NULL DEFAULT 0
             )"""
         )
         # 16 section 2l item 4: when a conversation broke and left this draft
@@ -179,6 +180,13 @@ def init_db() -> None:
         order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)")}
         if "orphaned_at" not in order_columns:
             conn.execute("ALTER TABLE orders ADD COLUMN orphaned_at TEXT")
+        # 16 section 2m item 5: on the house for a guest of honour. The default
+        # carries the migration: every order already in the database is an
+        # ordinary, paid one, so existing rows arrive 0.
+        if "complimentary" not in order_columns:
+            conn.execute(
+                "ALTER TABLE orders ADD COLUMN complimentary INTEGER NOT NULL DEFAULT 0"
+            )
         conn.execute(
             """CREATE TABLE IF NOT EXISTS feedback (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -381,6 +389,10 @@ def order_view(order) -> dict:
         "timestamp": order.get("timestamp"),
         "estimated_ready_at": order.get("estimated_ready_at"),
         "ready_at": order.get("ready_at"),
+        # 16 section 2m item 5: on the house, in the view and so in every order
+        # event. The prices and the total are the stored ones either way, for
+        # the record.
+        "complimentary": bool(order.get("complimentary")),
     }
 
 
@@ -540,9 +552,10 @@ def find_orders_today(guest_name) -> list[dict]:
     return [_order_from_row(row) for row in rows]
 
 
-def create_order_draft(items, guest_name, session_id) -> dict:
+def create_order_draft(items, guest_name, session_id, complimentary=False) -> dict:
     expire_pending_orders()
     payload = json.dumps(items)
+    on_the_house = 1 if complimentary else 0
     with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT id, items FROM orders "
@@ -563,6 +576,15 @@ def create_order_draft(items, guest_name, session_id) -> dict:
                     (guest_name, row["id"]),
                 )
                 conn.commit()
+            # 16 section 2m item 5, and for the same reason as the name above:
+            # "this one is on the house" can arrive on a later build_order than
+            # the items, so a call that does not say so leaves the flag alone.
+            # Only the guest-of-honour rule ever sets it.
+            if on_the_house:
+                conn.execute(
+                    "UPDATE orders SET complimentary = 1 WHERE id = ?", (row["id"],)
+                )
+                conn.commit()
             try:
                 current = json.loads(row["items"])
             except (TypeError, ValueError):
@@ -573,9 +595,9 @@ def create_order_draft(items, guest_name, session_id) -> dict:
             conn.commit()
             return {"order_id": int(row["id"]), "action": "updated"}
         cursor = conn.execute(
-            "INSERT INTO orders (timestamp, guest_name, items, status, session_id) "
-            "VALUES (?, ?, ?, 'PENDING_CONFIRMATION', ?)",
-            (_now(), guest_name, payload, session_id),
+            "INSERT INTO orders (timestamp, guest_name, items, status, session_id, "
+            "complimentary) VALUES (?, ?, ?, 'PENDING_CONFIRMATION', ?, ?)",
+            (_now(), guest_name, payload, session_id, on_the_house),
         )
         conn.commit()
         return {"order_id": int(cursor.lastrowid), "action": "created"}

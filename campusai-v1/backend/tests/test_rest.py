@@ -49,6 +49,8 @@ def test_orders_endpoint_shape_and_counts(served):
     assert set(first) == {
         "id", "items", "status", "guest_name", "total", "timestamp",
         "estimated_ready_at", "ready_at",
+        # 16 section 2m item 5
+        "complimentary",
     }
     assert first["total"] == "Rs. 650"
 

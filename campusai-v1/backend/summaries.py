@@ -75,9 +75,12 @@ def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
         }
 
     if name == "confirm_order":
+        # 16 section 2m item 5: an order on the house says so in the feed, so
+        # the team can see it and check.
+        on_the_house = " (on the house)" if result.get("complimentary") else ""
         return {
             "kind": "order",
-            "label": f"Order #{_order_id(args, result)} created",
+            "label": f"Order #{_order_id(args, result)} created{on_the_house}",
             "detail": _item_names(result.get("items")),
         }
 
