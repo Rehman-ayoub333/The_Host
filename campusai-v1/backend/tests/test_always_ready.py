@@ -65,9 +65,7 @@ def test_voice_trigger_sends_the_say_it_again_opening():
     session, _ws = doubles.new_session(trigger="voice")
     asyncio.run(
         session.session.send_realtime_input(
-            text=prompts.OPENING_INSTRUCTIONS.get(
-                session.trigger, prompts.GREETING_BUTTON
-            )
+            text=prompts.opening_instruction(session.trigger)
         )
     )
     sent = texts(session)[0]
@@ -76,19 +74,18 @@ def test_voice_trigger_sends_the_say_it_again_opening():
     assert "probably not heard" in sent
     assert "say it again" in sent
     assert "Do not give the full welcome" in sent
-    assert sent != prompts.GREETING_PRESENCE
-    assert sent != prompts.GREETING_BUTTON
+    assert sent != prompts.opening_instruction("presence")
+    assert sent != prompts.opening_instruction("button")
 
 
 def test_the_other_triggers_keep_their_own_opening():
-    assert prompts.OPENING_INSTRUCTIONS["presence"] == prompts.GREETING_PRESENCE
-    assert prompts.OPENING_INSTRUCTIONS["button"] == prompts.GREETING_BUTTON
-    assert prompts.OPENING_INSTRUCTIONS["voice"] == prompts.GREETING_VOICE
+    # 2l item 7a: presence and the button share the greeting, which now names
+    # one of the approved lines; `voice` keeps its own.
+    for trigger in ("presence", "button"):
+        assert "Greet the guest with this line" in prompts.opening_instruction(trigger)
+    assert prompts.opening_instruction("voice") == prompts.GREETING_VOICE
     # A trigger nobody has heard of still gets a welcome, never nothing.
-    assert (
-        prompts.OPENING_INSTRUCTIONS.get("surprise", prompts.GREETING_BUTTON)
-        == prompts.GREETING_BUTTON
-    )
+    assert "Greet the guest with this line" in prompts.opening_instruction("surprise")
 
 
 # ------------------------------------------- 2h item 5: the VAD field it sets

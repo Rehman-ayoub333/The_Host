@@ -49,11 +49,12 @@ def test_the_system_instruction_covers_the_two_step_order_rule():
 
 
 def test_the_three_prompt_constants_are_plain_formatted_strings():
-    for constant in (prompts.GREETING_PRESENCE, prompts.GREETING_BUTTON, prompts.VISION_PROMPT):
+    for constant in (prompts.opening_instruction("presence"), prompts.VISION_PROMPT):
         assert isinstance(constant, str)
         assert "{" not in constant and "}" not in constant
 
-    assert "Bite & Pour" in prompts.GREETING_PRESENCE
-    assert "THE HOST" in prompts.GREETING_PRESENCE
-    assert "THE HOST" in prompts.GREETING_BUTTON
+    assert "Bite & Pour" in prompts.opening_instruction("presence")
+    # 2l item 7a: every approved line names THE HOST, and the stall or the food.
+    for line in prompts.GREETING_LINES:
+        assert "THE HOST" in line
     assert "Do not comment on any person's appearance." in prompts.VISION_PROMPT

@@ -12,6 +12,7 @@ credited Google and did not know its own team.
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 
 import pytest
@@ -391,25 +392,30 @@ def test_the_prompt_no_longer_offers_to_chat_about_anything():
 # ------------------------------------------------ 2l item 2: the greeting
 
 
-def test_the_greeting_is_one_short_varied_line():
-    for instruction in (prompts.GREETING_PRESENCE, prompts.GREETING_BUTTON):
-        assert "ONE warm, natural line" in instruction
-        assert "twelve words" in instruction
-        assert "Vary the wording" in instruction
+def test_the_greeting_names_one_approved_line():
+    """2l item 7a replaced 2l item 2's "vary it yourself" with a chosen line."""
+    for trigger in ("presence", "button"):
+        instruction = prompts.opening_instruction(trigger)
+        assert "Greet the guest with this line, or something very close to it:" in instruction
+        assert any(line in instruction for line in prompts.GREETING_LINES)
 
 
 def test_the_greeting_lists_nothing_and_never_mentions_the_camera():
-    for instruction in (prompts.GREETING_PRESENCE, prompts.GREETING_BUTTON):
-        assert "Do not list what you can do" in instruction
+    for trigger in ("presence", "button"):
+        instruction = prompts.opening_instruction(trigger)
+        assert "do not list what you can do" in instruction
         assert "do not mention the camera" in instruction
         # The old greeting invited the guest to use the camera; this one must not.
         assert "show you something on the camera" not in instruction
 
 
 def test_presence_and_the_button_share_the_greeting_and_voice_keeps_its_own():
-    assert prompts.GREETING_PRESENCE == prompts.GREETING_BUTTON
-    assert prompts.OPENING_INSTRUCTIONS["voice"] == prompts.GREETING_VOICE
-    assert prompts.GREETING_VOICE != prompts.GREETING_PRESENCE
+    # The same instruction shape for both, differing only in the chosen line.
+    for trigger in ("presence", "button"):
+        assert prompts.greeting_instruction("x") == prompts.greeting_instruction("x")
+        assert "Greet the guest with this line" in prompts.opening_instruction(trigger)
+    assert prompts.opening_instruction("voice") == prompts.GREETING_VOICE
+    assert "Greet the guest with this line" not in prompts.GREETING_VOICE
 
 
 # ------------------------------- 2l item 3: a first name on every order
@@ -519,12 +525,14 @@ def test_a_new_conversation_inside_the_window_is_offered_the_draft(host_data):
     session, _ws = doubles.new_session()
     opening = asyncio.run(session._opening_text())
 
-    assert opening.startswith(prompts.GREETING_BUTTON)
+    assert "Greet the guest with this line" in opening
     assert f"#{order_id}" in opening
     assert "2 x Chicken Burger" in opening
     assert "Rs. 1,300" in opening
     assert "for Rehman" in opening
-    assert "ask whether they want to continue that order" in opening
+    # 2l item 7c: it must name what it is offering before it asks.
+    assert "name what the order was" in opening
+    assert "then ask whether they still want it" in opening
     # The new conversation owns it, so every ordinary order rule applies.
     assert session.ctx["pending_order_id"] == order_id
     assert host_data.get_order(order_id)["session_id"] == session.ctx["session_id"]
@@ -550,7 +558,8 @@ def test_an_unclaimed_draft_is_cancelled_as_abandoned(host_data, caplog):
     assert row["cancel_reason"] == "abandoned"
     assert f"draft abandoned order {order_id}" in caplog.text
     # Nothing is offered, so the greeting is just the greeting.
-    assert opening == prompts.GREETING_BUTTON
+    assert "cut off" not in opening
+    assert any(line in opening for line in prompts.GREETING_LINES)
     assert session.ctx["pending_order_id"] is None
 
 
@@ -604,7 +613,7 @@ def test_a_claimed_draft_is_not_offered_to_the_next_conversation_too(host_data):
     assert f"#{order_id}" in asyncio.run(first._opening_text())
 
     second, _ws2 = doubles.new_session()
-    assert asyncio.run(second._opening_text()) == prompts.GREETING_BUTTON
+    assert "cut off" not in asyncio.run(second._opening_text())
 
 
 def test_the_voice_trigger_also_offers_the_draft(host_data):
@@ -699,3 +708,184 @@ def test_the_apology_carries_the_draft_read_from_the_database(monkeypatch, host_
     assert "Rs. 1,300" in sent[0]
     assert "for Rehman" in sent[0]
     assert "still waiting for confirmation" in sent[0]
+
+# =============================================== 2l item 7: the polish pass
+
+
+# ------------------------------- 7a: the greeting line comes from the server
+
+
+def test_there_are_at_least_eight_approved_greeting_lines():
+    assert len(prompts.GREETING_LINES) >= 8
+    assert len(set(prompts.GREETING_LINES)) == len(prompts.GREETING_LINES)
+
+
+def test_every_approved_line_is_in_the_2l_item_2_style():
+    for line in prompts.GREETING_LINES:
+        assert "THE HOST" in line, line
+        # One line, ending in a question, of about twelve words at most.
+        # "about": 2l item 2's own example lines run to thirteen real words,
+        # so word-like tokens are counted and those examples set the bar.
+        assert "\n" not in line, line
+        assert line.rstrip().endswith("?"), line
+        words = [token for token in line.split() if re.search(r"[A-Za-z]", token)]
+        assert len(words) <= 13, (line, len(words))
+        # No capability list, no camera, no introduction.
+        for forbidden in ("camera", "I can ", "remember", "track"):
+            assert forbidden not in line, (line, forbidden)
+
+
+def test_the_chosen_line_always_comes_from_the_list(monkeypatch):
+    monkeypatch.setattr(prompts, "_last_greeting_line", None)
+    for _ in range(40):
+        assert prompts.pick_greeting_line() in prompts.GREETING_LINES
+
+
+def test_the_line_is_never_the_previous_session_s_line(monkeypatch):
+    """7a: the 5f live test got the same line three sessions running."""
+    monkeypatch.setattr(prompts, "_last_greeting_line", None)
+    chosen = [prompts.pick_greeting_line() for _ in range(60)]
+    for before, after in zip(chosen, chosen[1:]):
+        assert before != after
+    # And it really does move around, not just alternate between two.
+    assert len(set(chosen)) >= 5
+
+
+def test_the_opening_instruction_names_the_chosen_line(monkeypatch):
+    monkeypatch.setattr(prompts, "_last_greeting_line", None)
+    seen = set()
+    for _ in range(12):
+        instruction = prompts.opening_instruction("presence")
+        assert "Greet the guest with this line, or something very close to it:" in instruction
+        named = [line for line in prompts.GREETING_LINES if line in instruction]
+        assert len(named) == 1, instruction
+        seen.add(named[0])
+    assert len(seen) >= 3
+
+
+def test_two_sessions_in_a_row_are_given_different_lines(monkeypatch):
+    """What the guest actually experiences: the session-to-session difference."""
+    monkeypatch.setattr(prompts, "_last_greeting_line", None)
+    first, _ws = doubles.new_session(trigger="presence")
+    second, _ws2 = doubles.new_session(trigger="button")
+
+    one = asyncio.run(first._opening_text())
+    two = asyncio.run(second._opening_text())
+
+    line_one = [line for line in prompts.GREETING_LINES if line in one]
+    line_two = [line for line in prompts.GREETING_LINES if line in two]
+    assert len(line_one) == 1 and len(line_two) == 1
+    assert line_one[0] != line_two[0]
+
+
+def test_the_voice_trigger_is_not_given_a_greeting_line():
+    """2h item 3: it asks for the unheard words again, not a welcome."""
+    assert prompts.opening_instruction("voice") == prompts.GREETING_VOICE
+    assert "Greet the guest with this line" not in prompts.GREETING_VOICE
+
+
+def test_the_model_is_no_longer_asked_to_vary_the_greeting_itself():
+    instruction = prompts.opening_instruction("presence")
+    assert "Vary the wording" not in instruction
+
+
+# --------------------------------- 7b: "who built you" names all three
+
+
+def test_the_prompt_makes_the_short_answer_name_all_three():
+    built = prompts.build_system_instruction(datetime.now())
+    for name in ("Rehman Ayoub", "Saad Saleem", "Umair Saddiqui"):
+        assert name in built, name
+    assert "Ma'am Marva" in built
+    assert "BS Computer Science at GCUF Samundri Campus" in built
+    # Never the nameless version the 5f live test produced.
+    assert 'Never say "three students" without their names' in built
+
+
+def test_the_roles_are_held_back_for_a_follow_up():
+    built = prompts.build_system_instruction(datetime.now())
+    assert "only if the guest asks again or asks about their roles" in built
+
+
+def test_the_team_topic_still_carries_every_role(ctx):
+    """7b gives roles on a follow-up, and this is where they come from."""
+    answer = tools.get_business_info("team")["answers"][0]["answer"]
+    for name in ("Rehman Ayoub", "Saad Saleem", "Umair Saddiqui"):
+        assert name in answer
+    assert "project lead" in answer
+    assert "business logic" in answer
+    assert "operator dashboard" in answer
+
+
+# ------------------------- 7c: the orphan offer names what it is offering
+
+
+def test_the_orphan_instruction_names_the_items_and_the_name(host_data):
+    order_id = draft_for(name="Saad")
+    host_data.orphan_draft(order_id)
+    session, _ws = doubles.new_session()
+
+    opening = asyncio.run(session._opening_text())
+
+    assert "2 x Chicken Burger" in opening
+    assert "for Saad" in opening
+    # The example line is filled in with this guest's own order.
+    assert "Looks like we got cut off, Saad" in opening
+    assert "still want that Chicken Burger?" in opening
+
+
+def test_the_orphan_instruction_forbids_a_bare_offer(host_data):
+    order_id = draft_for(name="Saad")
+    host_data.orphan_draft(order_id)
+    session, _ws = doubles.new_session()
+
+    opening = asyncio.run(session._opening_text())
+
+    assert "You must name the items" in opening
+    assert '"continue your previous order?"' in opening
+    assert "is not allowed" in opening
+
+
+def test_a_yes_to_a_question_that_did_not_name_the_items_does_not_confirm(host_data):
+    order_id = draft_for(name="Saad")
+    host_data.orphan_draft(order_id)
+    session, _ws = doubles.new_session()
+
+    opening = asyncio.run(session._opening_text())
+
+    assert (
+        "a yes to a question that did not name the items does not confirm anything"
+        in opening
+    )
+    assert "ask again, naming them" in opening
+    # And the confirmation is conditional on having named them.
+    assert "Once they say yes to a question that named the items, confirm it" in opening
+
+
+def test_the_orphan_instruction_works_with_no_name_on_the_order(host_data):
+    order_id = draft_for(name=None)
+    host_data.orphan_draft(order_id)
+    session, _ws = doubles.new_session()
+
+    opening = asyncio.run(session._opening_text())
+
+    # No name to say, so none is invented -- but the items are still named.
+    assert "2 x Chicken Burger" in opening
+    assert "Looks like we got cut off --" in opening
+    assert "still want that Chicken Burger?" in opening
+    assert "for None" not in opening
+
+
+# ----------------------------------- 7d: what the 5f report settled, kept
+
+
+def test_the_accepted_decisions_from_the_5f_report_still_hold(ctx):
+    # An unnamed order is announced by number only.
+    assert "guest" not in prompts.ANNOUNCE_TEMPLATE.format(order_id=5, name="").replace(
+        "this guest's order", ""
+    )
+    # The identity rule tells the model where the topics come from.
+    built = prompts.build_system_instruction(datetime.now())
+    assert "Those topics live in get_business_info" in built
+    # The listing cap is 8, so six topics all come back.
+    assert len(tools.get_business_info()["answers"]) == 6

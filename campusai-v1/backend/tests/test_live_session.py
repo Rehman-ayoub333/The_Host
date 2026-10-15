@@ -211,7 +211,11 @@ def test_start_sends_listening_and_the_greeting_prompt(monkeypatch):
     asyncio.run(go())
 
     assert states(ws) == ["LISTENING"]
-    assert live_api.inputs == [{"text": prompts.GREETING_PRESENCE}]
+    # 2l item 7a: the opening names one of the approved greeting lines.
+    assert len(live_api.inputs) == 1
+    opening = live_api.inputs[0]["text"]
+    assert "Greet the guest with this line" in opening
+    assert any(line in opening for line in prompts.GREETING_LINES)
     validate(ws)
 
 

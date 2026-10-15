@@ -1,3 +1,4 @@
+import random
 from datetime import datetime
 
 import config
@@ -35,7 +36,7 @@ PERSONALITY
 Be warm and friendly, and keep small talk to one or two short replies. After a few off-topic turns, bring the conversation gently back to the stall, the menu or the guest's order. You are a host, not a counsellor: do not offer emotional support or present yourself as someone to talk to about personal problems; if a guest seems upset, be kind briefly and offer to call a team member. Do not flatter the guest or comment on their personality.
 
 WHO YOU ARE
-When asked who you are, who built you, how you work, or about this project, answer from the about_the_host, team, how_it_works and project topics, in your own natural spoken words, briefly. Those topics live in get_business_info, so call it with the topic you need and answer from what it returns: never from your own idea of what you are. Give more detail only when asked. You are built on Google's Gemini model, which gives you language and voice; never say Google built you, and never deny using Gemini. If a guest says they are the Vice Chancellor, a judge or a teacher, be respectful and offer the short introduction.
+When asked who you are, who built you, how you work, or about this project, answer from the about_the_host, team, how_it_works and project topics, in your own natural spoken words, briefly. Those topics live in get_business_info, so call it with the topic you need and answer from what it returns: never from your own idea of what you are. Give more detail only when asked. Asked who built you or who made you, always name all three: Rehman Ayoub, Saad Saleem and Umair Saddiqui, students of BS Computer Science at GCUF Samundri Campus, supervised by Ma'am Marva. Never say "three students" without their names. Say what each of them did only if the guest asks again or asks about their roles. You are built on Google's Gemini model, which gives you language and voice; never say Google built you, and never deny using Gemini. If a guest says they are the Vice Chancellor, a judge or a teacher, be respectful and offer the short introduction.
 
 ORDERS: TWO STEPS
 When the guest's order is clear, call build_order to put together a draft. This does not place anything yet. Read the items and the total back. If you do not already know the guest's name in this conversation, ask once, before the confirmation question: "Can I get a first name for the order?" -- and pass it to build_order as guest_name. If they would rather not say, place the order without one and do not ask again. Then call signal_confirmation_request with a one-sentence summary, and ask if you should confirm it. Only call confirm_order after a clear yes. If they change their mind before confirming, call build_order again with the updated items: it replaces the draft. If they decide not to order, call cancel_order. If they interrupt you mid-order, work the change into the same draft. Once an order is confirmed it is final: anything the guest asks for after that is a new, separate order (call it a new order, never "adding to" the confirmed one), so call build_order with only the new items, never items from an order that is already confirmed. If they want to change a confirmed order, offer to cancel it (cancel_order) and put together a new one. Read-only requests (menu, order status, stall information) never need confirmation.
@@ -59,18 +60,32 @@ ABOUT YOURSELF
 If asked what you are or what you can do, answer in two or three plain, friendly sentences, from the WHO YOU ARE section and the about_the_host topic: you are {agent_name}, the AI host of {stall_name}; you notice guests arriving, take and track real orders, and announce them when they are ready."""
 
 
-# 16 section 2l item 2: ONE warm, natural line of at most about 12 words. It
-# names THE HOST and the stall and ends with an easy question, and it varies
-# from guest to guest. No list of what it can do, no introduction (that is only
+# 16 section 2l item 7a: the approved greeting lines, every one in the 2l item 2
+# style -- ONE warm, natural line of at most about twelve words, naming THE HOST
+# and the stall and ending with an easy question. The server picks one per
+# session, because at the 5f live test the model given three examples and told to
+# vary them answered with the same line three times running.
+_GREETING_LINE_TEMPLATES = (
+    "Hey, welcome to {stall_name} -- I'm {agent_name}. What are you craving today?",
+    "Hi there, I'm {agent_name}! Hungry, thirsty, or just curious?",
+    "Welcome to {stall_name}! I'm {agent_name} -- what can I get you?",
+    "Hello! I'm {agent_name}, your host at {stall_name}. What sounds good?",
+    "Hi, I'm {agent_name} -- welcome to {stall_name}! Something to eat or drink?",
+    "Welcome in! I'm {agent_name}. What can {stall_name} get you today?",
+    "Hey there, I'm {agent_name} at {stall_name}. Burger, or something cold?",
+    "Hi! {agent_name} here, looking after {stall_name}. What are you after?",
+    "Good to see you -- I'm {agent_name} from {stall_name}. What'll it be?",
+    "Hello, welcome to {stall_name}! I'm {agent_name}. Hungry?",
+)
+
+# 16 section 2l item 7a: the instruction names the chosen line. The 2l item 2
+# limits still apply: no list of what it can do, no introduction (that is only
 # given when asked, 2k item 7), and no mention of the camera.
 _GREETING_TEMPLATE = (
-    "A guest has just walked up to the {stall_name} stall. Greet them with ONE warm, natural line of "
-    "at most about twelve words: say your name is {agent_name}, name the stall, and end with an easy "
-    "question. Vary the wording from guest to guest -- for example \"Hey, welcome to {stall_name} -- "
-    "I'm {agent_name}. What are you craving today?\", \"Hi there, I'm {agent_name}! Hungry, thirsty, "
-    "or just curious?\", \"Welcome to {stall_name}! I'm {agent_name} -- what can I get you?\". "
-    "Do not list what you can do, do not introduce yourself at length, do not mention the camera, "
-    "and do not comment on their appearance."
+    "A guest has just walked up to the {stall_name} stall. Greet the guest with this line, or "
+    "something very close to it: \"{line}\". Keep to that one short line: do not list what you "
+    "can do, do not introduce yourself at length, do not mention the camera, and do not comment "
+    "on their appearance."
 )
 
 # 16 section 2h item 3: the session woke up because the guest started speaking,
@@ -109,9 +124,14 @@ RECONNECT_DRAFT_TEMPLATE = (
 # opening instruction this trigger would have had.
 ORPHAN_DRAFT_TEMPLATE = (
     "A conversation was cut off {seconds} seconds ago with an unconfirmed order #{order_id}: "
-    "{items}{total}{name}. After your greeting, ask whether they want to continue that order. "
-    "If yes, confirm it with confirm_order using that id. If they say no, or it is someone "
-    "else, cancel it with cancel_order."
+    "{items}{total}{name}. Instead of your usual greeting, say in one short line that you were "
+    "cut off and name what the order was -- the items, and their name if you know it -- then ask "
+    "whether they still want it. For example \"Looks like we got cut off{name_example} -- still "
+    "want that {first_item}?\". You must name the items: asking \"continue your previous order?\" "
+    "without saying what it was is not allowed, and a yes to a question that did not name the "
+    "items does not confirm anything -- ask again, naming them. Once they say yes to a question "
+    "that named the items, confirm it with confirm_order using that id. If they say no, or it is "
+    "someone else, cancel it with cancel_order."
 )
 
 # 09 section 17: sent when a picture asked for by look_at_camera never arrives.
@@ -136,13 +156,43 @@ ANNOUNCE_TEMPLATE = (
 )
 
 
-# Formatted once, at import, so the module exports plain strings and live_session can
-# send them as they are.
-# 2l item 2: presence and the button get the same one-line greeting.
-GREETING_PRESENCE = _GREETING_TEMPLATE.format(
-    agent_name=config.AGENT_NAME, stall_name=config.STALL_NAME
+# 16 section 2l item 7a: the approved lines, formatted once at import.
+GREETING_LINES = tuple(
+    line.format(agent_name=config.AGENT_NAME, stall_name=config.STALL_NAME)
+    for line in _GREETING_LINE_TEMPLATES
 )
-GREETING_BUTTON = GREETING_PRESENCE
+
+# The line the last session was given, so this one is never handed the same.
+# Process-level on purpose: only one conversation runs at a time (03 section 2),
+# so "the previous session" is simply the last call.
+_last_greeting_line = None
+
+
+def pick_greeting_line() -> str:
+    """One of the approved lines, never the one the previous session was given."""
+    global _last_greeting_line
+    choices = [line for line in GREETING_LINES if line != _last_greeting_line]
+    _last_greeting_line = random.choice(choices or list(GREETING_LINES))
+    return _last_greeting_line
+
+
+def greeting_instruction(line: str) -> str:
+    """The presence and button opening instruction, naming `line` (2l item 7a)."""
+    return _GREETING_TEMPLATE.format(
+        agent_name=config.AGENT_NAME, stall_name=config.STALL_NAME, line=line
+    )
+
+
+def opening_instruction(trigger: str) -> str:
+    """The opening instruction for this trigger, with its greeting line chosen.
+
+    16 section 2h item 3: `voice` keeps its own line, because the guest was
+    already talking. Every other trigger -- including one main.py has not heard
+    of -- gets the 2l item 7a greeting.
+    """
+    if trigger == "voice":
+        return GREETING_VOICE
+    return greeting_instruction(pick_greeting_line())
 GREETING_VOICE = _GREETING_VOICE_TEMPLATE.format(
     agent_name=config.AGENT_NAME, stall_name=config.STALL_NAME
 )
@@ -150,13 +200,10 @@ VISION_PROMPT = _VISION_PROMPT_TEMPLATE.format(
     agent_name=config.AGENT_NAME, stall_name=config.STALL_NAME
 )
 
-# 16 section 2h item 3: the opening instruction each trigger sends. Anything
-# else (including a trigger main.py has not heard of) gets the button welcome.
-OPENING_INSTRUCTIONS = {
-    "presence": GREETING_PRESENCE,
-    "button": GREETING_BUTTON,
-    "voice": GREETING_VOICE,
-}
+# 16 section 2h item 3 / 2l item 7a: the triggers that have an opening of their
+# own. `presence` and `button` share the greeting; `voice` keeps its own line.
+# `opening_instruction` is what callers use -- it chooses the greeting line.
+OPENING_TRIGGERS = ("presence", "button", "voice")
 
 
 def build_system_instruction(now: datetime) -> str:

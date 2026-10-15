@@ -168,6 +168,15 @@ def orphan_age_seconds(order) -> int:
     return max(0, int((datetime.now() - broke).total_seconds()))
 
 
+def first_item(items) -> str:
+    """The name of the first thing in the order, for the 2l item 7c example."""
+    for entry in items or []:
+        name = str((entry or {}).get("name") or "").strip()
+        if name:
+            return name
+    return ""
+
+
 def describe_total(items) -> str:
     """", total Rs. 1,300" -- or nothing at all when a price is missing.
 
@@ -516,7 +525,9 @@ class LiveSession:
         draft orphaned less than `config.ORPHAN_DRAFT_S` ago is offered back,
         and this conversation takes it over so the ordinary order rules apply.
         """
-        text = prompts.OPENING_INSTRUCTIONS.get(self.trigger, prompts.GREETING_BUTTON)
+        # 16 section 2l item 7a: the greeting line is chosen here, per session,
+        # and is never the one the previous session was given.
+        text = prompts.opening_instruction(self.trigger)
         try:
             # Anything older than the window is cancelled rather than offered.
             await asyncio.to_thread(data.abandon_orphan_drafts)
@@ -550,6 +561,10 @@ class LiveSession:
             items=items,
             total=describe_total(claimed.get("items")),
             name=f", for {who}" if who else "",
+            # 2l item 7c: the example line is filled in with this guest's own
+            # order, so the model has nothing to invent.
+            name_example=f", {who}" if who else "",
+            first_item=first_item(claimed.get("items")) or "order",
         )
 
     async def run(self):
