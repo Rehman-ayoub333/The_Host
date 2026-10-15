@@ -252,20 +252,26 @@ def init_db() -> None:
                 except (AttributeError, KeyError, TypeError, ValueError) as exc:
                     log.warning("skipped menu row %s: %s", row_number, exc)
 
-        if conn.execute("SELECT COUNT(*) FROM business_info").fetchone()[0] == 0:
-            rows = _load_json_list(config.BUSINESS_INFO_JSON_PATH, "the stall information")
-            for row_number, row in enumerate(rows, start=1):
-                try:
-                    topic = str(row["topic"]).strip()
-                    answer = str(row["answer"]).strip()
-                    if not topic or not answer:
-                        raise ValueError("empty topic or answer")
-                    conn.execute(
-                        "INSERT OR IGNORE INTO business_info (topic, answer) VALUES (?, ?)",
-                        (topic, answer),
-                    )
-                except (AttributeError, KeyError, TypeError, ValueError) as exc:
-                    log.warning("skipped stall information row %s: %s", row_number, exc)
+        # 16 section 2k item 7 added four topics to the seed file, and a booth
+        # laptop already has a database with the first two in it. Seeding only
+        # an empty table left the identity topics unreachable: `get_business_info`
+        # returned found=False and THE HOST answered from its own idea of itself,
+        # which is the 2k item 1(d) failure this phase exists to fix. Every seed
+        # topic is now made present, and one already in the table is left exactly
+        # as it is -- an operator may have edited it.
+        rows = _load_json_list(config.BUSINESS_INFO_JSON_PATH, "the stall information")
+        for row_number, row in enumerate(rows, start=1):
+            try:
+                topic = str(row["topic"]).strip()
+                answer = str(row["answer"]).strip()
+                if not topic or not answer:
+                    raise ValueError("empty topic or answer")
+                conn.execute(
+                    "INSERT OR IGNORE INTO business_info (topic, answer) VALUES (?, ?)",
+                    (topic, answer),
+                )
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                log.warning("skipped stall information row %s: %s", row_number, exc)
 
         conn.commit()
 
@@ -545,6 +551,18 @@ def create_order_draft(items, guest_name, session_id) -> dict:
             (session_id,),
         ).fetchone()
         if row is not None:
+            # 16 section 2l item 3: the name usually arrives on a LATER
+            # build_order than the items, because THE HOST asks for it after the
+            # order is clear and before the confirmation question. Updating only
+            # the items threw that name away -- live order #19 was confirmed
+            # with no name on it after the guest had given one. A call that
+            # brings no name leaves the one already there alone.
+            if guest_name:
+                conn.execute(
+                    "UPDATE orders SET guest_name = ? WHERE id = ?",
+                    (guest_name, row["id"]),
+                )
+                conn.commit()
             try:
                 current = json.loads(row["items"])
             except (TypeError, ValueError):

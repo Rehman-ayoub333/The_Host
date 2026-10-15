@@ -330,6 +330,25 @@ def test_how_it_works_credits_the_team_and_names_gemini(ctx):
     assert "One AI agent, real-world actions, two synchronized interfaces." in answer
 
 
+def test_the_topics_reach_a_database_that_already_had_the_old_two(host_data):
+    """The live failure this nearly shipped with.
+
+    Seeding only an empty table meant the booth laptop's existing database never
+    got the identity topics: get_business_info returned found=False and THE HOST
+    answered "powered by Google's Gemini model" -- 2k item 1(d) all over again.
+    """
+    with host_data.closing(host_data._connect()) as conn:
+        conn.execute("DELETE FROM business_info WHERE topic NOT IN ('hours', 'stall')")
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM business_info").fetchone()[0] == 2
+
+    host_data.init_db()
+
+    listed = {row["topic"] for row in host_data.get_business_info()}
+    for topic in IDENTITY_TOPICS:
+        assert topic in listed, topic
+
+
 def test_every_identity_topic_exists(ctx):
     listed = {row["topic"] for row in tools.get_business_info()["answers"]}
     for topic in IDENTITY_TOPICS:
@@ -414,6 +433,29 @@ def test_the_name_is_trimmed_and_capped_at_thirty(ctx):
     stored = data.get_order(second["order_id"])["guest_name"]
     assert stored == "R" * 30
     assert len(stored) == 30
+
+
+def test_a_name_given_after_the_items_still_lands_on_the_order(ctx):
+    """The real flow, and a live defect: THE HOST asks for the name AFTER the
+    order is clear, so it arrives on a later build_order for the same draft.
+
+    Updating only the items threw it away -- live order #19 was confirmed with
+    no name on it after the guest had given one, so the announcement could not
+    say it.
+    """
+    first = tools.build_order([{"name": "Chicken Burger"}])
+    assert data.get_order(first["order_id"])["guest_name"] is None
+
+    # Same draft, same items, now with the name the guest just gave.
+    again = tools.build_order([{"name": "Chicken Burger"}], guest_name="Rehman")
+    assert again["order_id"] == first["order_id"]
+    assert data.get_order(first["order_id"])["guest_name"] == "Rehman"
+
+    # And a later call with no name does not wipe it.
+    tools.build_order(
+        [{"name": "Chicken Burger"}, {"name": "Blue Lemonade"}]
+    )
+    assert data.get_order(first["order_id"])["guest_name"] == "Rehman"
 
 
 def test_an_order_with_no_name_stays_without_one(ctx):
