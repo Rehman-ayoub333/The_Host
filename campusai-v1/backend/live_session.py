@@ -143,6 +143,42 @@ def handle_rejected(exc: BaseException) -> bool:
     return isinstance(code, int) and 400 <= code < 500
 
 
+def is_api_error(exc: BaseException) -> bool:
+    """True for a google-genai `APIError` (or a subclass), matched by name.
+
+    By name for the same reason `is_connection_closed` does it: the SDK's own
+    classes are not imported here, and a test double may carry its own.
+    """
+    return any(klass.__name__ == "APIError" for klass in type(exc).__mro__)
+
+
+def drops_the_handle(exc: BaseException) -> bool:
+    """16 section 2m item 2: after this failure the handle goes no further.
+
+    This amends 2k item 2, which dropped the handle only on an HTTP 4xx. At the
+    5f live test both long outages failed first with `gaierror` (the network was
+    down) and then kept failing with `APIError` once DNS worked again, every
+    time with the stored handle -- so an `APIError` means the server answered
+    and refused, and the next attempt goes without the handle. A network error
+    (`gaierror`, another `OSError`, a timeout) is none of those classes, so it
+    keeps the handle: it never reached the server to be refused.
+    """
+    return is_api_error(exc) or handle_rejected(exc)
+
+
+def attempt_result(exc: BaseException) -> str:
+    """The `result=` value for a failed attempt (16 section 2m item 2).
+
+    The error type plus its close code or HTTP status, for example
+    `APIError:1008`. The error's own text is redacted rather than logged: it can
+    repeat anything the request carried, and 12 section 2's rule is that nothing
+    but the type and the code is ever written. Capped at 80 characters.
+    """
+    code = getattr(exc, "code", None)
+    name = type(exc).__name__
+    return (f"{name}:{code}" if isinstance(code, int) else name)[:80]
+
+
 def goaway_seconds(go_away) -> float:
     """The seconds left in a GoAway, 0.0 when the server did not say.
 
@@ -157,6 +193,20 @@ def goaway_seconds(go_away) -> float:
         return float(str(raw).strip().rstrip("s") or 0.0)
     except ValueError:
         return 0.0
+
+
+def join_fragments(text: str, fragment: str) -> str:
+    """16 section 2m item 7: one space between a finished sentence and the next.
+
+    Gemini's output transcription splits a reply into fragments and does not
+    always carry the space between two sentences with it, which put
+    "today.Can I" on the booth screen. A single space goes in where a fragment
+    ends a sentence and the next one starts a word; nothing else is touched, so
+    a fragment that splits mid-word still joins up as it arrives.
+    """
+    if text.endswith((".", "!", "?")) and fragment[:1].isalpha():
+        return text + " " + fragment
+    return text + fragment
 
 
 def orphan_age_seconds(order) -> int:
@@ -395,7 +445,10 @@ class LiveSession:
         """03 section 4: the other speaker's line is finalised first; text is the whole line."""
         other = "agent" if role == "visitor" else "visitor"
         await self._flush_transcript(other)
-        self.transcripts[role] += fragment
+        if role == "agent":
+            self.transcripts[role] = join_fragments(self.transcripts[role], fragment)
+        else:
+            self.transcripts[role] += fragment
         await self._emit_transcript(role, self.transcripts[role], False)
 
     # --------------------------------------------------------------- lifecycle
@@ -1055,12 +1108,13 @@ class LiveSession:
                     self.ctx["session_id"],
                     attempt,
                     resumed,
-                    type(retry_exc).__name__,
+                    # 2m item 2: the type and its close code or status, redacted.
+                    attempt_result(retry_exc),
                 )
                 await self._close_live()
-                if handle and handle_rejected(retry_exc):
-                    # The server answered and refused the handle itself, so
-                    # every attempt after this one goes without it.
+                if handle and drops_the_handle(retry_exc):
+                    # The server answered and refused, so every attempt after
+                    # this one goes without the handle (2m item 2).
                     log.info(
                         "live resumption handle refused session %s",
                         self.ctx["session_id"],
