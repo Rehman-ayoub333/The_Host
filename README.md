@@ -148,6 +148,20 @@ doing so makes the model cut its own sentence off. Even in a gap it waits 0.8 se
 looks again, since a guest's first syllable reaches the room before it reaches the backend.
 Deferred announcements leave one per turn end, or as soon as the guest falls silent.
 
+**Guests of honour, and how THE HOST sounds.** A guest who says they are the Vice
+Chancellor or the chief guest of the gala is greeted as "Sir" or "Ma'am", thanked on the
+team's behalf, and told that anything they would like is on the house, with the team's
+compliments: no price is mentioned to them, their order is stored with a `complimentary`
+flag, and the activity feed reads `Order #29 created (on the house)` so the team can see it
+and check — the prices and the total are still recorded, for the books. Teachers, judges and
+other faculty are addressed just as formally, but normal prices apply. Everything else THE
+HOST says follows one short style rule: a polished, confident host with quiet wit, one or
+two sentences unless detail is asked for, a decisive "Done — one Chicken Burger for Rehman."
+instead of a paragraph, the guest's name once or twice rather than in every line, at most
+one light joke in a conversation and none at all with a guest of honour, and none of the
+assistant filler ("Great question", "Absolutely!", "As an AI") that makes a stall sound like
+a chatbot.
+
 **Memory by name, never by face.** A profile is created only when a guest clearly says a
 name. The key is the lower-cased name; there is no biometric data anywhere in the system,
 and the camera is used only for presence counting and for pictures the guest asks about.
