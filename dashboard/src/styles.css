@@ -1,0 +1,359 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * BITE & POUR · THE HOST design system
+ * Black is the canvas; champagne gold marks identity and meaningful activity.
+ */
+
+@theme inline {
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Cormorant Garamond", ui-serif, Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-gold: var(--gold);
+  --color-gold-bright: var(--gold-bright);
+  --color-gold-dim: var(--gold-dim);
+  --color-ivory: var(--ivory);
+  --color-champagne: var(--champagne);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+}
+
+:root {
+  --radius: 0.375rem;
+
+  --background: #070706;
+  --surface: #12110e;
+  --surface-2: #181612;
+  --foreground: #f4ebdd;
+  --ivory: #f4ebdd;
+  --muted-foreground: #a9a294;
+
+  --gold: #c9a227;
+  --champagne: #d8b85a;
+  --gold-bright: #e7d39a;
+  --gold-dim: #887035;
+  --success: #83a184;
+  --warning: #d8b85a;
+
+  --line: rgb(212 175 55 / 0.18);
+  --line-strong: rgb(212 175 55 / 0.34);
+
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface);
+  --popover-foreground: var(--foreground);
+  --primary: var(--gold);
+  --primary-foreground: #0d0c0a;
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--surface-2);
+  --accent: var(--surface-2);
+  --accent-foreground: var(--foreground);
+  --destructive: #be786d;
+  --destructive-foreground: var(--foreground);
+  --border: var(--line);
+  --input: var(--surface-2);
+  --ring: var(--gold);
+
+  --gradient-gold: linear-gradient(135deg, var(--gold-bright), var(--champagne) 60%, var(--gold));
+  --gradient-panel: var(--surface);
+  --shadow-panel: 0 12px 32px -26px rgb(0 0 0 / 0.75);
+  --glow-gold: 0 0 24px rgb(216 184 90 / 0.12);
+
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    background-image: none;
+  }
+  ::selection {
+    background: rgb(216 184 90 / 0.25);
+  }
+}
+
+/* ---------- Surfaces ---------- */
+@utility panel {
+  position: relative;
+  background: var(--gradient-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+}
+
+@utility panel-corners {
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-color: var(--gold);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  &::before {
+    top: -1px;
+    left: -1px;
+    border-top: 1px solid;
+    border-left: 1px solid;
+    border-top-left-radius: var(--radius-lg);
+  }
+  &::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom: 1px solid;
+    border-right: 1px solid;
+    border-bottom-right-radius: var(--radius-lg);
+  }
+}
+
+@utility label-caps {
+  font-size: 0.66rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+
+@utility text-gold-gradient {
+  background: var(--gradient-gold);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility glow-gold {
+  text-shadow: 0 0 16px rgb(216 184 90 / 0.18);
+}
+
+@utility hairline-gold {
+  background: linear-gradient(90deg, transparent, var(--gold) 50%, transparent);
+  height: 1px;
+  opacity: 0.5;
+}
+
+@utility scan-grid {
+  background-image:
+    linear-gradient(rgb(216 184 90 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(216 184 90 / 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* ---------- THE HOST orb ---------- */
+.host-orb {
+  --c: var(--gold-dim);
+  --c2: var(--champagne);
+  --spin: 40s;
+  --breath: 5s;
+}
+.host-orb[data-tone="think"] {
+  --c: var(--gold);
+  --c2: var(--champagne);
+  --spin: 8s;
+  --breath: 1.6s;
+}
+.host-orb[data-tone="warn"] {
+  --c: var(--destructive);
+  --c2: var(--foreground);
+  --spin: 10s;
+  --breath: 1.2s;
+}
+.host-orb[data-tone="off"] {
+  --c: var(--gold-dim);
+  --c2: var(--muted-foreground);
+  --spin: 120s;
+  --breath: 9s;
+}
+.host-orb .spin {
+  transform-origin: 200px 200px;
+  animation: orb-spin var(--spin) linear infinite;
+}
+.host-orb .spin-rev {
+  transform-origin: 200px 200px;
+  animation: orb-spin var(--spin) linear infinite reverse;
+}
+.host-orb .spin-slow {
+  transform-origin: 200px 200px;
+  animation: orb-spin calc(var(--spin) * 3) linear infinite;
+}
+.host-orb .breath {
+  transform-origin: 200px 200px;
+  animation: orb-breath var(--breath) ease-in-out infinite;
+}
+.host-orb .bar {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: orb-bar 0.9s ease-in-out infinite;
+}
+.host-orb .pulse-ring {
+  transform-origin: 200px 200px;
+  animation: orb-pulse 2.4s ease-out infinite;
+}
+.host-orb .orbit {
+  transform-origin: 200px 200px;
+  animation: orb-spin 6s linear infinite;
+}
+.host-orb * {
+  transition:
+    stroke 0.8s ease,
+    fill 0.8s ease,
+    opacity 0.6s ease;
+}
+
+@keyframes orb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes orb-breath {
+  0%,
+  100% {
+    transform: scale(0.96);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 1;
+  }
+}
+@keyframes orb-bar {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+@keyframes orb-pulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+/* ---------- Waveform ---------- */
+.wave-bar {
+  transform-origin: center;
+  animation: wave 1s ease-in-out infinite;
+}
+.wave-idle .wave-bar {
+  animation: none;
+  transform: scaleY(0.15);
+}
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(0.2);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* ---------- Misc motion ---------- */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+@utility animate-rise {
+  animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes blink-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+@utility animate-blink {
+  animation: blink-dot 1.6s ease-in-out infinite;
+}
+@keyframes scanline {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+@utility animate-scan {
+  animation: scanline 4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* Restraint: the live presence becomes clearer only when an event occurs. */
+.host-orb[data-tone="off"] { opacity: .42; }
+.host-orb[data-tone="brand"] { opacity: .76; }
+.host-orb[data-tone="think"] { --c: var(--gold); }
+.host-orb[data-tone="memory"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 28s; }
+.host-orb[data-tone="ready"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 32s; }
+.host-orb[data-tone="voice"] { --c: var(--champagne); --c2: var(--ivory); --spin: 20s; }
+.host-orb[data-tone="scan"] { --c: var(--champagne); --c2: var(--gold-bright); --spin: 12s; }
+.host-orb[data-tone="order"] { --c: var(--gold); --c2: var(--champagne); --spin: 24s; }
