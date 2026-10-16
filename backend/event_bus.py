@@ -29,7 +29,15 @@ _sockets: dict = {}
 
 # The 03 section 2 role table.
 SMD_NEVER = frozenset(
-    {"memory_updated", "agent_activity", "vision_update", "system_status_changed"}
+    {
+        "memory_updated",
+        "agent_activity",
+        "vision_update",
+        "system_status_changed",
+        # Transcripts are for the operator only (16 section 2o item 2): the
+        # public display receives none at all, partial or final.
+        "speech_transcript",
+    }
 )
 SMD_ALLOWED = frozenset(
     {
@@ -41,7 +49,6 @@ SMD_ALLOWED = frozenset(
         "operational_mode_changed",
         "interrupted",
         "error",
-        "speech_transcript",
         "visitor_identified",
         "order_created",
         "order_updated",
@@ -94,8 +101,6 @@ def filter_for(role: str, event: dict) -> dict | None:
         return None
 
     view = copy.deepcopy(event)
-    if event_type == "speech_transcript":
-        return view if view.get("final") else None
     if event_type == "visitor_identified":
         return {key: view[key] for key in VISITOR_IDENTIFIED_PUBLIC if key in view}
     if event_type in ("order_created", "order_updated"):

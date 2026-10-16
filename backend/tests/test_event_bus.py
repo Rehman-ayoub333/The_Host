@@ -89,7 +89,10 @@ def test_the_dashboard_sees_every_event_unchanged():
 
 
 def test_smd_never_receives_a_private_event():
-    for event_type in ("memory_updated", "agent_activity", "vision_update", "system_status_changed"):
+    for event_type in (
+        "memory_updated", "agent_activity", "vision_update", "system_status_changed",
+        "speech_transcript",
+    ):
         assert event_bus.filter_for("smd", {"type": event_type}) is None
 
 
@@ -97,12 +100,26 @@ def test_smd_never_receives_an_unknown_event_type():
     assert event_bus.filter_for("smd", {"type": "something_new"}) is None
 
 
-def test_smd_receives_only_final_transcripts():
+def test_smd_receives_no_transcript_at_all():
+    """16 section 2o item 2: transcripts reach the operator only."""
     partial = {"type": "speech_transcript", "role": "agent", "text": "Let me", "final": False}
     final = {"type": "speech_transcript", "role": "agent", "text": "Let me check", "final": True}
 
     assert event_bus.filter_for("smd", partial) is None
-    assert event_bus.filter_for("smd", final) == final
+    assert event_bus.filter_for("smd", final) is None
+
+
+def test_the_dashboard_still_receives_both_transcript_kinds_unchanged():
+    partial = {"type": "speech_transcript", "role": "visitor", "text": "A chicken", "final": False}
+    final = {"type": "speech_transcript", "role": "visitor", "text": "A chicken burger", "final": True}
+
+    assert event_bus.filter_for("dashboard", partial) is partial
+    assert event_bus.filter_for("dashboard", final) is final
+
+
+def test_speech_transcript_is_listed_as_never_for_smd():
+    assert "speech_transcript" in event_bus.SMD_NEVER
+    assert "speech_transcript" not in event_bus.SMD_ALLOWED
 
 
 def test_smd_receives_a_reduced_visitor_identified():

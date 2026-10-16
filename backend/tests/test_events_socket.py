@@ -101,12 +101,16 @@ def test_both_roles_get_their_filtered_stream(served):
     assert "order_created" in dashboard_types
 
     # The public display never sees them.
-    for private in ("memory_updated", "agent_activity", "vision_update", "system_status_changed"):
+    for private in (
+        "memory_updated", "agent_activity", "vision_update", "system_status_changed",
+        "speech_transcript",
+    ):
         assert private not in smd_types
 
-    # No partial transcript for smd; the dashboard gets both.
+    # The dashboard gets both transcript kinds; smd gets none at all
+    # (16 section 2o item 2).
     assert any(not event["final"] for event in dashboard_events if event["type"] == "speech_transcript")
-    assert all(event["final"] for event in smd_events if event["type"] == "speech_transcript")
+    assert any(event["final"] for event in dashboard_events if event["type"] == "speech_transcript")
 
     # No guest_name anywhere in an smd order object.
     for event in smd_events:
