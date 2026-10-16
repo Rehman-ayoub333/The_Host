@@ -92,6 +92,32 @@ describe("the public display renders no spoken line", () => {
     expect(screen.getByText("Order #27 for Ahmed is ready!")).toBeInTheDocument();
   });
 
+  it("shows the announcement even when THE HOST has gone back to IDLE", () => {
+    // An order becomes ready long after its conversation ended, so the idle
+    // menu carousel must give way to the announcement.
+    dispatchAll([
+      { type: "agent_state_changed", state: "IDLE", timestamp: "2026-10-16T19:47:30" },
+      { type: "order_ready", order_id: 34, customer_name: "Ahmed" },
+    ] as AgentEvent[]);
+
+    render(<SMDDisplay />);
+
+    expect(screen.getByText("Order #34 for Ahmed is ready!")).toBeInTheDocument();
+    expect(screen.queryByText("Our Menu")).toBeNull();
+  });
+
+  it("returns to the idle menu once the queue is empty again", () => {
+    dispatchAll([
+      { type: "agent_state_changed", state: "IDLE", timestamp: "2026-10-16T19:47:30" },
+      { type: "order_ready", order_id: 34, customer_name: "Ahmed" },
+    ] as AgentEvent[]);
+    agentStore.dispatch({ type: "@ready_done" });
+
+    render(<SMDDisplay />);
+
+    expect(screen.queryByText("Order #34 for Ahmed is ready!")).toBeNull();
+  });
+
   it("announces a ready order without a name when there is none", () => {
     dispatchAll([{ type: "order_ready", order_id: 28, customer_name: null }] as AgentEvent[]);
 

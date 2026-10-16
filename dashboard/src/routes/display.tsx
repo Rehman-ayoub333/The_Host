@@ -95,7 +95,10 @@ export function SMDDisplay() {
   useOrderReadyVoice(ready);
 
   const resting = opMode && opMode.mode !== "ONLINE" && mode !== "demo";
-  const idle = state === "idle" && !resting;
+  // A queued announcement takes the screen even when THE HOST is back to IDLE:
+  // an order usually becomes ready long after its conversation ended, so the
+  // idle menu carousel must give way to it for its 15 s (16 §2o item 6).
+  const idle = state === "idle" && !resting && !ready;
   const orderStates = ["taking_order", "order_ready"].includes(state);
   const memoryStates = state === "remembering";
   const voice = state === "listening" || state === "speaking";
