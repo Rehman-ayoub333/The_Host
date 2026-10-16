@@ -193,18 +193,22 @@ No paid services, no cloud database, no build step for the voice page.
 [bun](https://bun.sh) as well, for the dashboard.
 
 ```powershell
-# 1. Create and activate a virtual environment at the repository root
+# 1. Get the code
+git clone https://github.com/Rehman-ayoub333/THE_HOST.git
+cd THE_HOST
+
+# 2. Create and activate a virtual environment at the repository root
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
-# 2. Install the backend dependencies
+# 3. Install the backend dependencies
 pip install -r backend\requirements.txt
 
-# 3. Create your own configuration from the example and add your key
+# 4. Create your own configuration from the example and add your key
 Copy-Item backend\.env.example backend\.env
 notepad backend\.env
 
-# 4. Run the backend from the backend folder
+# 5. Run the backend from the backend folder
 cd backend
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
