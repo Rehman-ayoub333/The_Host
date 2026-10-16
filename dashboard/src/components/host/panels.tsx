@@ -26,8 +26,20 @@ import {
 } from "lucide-react";
 import { agentStore, useAgent } from "@/lib/agent/store";
 import { STATE_META, fmtAgo, fmtClock, fmtCountdown, toMs, useNow } from "@/lib/agent/ui";
-import type { ActivityKind, AgentStateName, ComponentStatus, Order, OrderStatus, SystemComponent } from "@/lib/agent/types";
-import { setOrderStatus } from "@/lib/agent/service";
+import type { ActivityKind, AgentStateName, ComponentStatus, Order, OrderStatus, SystemComponent, Visitor } from "@/lib/agent/types";
+import {
+  announceAgain,
+  endSession,
+  endTakeover,
+  forgetVisitor,
+  pauseHost,
+  reloadVisitors,
+  resumeHost,
+  retryConnection,
+  setOrderStatus,
+  startTakeover,
+  updateVisitor,
+} from "@/lib/agent/service";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AIOrb } from "./AIOrb";
@@ -306,6 +318,19 @@ function OrderActions({ order }: { order: Order }) {
       {(order.status === "READY" || order.status === "REQUIRES_ATTENTION") && (
         <button disabled={busy} onClick={() => void act("COLLECTED")} className={btn}>Collected</button>
       )}
+      {/* A deliberate repeat of the announcement (20 §4 item 4). */}
+      {order.status === "READY" && (
+        <button
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void announceAgain(order.id).finally(() => setBusy(false));
+          }}
+          className={btn}
+        >
+          Announce again
+        </button>
+      )}
       {(order.status === "CONFIRMED" || order.status === "PREPARING" || order.status === "REQUIRES_ATTENTION") && (
         <button disabled={busy} onClick={() => setCancelOpen(true)} className={cn(btn, "hover:border-destructive hover:text-destructive")}>Cancel</button>
       )}
@@ -458,6 +483,87 @@ export function ActivityPanel({ className, limit = 7 }: { className?: string; li
 /* Visitors & memory                                                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Edit and Forget for one visitor (20 §4 item 4). The PATCH sends only the
+ * fields that actually changed; an emptied favourite sends null. Forget asks
+ * first. Both reload GET /api/visitors afterwards.
+ */
+function VisitorActions({ visitor }: { visitor: Visitor }) {
+  const [editing, setEditing] = useState(false);
+  const [confirmForget, setConfirmForget] = useState(false);
+  const [name, setName] = useState(visitor.name);
+  const [favorite, setFavorite] = useState(visitor.favorite_item ?? "");
+  const [busy, setBusy] = useState(false);
+  const nameKey = visitor.name_key;
+
+  const field = "w-full rounded-sm border border-line bg-input px-2 py-1 text-xs text-foreground outline-none placeholder:text-muted-foreground/50 focus:border-gold";
+
+  if (!nameKey) return null;
+
+  const save = async () => {
+    const patch: { display_name?: string; favorite_item?: string | null } = {};
+    const trimmedName = name.trim();
+    if (trimmedName && trimmedName !== visitor.name) patch.display_name = trimmedName;
+    const trimmedFav = favorite.trim();
+    const currentFav = visitor.favorite_item ?? "";
+    if (trimmedFav !== currentFav) patch.favorite_item = trimmedFav === "" ? null : trimmedFav;
+    if (Object.keys(patch).length === 0) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    const ok = await updateVisitor(nameKey, patch);
+    setBusy(false);
+    if (ok) {
+      setEditing(false);
+      await reloadVisitors();
+    }
+  };
+
+  if (confirmForget) {
+    return (
+      <div className="mt-2 flex items-center gap-2 rounded-sm border border-destructive/40 bg-destructive/5 p-2">
+        <p className="flex-1 text-[0.68rem] text-destructive">Forget {visitor.name}?</p>
+        <button
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void forgetVisitor(nameKey).then(async (ok) => {
+              setBusy(false);
+              setConfirmForget(false);
+              if (ok) await reloadVisitors();
+            });
+          }}
+          className="text-[0.65rem] font-semibold uppercase text-destructive hover:underline"
+        >
+          Yes
+        </button>
+        <button onClick={() => setConfirmForget(false)} className="text-[0.65rem] font-semibold uppercase text-muted-foreground hover:underline">No</button>
+      </div>
+    );
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-2 space-y-2 rounded-sm border border-line bg-background/60 p-2">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" aria-label="Name" className={field} />
+        <input value={favorite} onChange={(e) => setFavorite(e.target.value)} placeholder="Favourite item" aria-label="Favourite item" className={field} />
+        <div className="flex gap-2">
+          <button disabled={busy} onClick={() => void save()} className="text-[0.65rem] font-semibold uppercase text-gold hover:underline">Save</button>
+          <button onClick={() => setEditing(false)} className="text-[0.65rem] font-semibold uppercase text-muted-foreground hover:underline">Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex gap-1.5">
+      <button onClick={() => setEditing(true)} className={OP_BTN}>Edit</button>
+      <button onClick={() => setConfirmForget(true)} className={cn(OP_BTN, "hover:border-destructive hover:text-destructive")}>Forget</button>
+    </div>
+  );
+}
+
 export function VisitorsPanel({ className, limit = 4 }: { className?: string; limit?: number }) {
   const visitors = useAgent((s) => s.visitors);
   const isDemo = useIsDemo();
@@ -469,17 +575,20 @@ export function VisitorsPanel({ className, limit = 4 }: { className?: string; li
       ) : (
         <ul className="divide-y divide-line">
           {visitors.slice(0, limit).map((v) => (
-            <li key={v.name_key ?? v.name} className="animate-rise flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-              <Avatar name={v.name} />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">{v.name}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {v.last_order ?? "No orders"}{v.last_seen ? ` · ${fmtAgo(v.last_seen, now)}` : ""}
-                </p>
+            <li key={v.name_key ?? v.name} className="animate-rise py-2.5 first:pt-0 last:pb-0">
+              <div className="flex items-center gap-3">
+                <Avatar name={v.name} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">{v.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {v.last_order ?? "No orders"}{fmtAgo(v.last_seen, now) ? ` · ${fmtAgo(v.last_seen, now)}` : ""}
+                  </p>
+                </div>
+                <span className={cn("rounded-sm border px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider", v.returning ? "border-gold/40 text-gold" : "border-champagne/40 text-champagne")}>
+                  {v.returning ? "Returning" : "New"}
+                </span>
               </div>
-              <span className={cn("rounded-sm border px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider", v.returning ? "border-gold/40 text-gold" : "border-champagne/40 text-champagne")}>
-                {v.returning ? "Returning" : "New"}
-              </span>
+              {!isDemo && <VisitorActions visitor={v} />}
             </li>
           ))}
         </ul>
@@ -560,6 +669,88 @@ const BROWSER_ROWS: [SystemComponent, string, typeof Eye][] = [
   ["internet", "Internet", Globe],
 ];
 
+/** A small uppercase operator button, matching the order-card buttons. */
+const OP_BTN = "h-7 rounded-sm border border-line px-2 text-[0.65rem] font-semibold uppercase transition-colors hover:border-gold hover:text-gold disabled:opacity-50";
+
+/**
+ * The operator controls (20 §4 item 4). Pause, Take over and End conversation
+ * ask for confirmation first. Nothing on screen changes until the backend's
+ * response or its event arrives: each handler only awaits the call and reports
+ * the result, while `operational_mode_changed` updates the mode.
+ */
+function OperatorControls() {
+  const opMode = useAgent((s) => s.opMode);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState<null | "pause" | "takeover" | "end-session">(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const mode = opMode?.mode;
+  const paused = mode === "PAUSED";
+  const takenOver = mode === "OPERATOR_TAKEOVER";
+
+  const run = async (fn: () => Promise<unknown>, after?: (r: unknown) => void) => {
+    setBusy(true);
+    setNote(null);
+    const result = await fn();
+    setBusy(false);
+    setConfirming(null);
+    if (result !== null && after) after(result);
+  };
+
+  const CONFIRM_TEXT: Record<"pause" | "takeover" | "end-session", string> = {
+    pause: "Pause THE HOST? The current conversation ends.",
+    takeover: "Take over? The current conversation ends.",
+    "end-session": "End the conversation now?",
+  };
+
+  const doConfirmed = () => {
+    if (confirming === "pause") return void run(pauseHost);
+    if (confirming === "takeover") return void run(startTakeover);
+    if (confirming === "end-session")
+      return void run(endSession, (r) => setNote((r as { ended: boolean }).ended ? "Conversation ended" : "No conversation running"));
+  };
+
+  return (
+    <div className="mb-3 rounded-md border border-line bg-background/40 p-3">
+      <p className="label-caps mb-2">Operator</p>
+      <p className="mb-2.5 text-[0.68rem] text-muted-foreground">
+        Mode: <span className="font-semibold text-foreground/90">{mode ?? "unknown"}</span>
+        {opMode?.reason ? ` — ${opMode.reason}` : ""}
+      </p>
+
+      {confirming ? (
+        <div className="flex items-center gap-2 rounded-sm border border-warning/40 bg-warning/5 p-2">
+          <p className="flex-1 text-[0.68rem] text-warning">{CONFIRM_TEXT[confirming]}</p>
+          <button disabled={busy} onClick={doConfirmed} className="text-[0.65rem] font-semibold uppercase text-warning hover:underline">Yes</button>
+          <button onClick={() => setConfirming(null)} className="text-[0.65rem] font-semibold uppercase text-muted-foreground hover:underline">No</button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {paused ? (
+            <button disabled={busy} onClick={() => void run(resumeHost)} className={OP_BTN}>Resume THE HOST</button>
+          ) : (
+            <button disabled={busy} onClick={() => setConfirming("pause")} className={OP_BTN}>Pause THE HOST</button>
+          )}
+          {takenOver ? (
+            <button disabled={busy} onClick={() => void run(endTakeover)} className={OP_BTN}>End takeover</button>
+          ) : (
+            <button disabled={busy} onClick={() => setConfirming("takeover")} className={OP_BTN}>Take over</button>
+          )}
+          <button disabled={busy} onClick={() => setConfirming("end-session")} className={OP_BTN}>End conversation</button>
+          <button
+            disabled={busy}
+            onClick={() => void run(retryConnection, (r) => setNote((r as { reachable: boolean }).reachable ? "AI service reachable" : "AI service unreachable"))}
+            className={OP_BTN}
+          >
+            Retry connection
+          </button>
+        </div>
+      )}
+      {note && <p className="mt-2 text-[0.68rem] text-champagne">{note}</p>}
+    </div>
+  );
+}
+
 export function SystemPanel({ className }: { className?: string }) {
   const system = useAgent((s) => s.system);
   const connection = useAgent((s) => s.connection);
@@ -587,6 +778,7 @@ export function SystemPanel({ className }: { className?: string }) {
 
   return (
     <Panel title="System" icon={<Cpu className="h-4 w-4" />} className={className}>
+      <OperatorControls />
       {opMode && opMode.mode !== "ONLINE" && (
         <p className="mb-3 rounded-sm border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[0.68rem] text-warning">
           Mode: {opMode.mode}{opMode.reason ? ` — ${opMode.reason}` : ""}
@@ -621,12 +813,38 @@ export function SystemPanel({ className }: { className?: string }) {
 /* Analytics (from GET /api/analytics only)                            */
 /* ------------------------------------------------------------------ */
 
+/** The "Today" row from GET /api/metrics, reloaded every 30 s (20 §4 item 4). */
+export function MetricsToday({ className }: { className?: string }) {
+  const metrics = useAgent((s) => s.metrics);
+  if (!metrics) return null;
+  const rows: [string, number][] = [
+    ["Sessions today", metrics.sessions_today],
+    ["Orders today", metrics.orders_today],
+    ["Failed tool calls today", metrics.failed_tool_calls_today],
+    ["Connection failures today", metrics.connection_failures_today],
+  ];
+  return (
+    <div className={cn("mb-4 rounded-md border border-line bg-background/40 p-2.5", className)}>
+      <p className="label-caps mb-2">Today · {metrics.date}</p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <p className="label-caps !text-[0.56rem]">{label}</p>
+            <p className="mt-0.5 font-mono text-xl text-foreground">{value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function AnalyticsPanel({ className }: { className?: string }) {
   const analytics = useAgent((s) => s.analytics);
   const isDemo = useIsDemo();
 
   return (
     <Panel title="Analytics" icon={<ChartNoAxesColumn className="h-4 w-4" />} className={className} action={<TagFor demo={isDemo} />}>
+      {!isDemo && <MetricsToday />}
       {!analytics ? (
         <EmptyState icon={<ChartNoAxesColumn className="h-6 w-6" />} title="No analytics yet" hint="Daily figures arrive from the backend every 30 seconds." />
       ) : (
