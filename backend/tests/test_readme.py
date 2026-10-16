@@ -11,7 +11,7 @@ from pathlib import Path
 import config
 
 
-REPO_ROOT = config.BASE_DIR.parent.parent
+REPO_ROOT = config.BASE_DIR.parent
 README = REPO_ROOT / "README.md"
 
 

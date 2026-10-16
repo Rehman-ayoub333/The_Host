@@ -425,7 +425,7 @@ def test_the_system_prompt_carries_each_rule(rule):
 def test_the_rules_are_recorded_in_the_spec():
     # 2i item 5: 09 section 15 is where the prompt is written down. That folder
     # is git-ignored, so a fresh clone has no copy to check against.
-    spec_file = config.BASE_DIR.parent.parent / "host-spec" / "09-TOOL-ARCHITECTURE.md"
+    spec_file = config.BASE_DIR.parent / "host-spec" / "09-TOOL-ARCHITECTURE.md"
     if not spec_file.is_file():
         pytest.skip("the host-spec folder is not in this checkout")
     spec = spec_file.read_text(encoding="utf-8")

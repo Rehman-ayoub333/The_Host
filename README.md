@@ -190,6 +190,7 @@ No paid services, no cloud database, no build step for the voice page.
 ## Getting started (Windows)
 
 **Prerequisites:** Python 3.13, Google Chrome, and a Gemini API key from Google AI Studio.
+[bun](https://bun.sh) as well, for the dashboard.
 
 ```powershell
 # 1. Create and activate a virtual environment at the repository root
@@ -207,6 +208,19 @@ notepad backend\.env
 cd backend
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
+
+### Or use the scripts
+
+`scripts/` does all of the above for you, from the repository root:
+
+| Script | What it starts |
+|---|---|
+| `.\scripts\start-backend.ps1` | The backend on `127.0.0.1:8000`, which also serves the voice page at `/` |
+| `.\scripts\start-dashboard.ps1` | The dashboard — runs `bun install` first if `node_modules` is missing |
+| `.\scripts\start-all.ps1` | Both of the above, each in its own window |
+| `.\scripts\run-tests.ps1` | The full backend suite (any extra arguments go straight to pytest) |
+
+No script reads, prints or echoes your `.env`.
 
 Then open **http://localhost:8000/** in Chrome and allow the microphone and camera. The page
 greets a guest on its own, so it must be a visible window of its own — presence detection
