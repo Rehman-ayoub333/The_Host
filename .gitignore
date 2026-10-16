@@ -19,6 +19,7 @@ dashboard/dist
 
 # Internal planning documents, not part of the public repository.
 host-spec/
+Claude outputs/
 AGENT-STATE.md
 HOST-HANDOFF-BRIEFING.md
 NEW-CHAT-START-HERE.md
