@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/host/AppShell";
-import { ActivityPanel, AnalyticsPanel, CorePanel, OrdersPanel, StateStrip, SystemPanel, TranscriptPanel, VisionPanel, VisitorsPanel } from "@/components/host/panels";
+import { LivePanel } from "@/components/host/LivePanel";
+import { ActivityPanel, AnalyticsPanel, CorePanel, OrdersPanel, StateStrip, SystemPanel, VisionPanel, VisitorsPanel } from "@/components/host/panels";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -20,6 +21,9 @@ function CommandCenter() {
   return (
     <AppShell title="Command Center" subtitle="Monitor everything THE HOST sees, hears and does — in real time.">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        {/* The Live panel sits full width above every other panel (16 §2o
+            item 5) and replaces the old transcript panel in this grid. */}
+        <LivePanel className="xl:col-span-12" />
         <CorePanel className="xl:col-span-5" />
         <VisionPanel className="xl:col-span-7" />
         <div className="xl:col-span-12">
@@ -28,9 +32,8 @@ function CommandCenter() {
         <OrdersPanel className="xl:col-span-5" />
         <ActivityPanel className="xl:col-span-4" />
         <VisitorsPanel className="xl:col-span-3" />
-        <TranscriptPanel className="xl:col-span-5" />
-        <AnalyticsPanel className="xl:col-span-4" />
-        <SystemPanel className="xl:col-span-3" />
+        <AnalyticsPanel className="xl:col-span-5" />
+        <SystemPanel className="xl:col-span-4" />
       </div>
     </AppShell>
   );
