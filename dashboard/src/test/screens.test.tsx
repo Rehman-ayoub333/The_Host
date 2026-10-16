@@ -152,6 +152,21 @@ describe("the Live panel's open draft", () => {
     expect(screen.getByText("Ahmed")).toBeInTheDocument();
   });
 
+  it("shows the name as soon as an order_updated adds it to the open draft", () => {
+    // 16 §2o item 10(a): THE HOST builds the draft before it has the name and
+    // rebuilds it afterwards. The later event replaces the stored order, so
+    // the name must appear without any REST reload.
+    dispatchAll([
+      { type: "order_created", order: { ...draft, guest_name: null } },
+      { type: "order_updated", order: { ...draft, guest_name: "Ahmed" } },
+    ] as AgentEvent[]);
+
+    render(<LivePanel />);
+
+    expect(screen.getByText("Order #27")).toBeInTheDocument();
+    expect(screen.getByText("Ahmed")).toBeInTheDocument();
+  });
+
   it("hides it once that order is CONFIRMED", () => {
     dispatchAll([
       { type: "order_created", order: draft },

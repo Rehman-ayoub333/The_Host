@@ -213,7 +213,12 @@ let menuRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
 const MENU_RETRY_MS = 10_000;
 
-/** Initial fill + periodic reloads for the dashboard (skipped in demo mode). */
+/**
+ * The one place GET /api/orders is called: when the /ws/events socket
+ * (re)connects (16 §2o item 10a). From then on the order list is kept current
+ * by order_created / order_updated / state_snapshot alone.
+ * Skipped in demo mode.
+ */
 export async function loadDashboardData() {
   if (agentStore.get().mode === "demo") return;
   try {
@@ -395,14 +400,10 @@ function open() {
       lastEventId = data.event_id;
     }
     if (agentStore.get().mode === "demo") return; // demo ignores live events
+    // Orders come from the events themselves (16 §2o item 10a). GET /api/orders
+    // is NOT called here: a reload started by one event could resolve after a
+    // newer event and overwrite it with staler data.
     agentStore.dispatch(data);
-    if ((data.type === "order_created" || data.type === "order_updated") && currentRole === "dashboard") {
-      // Reload the orders list so tabs/badges stay exact. Token-protected, so
-      // the public display never does it (20 §4 item 3).
-      getOrders("all")
-        .then(({ orders }) => agentStore.dispatch({ type: "@hydrate", snapshot: { orders } }))
-        .catch(() => undefined);
-    }
     if (data.type === "error") toast.error(data.message);
   };
   ws.onclose = (ev) => {

@@ -117,7 +117,13 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
     case "@reset":
       return { ...initialSnapshot, connection: s.connection, state: s.connection === "live" ? "idle" : "offline", updatedAt: now };
 
-    case "state_snapshot":
+    case "state_snapshot": {
+      // 16 §2o item 10(a): the snapshot replaces the ACTIVE set only. Orders
+      // that are finished or still being taken are not part of it, so they are
+      // kept as they are rather than wiped by a snapshot that never knew them.
+      const incoming = e.active_orders ?? [];
+      const incomingIds = new Set(incoming.map((o) => o.id));
+      const kept = s.orders.filter((o) => !ACTIVE_ORDER.includes(o.status) && !incomingIds.has(o.id));
       return n({
         state: mapState(e.conversation_state),
         lastAgentState: e.conversation_state,
@@ -125,8 +131,9 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
         sessionId: e.session_id ?? null,
         opMode: { mode: e.operational_mode },
         present: e.present,
-        orders: e.active_orders ?? [],
+        orders: [...incoming, ...kept],
       });
+    }
     case "agent_state_changed":
       return n({
         state: mapState(e.state),
@@ -158,11 +165,13 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       }
       return n({ caption, transcript: transcript.slice(-TRANSCRIPT_LIMIT), sessionId: e.session_id ?? s.sessionId });
     }
+    // 16 §2o item 10(a): the event's `order` REPLACES the stored order with the
+    // same id, or is added if there is none. Never merged with what was there:
+    // the event is the newest truth about that order, field for field.
     case "order_created":
-      return n({ orders: [e.order, ...s.orders.filter((o) => o.id !== e.order.id)] });
     case "order_updated": {
       const known = s.orders.some((o) => o.id === e.order.id);
-      const orders = known ? s.orders.map((o) => (o.id === e.order.id ? { ...o, ...e.order } : o)) : [e.order, ...s.orders];
+      const orders = known ? s.orders.map((o) => (o.id === e.order.id ? e.order : o)) : [e.order, ...s.orders];
       return n({ orders });
     }
     case "visitor_identified":
