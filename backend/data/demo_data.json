@@ -1,4 +1,0 @@
-[
-  {"room": "Lab 1", "day": "Monday", "time": "15:00", "available": false, "note": "reserved for a demo event"},
-  {"room": "Seminar A", "day": "Tuesday", "time": "14:00", "available": false, "note": "reserved for a demo event"}
-]

@@ -1,7 +1,0 @@
-.env
-backend/data/campus_ai.db
-__pycache__/
-*.pyc
-.venv/
-node_modules/
-tmp_vendor/
