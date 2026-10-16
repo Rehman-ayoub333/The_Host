@@ -446,7 +446,11 @@ def test_the_agent_is_never_called_anything_but_the_host():
     # No other working name for the agent. "Gemini" is not one of those: 16
     # section 2k item 7 requires the prompt to name the model THE HOST runs on,
     # and to neither credit Google with building it nor deny using Gemini.
-    for other in ("CampusAI", "Campus AI", "assistant"):
+    #
+    # The retired project's name used to be listed here too. 16 section 2n item
+    # 3f requires it to appear in no tracked file, so it is gone from the list
+    # as well as from the prompt -- it survives only in git history.
+    for other in ("assistant",):
         assert other not in built
     assert "Gemini" in built
     assert "never say Google built you" in built
