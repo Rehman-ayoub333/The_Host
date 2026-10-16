@@ -379,9 +379,18 @@ export function OrderCard({ order, now }: { order: Order; now: number }) {
         </div>
       </div>
       <p className="mt-1.5 text-xs text-muted-foreground">{order.items.map((i) => `${i.quantity > 1 ? `${i.quantity}× ` : ""}${i.name}`).join(" · ")}</p>
-      {/* The total is already formatted ("Rs. 1,300"): shown exactly as sent,
-          with no second "Rs" prefix and no arithmetic. null shows nothing. */}
-      {order.total != null && <p className="mt-0.5 font-mono text-xs text-gold">{order.total}</p>}
+      {/* 16 §2m item 5 / §2o item 4: a complimentary order carries a badge and
+          its total is struck through. The public display never shows either. */}
+      <div className="mt-0.5 flex items-center gap-2">
+        {/* The total is already formatted ("Rs. 1,300"): shown exactly as sent,
+            with no second "Rs" prefix and no arithmetic. null shows nothing. */}
+        {order.total != null && (
+          <p className={cn("font-mono text-xs text-gold", order.complimentary && "line-through opacity-70")}>{order.total}</p>
+        )}
+        {order.complimentary && (
+          <span className="rounded-sm border border-gold/40 px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider text-gold">On the house</span>
+        )}
+      </div>
       {!done && (
         <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-surface-2">
           <div className={cn("h-full rounded-full transition-all duration-1000", order.status === "READY" ? "bg-success" : "bg-gradient-to-r from-gold-dim to-champagne")} style={{ width: `${pct}%` }} />
