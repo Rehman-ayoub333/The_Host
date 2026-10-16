@@ -25,7 +25,7 @@ AGENT_NAME = os.getenv("AGENT_NAME", "THE HOST")
 STALL_NAME = os.getenv("STALL_NAME", "Bite & Pour")
 MENU_JSON_PATH = _resolved_path("MENU_JSON_PATH", "./data/menu.json")
 BUSINESS_INFO_JSON_PATH = _resolved_path("BUSINESS_INFO_JSON_PATH", "./data/business_info.json")
-DB_PATH = _resolved_path("DB_PATH", "./data/campus_ai.db")
+DB_PATH = _resolved_path("DB_PATH", "./data/the_host.db")
 FRONTEND_DIR = _resolved_path("FRONTEND_DIR", "../frontend")
 CORS_ALLOW_ORIGINS = _origins(
     "CORS_ALLOW_ORIGINS",
