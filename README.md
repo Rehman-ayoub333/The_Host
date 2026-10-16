@@ -194,8 +194,8 @@ No paid services, no cloud database, no build step for the voice page.
 
 ```powershell
 # 1. Get the code
-git clone https://github.com/Rehman-ayoub333/THE_HOST.git
-cd THE_HOST
+git clone https://github.com/Rehman-ayoub333/The_Host.git
+cd The_Host
 
 # 2. Create and activate a virtual environment at the repository root
 python -m venv .venv
