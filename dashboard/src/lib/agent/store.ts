@@ -1,11 +1,14 @@
 import { useSyncExternalStore } from "react";
-import type { Activity, ActivityKind, AgentEvent, AgentSnapshot, AgentStateName, BackendState, LocalAction, Order } from "./types";
+import type { Activity, ActivityKind, AgentEvent, AgentSnapshot, AgentStateName, BackendState, BoothTime, LocalAction, Order } from "./types";
+import { toMs } from "./ui";
 
 export const initialSnapshot: AgentSnapshot = {
   mode: "live",
   connection: "unconfigured",
   state: "offline",
   lastAgentState: null,
+  stateSince: null,
+  sessionId: null,
   opMode: null,
   caption: null,
   transcript: [],
@@ -18,7 +21,9 @@ export const initialSnapshot: AgentSnapshot = {
   memory: [],
   activity: [],
   analytics: null,
+  metrics: null,
   menu: [],
+  menuFailed: false,
   recommendation: null,
   orderReady: null,
   system: {
@@ -40,9 +45,20 @@ export const initialSnapshot: AgentSnapshot = {
 let seq = 0;
 const uid = () => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
-function log(s: AgentSnapshot, kind: ActivityKind, label: string, detail?: string): Activity[] {
-  return [{ id: uid(), kind, label, detail, ts: Date.now() }, ...s.activity].slice(0, 80);
+/**
+ * The ONE way a row enters the activity feed (20 §4 item 2): an `agent_activity`
+ * event, or a row from GET /api/activity. The reducer never invents a row of
+ * its own for order_ready, operational_mode_changed, order_created,
+ * order_updated, visitor_identified, memory_updated or any other event — the
+ * backend already sends the correct agent_activity row for each, so a second
+ * one would be a duplicate.
+ */
+function logActivity(s: AgentSnapshot, kind: ActivityKind, label: string, detail: string | undefined, timestamp: BoothTime | undefined): Activity[] {
+  return [{ id: uid(), kind, label, detail, timestamp }, ...s.activity].slice(0, 80);
 }
+
+/** Keeps the last 50 transcript lines, in memory only — never persisted. */
+const TRANSCRIPT_LIMIT = 50;
 
 /** Map a backend state to one of the nine visual states. */
 export function mapState(state: BackendState): AgentStateName {
@@ -87,8 +103,12 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       return n(e.snapshot);
     case "@menu":
       return n({ menu: e.menu });
+    case "@menu_error":
+      return n({ menuFailed: e.failed });
     case "@analytics":
       return n({ analytics: e.analytics });
+    case "@metrics":
+      return n({ metrics: e.metrics });
     case "@token_error":
       return n({ tokenError: e.message });
     case "@reset":
@@ -98,78 +118,76 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       return n({
         state: mapState(e.conversation_state),
         lastAgentState: e.conversation_state,
+        stateSince: toMs(e.timestamp) ?? now,
+        sessionId: e.session_id ?? null,
         opMode: { mode: e.operational_mode },
         present: e.present,
         orders: e.active_orders ?? [],
       });
     case "agent_state_changed":
-      return n({ state: mapState(e.state), lastAgentState: e.state });
-    case "order_ready":
       return n({
-        orderReady: { order_id: e.order_id, customer_name: e.customer_name, until: now + 8000 },
-        activity: log(s, "order", `Order #${e.order_id} ready`, e.customer_name ?? undefined),
+        state: mapState(e.state),
+        lastAgentState: e.state,
+        // The seconds counter runs from the event's own booth-local timestamp.
+        stateSince: toMs(e.timestamp) ?? now,
+        sessionId: e.session_id ?? s.sessionId,
       });
+    case "order_ready":
+      return n({ orderReady: { order_id: e.order_id, customer_name: e.customer_name, until: now + 8000 } });
     case "operational_mode_changed":
-      return n({ opMode: { mode: e.mode, reason: e.reason }, activity: log(s, "system", `Mode: ${e.mode}`, e.reason) });
+      return n({ opMode: { mode: e.mode, reason: e.reason } });
     case "speech_transcript": {
       const speaker = e.role === "agent" ? ("host" as const) : ("visitor" as const);
       const caption = { speaker, text: e.text };
       const last = s.transcript[s.transcript.length - 1];
+      // `text` is always the whole line: a still-open line for the same role is
+      // REPLACED, never appended to (03 §4).
       let transcript: AgentSnapshot["transcript"];
       if (last && last.speaker === speaker && !last.final) {
-        transcript = [...s.transcript.slice(0, -1), { ...last, text: e.text, final: !!e.final, ts: now }];
+        transcript = [...s.transcript.slice(0, -1), { ...last, text: e.text, final: !!e.final, timestamp: e.timestamp, ts: now, session_id: e.session_id ?? null }];
       } else {
-        transcript = [...s.transcript, { id: uid(), speaker, text: e.text, final: !!e.final, ts: now }];
+        transcript = [...s.transcript, { id: uid(), speaker, text: e.text, final: !!e.final, timestamp: e.timestamp, ts: now, session_id: e.session_id ?? null }];
       }
-      return n({ caption, transcript: transcript.slice(-40) });
+      return n({ caption, transcript: transcript.slice(-TRANSCRIPT_LIMIT), sessionId: e.session_id ?? s.sessionId });
     }
-    case "order_created": {
-      const faint = e.order.status === "PENDING_CONFIRMATION";
-      return n({
-        orders: [e.order, ...s.orders.filter((o) => o.id !== e.order.id)],
-        activity: faint ? s.activity : log(s, "order", `Order #${e.order.id} created`, e.order.items.map((i) => i.name).join(" · ")),
-      });
-    }
+    case "order_created":
+      return n({ orders: [e.order, ...s.orders.filter((o) => o.id !== e.order.id)] });
     case "order_updated": {
-      const orders = s.orders.map((o) => (o.id === e.order.id ? { ...o, ...e.order } : o));
-      const o = orders.find((x) => x.id === e.order.id);
-      return n({ orders, activity: log(s, "order", `Order #${e.order.id} updated`, o?.status) });
+      const known = s.orders.some((o) => o.id === e.order.id);
+      const orders = known ? s.orders.map((o) => (o.id === e.order.id ? { ...o, ...e.order } : o)) : [e.order, ...s.orders];
+      return n({ orders });
     }
     case "visitor_identified":
-      return n({
-        focus: { name: e.name, returning: e.returning, visits: e.visits, favorite_item: e.favorite_item, last_order: e.last_order },
-        activity: log(s, "visitor", "Visitor identified", e.name),
-      });
+      return n({ focus: { name: e.name, returning: e.returning, visits: e.visits, favorite_item: e.favorite_item, last_order: e.last_order } });
     case "memory_updated": {
       const entry = { id: `m-${e.name}`, name: e.name, visits: e.visits, favorite_item: e.favorite_item, last_order: e.last_order, last_seen: e.last_seen, returning: e.returning };
       const visitors = [
-        { name_key: e.name.toLowerCase(), name: e.name, visits: e.visits, favorite_item: e.favorite_item, last_order: e.last_order, last_seen: e.last_seen, returning: e.returning },
+        { name_key: e.name.toLowerCase(), name: e.name, visits: e.visits, favorite_item: e.favorite_item, last_order: e.last_order, last_seen: e.last_seen ?? undefined, returning: e.returning },
         ...s.visitors.filter((v) => v.name !== e.name),
       ];
-      return n({
-        memory: [entry, ...s.memory.filter((m) => m.name !== e.name)].slice(0, 100),
-        visitors,
-        activity: log(s, "memory", "Memory updated", e.name),
-      });
+      return n({ memory: [entry, ...s.memory.filter((m) => m.name !== e.name)].slice(0, 100), visitors });
     }
     case "recommendation":
-      return n({ recommendation: { item: e.item, reason: e.reason, until: now + 10_000 }, activity: log(s, "speech", "Recommendation", `${e.item} — ${e.reason}`) });
+      return n({ recommendation: { item: e.item, reason: e.reason, until: now + 10_000 } });
     case "menu_updated":
       return n({ menu: s.menu.map((m) => (m.name === e.item ? { ...m, available: e.available } : m)) });
     case "person_detected":
-      return n({ present: true, activity: log(s, "visitor", "Visitor detected") });
+      return n({ present: true });
     case "person_left":
-      return n({ present: false, focus: null, activity: log(s, "visitor", "Visitor left") });
+      return n({ present: false, focus: null });
     case "vision_update":
       return n({ present: e.present, people: e.people, objects: e.objects });
     case "system_status_changed":
-      return n({ system: { ...s.system, [e.component]: e.status }, activity: log(s, "system", `${e.component} ${e.status}`, e.detail) });
+      return n({ system: { ...s.system, [e.component]: e.status } });
     case "agent_activity":
-      return n({ activity: log(s, e.kind, e.label, e.detail) });
+      // The only event that writes to the feed.
+      return n({ activity: logActivity(s, e.kind, e.label, e.detail, e.timestamp) });
+    case "capture_request":
+      return s; // the voice page's business (20 §4 item 5)
     case "interrupted":
       return s;
     case "error":
-      return n({ lastError: e.message, activity: log(s, "system", "Error", e.message) });
+      return n({ lastError: e.message });
     case "heartbeat":
       return s;
   }

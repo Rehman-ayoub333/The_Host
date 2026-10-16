@@ -8,7 +8,7 @@ import { VoiceWaveform } from "@/components/host/VoiceWaveform";
 import { MenuCarousel } from "@/components/host/MenuCarousel";
 import { useAgent } from "@/lib/agent/store";
 import { connectAgent } from "@/lib/agent/service";
-import { STATE_META, fmtCountdown, useNow } from "@/lib/agent/ui";
+import { STATE_META, fmtCountdown, toMs, useNow } from "@/lib/agent/ui";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/display")({
@@ -29,7 +29,7 @@ export const Route = createFileRoute("/display")({
 function useOrderReadyVoice() {
   const orderReady = useAgent((s) => s.orderReady);
   const lastAgentState = useAgent((s) => s.lastAgentState);
-  const spoken = useRef(new Set<string>());
+  const spoken = useRef(new Set<number>());
 
   useEffect(() => {
     if (!orderReady || spoken.current.has(orderReady.order_id)) return;
@@ -158,9 +158,9 @@ function SMDDisplay() {
                   </p>
                 ) : order.status === "PREPARING" ? (
                   <>
-                    {order.estimated_ready_at && now ? (
+                    {toMs(order.estimated_ready_at) !== null && now ? (
                       <>
-                        <p className="mt-4 font-mono text-5xl text-foreground">{fmtCountdown(Math.max(0, order.estimated_ready_at - now))}</p>
+                        <p className="mt-4 font-mono text-5xl text-foreground">{fmtCountdown(Math.max(0, toMs(order.estimated_ready_at)! - now))}</p>
                         <p className="mt-1 text-sm uppercase tracking-widest text-muted-foreground">Preparing · remaining</p>
                       </>
                     ) : (

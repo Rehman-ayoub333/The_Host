@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentStateName } from "./types";
+import type { AgentStateName, BoothTime } from "./types";
 
 export type OrbTone = "brand" | "scan" | "voice" | "think" | "memory" | "order" | "ready" | "warn" | "off";
 
@@ -34,18 +34,41 @@ export function useNow(intervalMs = 1000) {
   return now;
 }
 
+/**
+ * The one place a backend time string becomes a number (20 §4 item 1).
+ * Every `timestamp`, `estimated_ready_at`, `ready_at`, `last_seen`, `first_seen`
+ * and activity-row time is a booth-local ISO string without a timezone;
+ * `new Date(value).getTime()` reads it as local time. A null, missing or
+ * unparseable value yields null, which every caller renders as "nothing" —
+ * never NaN, and never an invented figure.
+ */
+export function toMs(value: BoothTime | null | undefined): number | null {
+  if (typeof value !== "string" || value === "") return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
 export function fmtCountdown(ms: number) {
   const s = Math.max(0, Math.round(ms / 1000));
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export function fmtClock(ts: number) {
-  if (!ts) return "--:--:--";
-  return new Date(ts).toLocaleTimeString([], { hour12: false });
+/** Seconds, as "4s" / "1m 12s". Used for "in this state for …". */
+export function fmtElapsed(ms: number) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
 }
 
-export function fmtAgo(ts: number, now: number) {
-  if (!now || !ts) return "";
+/** Clock for a backend time string, or for a browser ms value. */
+export function fmtClock(value: BoothTime | number | null | undefined) {
+  const ms = typeof value === "number" ? value : toMs(value);
+  if (!ms) return "--:--:--";
+  return new Date(ms).toLocaleTimeString([], { hour12: false });
+}
+
+export function fmtAgo(value: BoothTime | null | undefined, now: number) {
+  const ts = toMs(value);
+  if (!now || ts === null) return "";
   const m = Math.round((now - ts) / 60000);
   if (m < 1) return "just now";
   if (m < 60) return `${m} min ago`;

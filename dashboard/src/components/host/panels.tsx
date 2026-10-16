@@ -25,7 +25,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { agentStore, useAgent } from "@/lib/agent/store";
-import { STATE_META, fmtAgo, fmtClock, fmtCountdown, useNow } from "@/lib/agent/ui";
+import { STATE_META, fmtAgo, fmtClock, fmtCountdown, toMs, useNow } from "@/lib/agent/ui";
 import type { ActivityKind, AgentStateName, ComponentStatus, Order, OrderStatus, SystemComponent } from "@/lib/agent/types";
 import { setOrderStatus } from "@/lib/agent/service";
 import { cn } from "@/lib/utils";
@@ -325,12 +325,17 @@ function OrderActions({ order }: { order: Order }) {
 }
 
 export function OrderCard({ order, now }: { order: Order; now: number }) {
-  const remaining = order.estimated_ready_at && now ? order.estimated_ready_at - now : null;
+  // Every time field is a booth-local ISO string: parsed once, here.
+  // A null or missing estimate means no countdown and no progress bar —
+  // never an invented figure (20 §4 item 1).
+  const readyAtMs = toMs(order.estimated_ready_at);
+  const placedAtMs = toMs(order.timestamp);
+  const remaining = readyAtMs !== null && now ? readyAtMs - now : null;
   const pct =
     order.status === "READY" || order.status === "COLLECTED"
       ? 100
-      : remaining !== null && order.timestamp && order.estimated_ready_at
-        ? Math.min(100, Math.max(4, 100 - (remaining / (order.estimated_ready_at - order.timestamp)) * 100))
+      : remaining !== null && placedAtMs !== null && readyAtMs !== null && readyAtMs > placedAtMs
+        ? Math.min(100, Math.max(4, 100 - (remaining / (readyAtMs - placedAtMs)) * 100))
         : order.status === "PENDING_CONFIRMATION" || order.status === "CONFIRMED"
           ? 8
           : 0;
@@ -349,7 +354,9 @@ export function OrderCard({ order, now }: { order: Order; now: number }) {
         </div>
       </div>
       <p className="mt-1.5 text-xs text-muted-foreground">{order.items.map((i) => `${i.quantity > 1 ? `${i.quantity}× ` : ""}${i.name}`).join(" · ")}</p>
-      {order.total != null && <p className="mt-0.5 font-mono text-xs text-gold">Rs {order.total}</p>}
+      {/* The total is already formatted ("Rs. 1,300"): shown exactly as sent,
+          with no second "Rs" prefix and no arithmetic. null shows nothing. */}
+      {order.total != null && <p className="mt-0.5 font-mono text-xs text-gold">{order.total}</p>}
       {!done && (
         <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-surface-2">
           <div className={cn("h-full rounded-full transition-all duration-1000", order.status === "READY" ? "bg-success" : "bg-gradient-to-r from-gold-dim to-champagne")} style={{ width: `${pct}%` }} />
@@ -434,7 +441,7 @@ export function ActivityPanel({ className, limit = 7 }: { className?: string; li
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-2">
                     <p className="text-sm font-medium">{a.label}</p>
-                    <span className="font-mono text-[0.62rem] text-muted-foreground">{fmtClock(a.ts)}</span>
+                    <span className="font-mono text-[0.62rem] text-muted-foreground">{fmtClock(a.timestamp)}</span>
                   </div>
                   {a.detail && <p className="truncate text-xs text-muted-foreground">{a.detail}</p>}
                 </div>

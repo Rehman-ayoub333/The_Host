@@ -8,7 +8,7 @@
  */
 import { toast } from "sonner";
 import { agentStore } from "./store";
-import type { Activity, AgentEvent, AgentSnapshot, Analytics, MenuItem, Order, OrderStatus, Visitor } from "./types";
+import type { Activity, AgentEvent, Analytics, BoothTime, Health, MenuItem, Metrics, OperationalMode, Order, OrderStatus, Visitor } from "./types";
 
 const LS_KEY = "thehost.agent.config";
 const DEFAULT_AGENT_URL = "http://localhost:8000";
@@ -88,17 +88,19 @@ function report(err: unknown) {
   toast.error(msg);
 }
 
-export const getHealth = () => request<{ status?: string }>("/health", undefined, false);
+export const getHealth = () => request<Health>("/health", undefined, false);
 export const getMenu = () => request<{ menu: MenuItem[] }>("/api/menu", undefined, false);
 export const getOrders = (status: "active" | "completed" | "all" = "all") =>
   request<{ orders: Order[]; counts: Record<string, number> }>(`/api/orders?status=${status}&limit=20`);
 export const getVisitors = () => request<{ visitors: Visitor[] }>("/api/visitors?limit=20");
-export const getActivity = () => request<{ activity: { kind: Activity["kind"]; label: string; detail?: string; timestamp: number }[] }>("/api/activity?limit=30");
+export const getActivity = () => request<{ activity: { kind: Activity["kind"]; label: string; detail?: string; timestamp: BoothTime }[] }>("/api/activity?limit=30");
 export const getAnalytics = () => request<Analytics>("/api/analytics");
+export const getMetrics = () => request<Metrics>("/api/metrics");
 
-export async function setOrderStatus(id: string, status: OrderStatus, reason?: string): Promise<boolean> {
+/** Order ids are integers (20 §4 item 1). */
+export async function setOrderStatus(id: number, status: OrderStatus, reason?: string): Promise<boolean> {
   try {
-    await request(`/api/orders/${encodeURIComponent(id)}/status`, {
+    await request(`/api/orders/${id}/status`, {
       method: "POST",
       body: JSON.stringify(reason ? { status, reason } : { status }),
     });
@@ -106,6 +108,87 @@ export async function setOrderStatus(id: string, status: OrderStatus, reason?: s
   } catch (err) {
     report(err);
     return false;
+  }
+}
+
+/* ------------------------- operator controls -------------------------
+ * 20 §4 item 4. Every call carries X-Operator-Token (added by `request`).
+ * On 400/404 the backend's own "detail" text is shown; on 401 the fixed
+ * "Operator token missing or wrong". The screen is never changed before the
+ * backend's response or its event arrives — each helper only reports, and
+ * the store is updated by the operational_mode_changed / order_updated event.
+ */
+
+type ModeResponse = { operational_mode: OperationalMode };
+
+async function operator<T>(path: string): Promise<T | null> {
+  try {
+    return await request<T>(`/api/operator/${path}`, { method: "POST" });
+  } catch (err) {
+    report(err);
+    return null;
+  }
+}
+
+export const pauseHost = () => operator<ModeResponse>("pause");
+export const resumeHost = () => operator<ModeResponse>("resume");
+export const startTakeover = () => operator<ModeResponse>("takeover");
+export const endTakeover = () => operator<ModeResponse>("takeover/end");
+export const endSession = () => operator<{ ended: boolean }>("end-session");
+export const retryConnection = () => operator<{ operational_mode: OperationalMode; reachable: boolean }>("retry-connection");
+
+export async function announceAgain(orderId: number): Promise<boolean> {
+  try {
+    await request("/api/operator/announce", { method: "POST", body: JSON.stringify({ order_id: orderId }) });
+    return true;
+  } catch (err) {
+    report(err);
+    return false;
+  }
+}
+
+/** Only the changed fields are sent; an emptied favourite sends null. */
+export async function updateVisitor(nameKey: string, patch: { display_name?: string; favorite_item?: string | null }): Promise<boolean> {
+  try {
+    await request(`/api/visitors/${encodeURIComponent(nameKey)}`, { method: "PATCH", body: JSON.stringify(patch) });
+    return true;
+  } catch (err) {
+    report(err);
+    return false;
+  }
+}
+
+export async function forgetVisitor(nameKey: string): Promise<boolean> {
+  const { agentUrl, token } = getAgentConfig();
+  try {
+    const res = await fetch(`${agentUrl.replace(/\/$/, "")}/api/visitors/${encodeURIComponent(nameKey)}`, {
+      method: "DELETE",
+      headers: { "X-Operator-Token": token },
+    });
+    if (res.status === 401) throw new ApiError("Operator token missing or wrong", 401);
+    if (res.status !== 204 && !res.ok) {
+      let detail = `Request failed (${res.status})`;
+      try {
+        detail = ((await res.json()) as { detail?: string }).detail ?? detail;
+      } catch {
+        /* keep default */
+      }
+      throw new ApiError(detail, res.status);
+    }
+    return true;
+  } catch (err) {
+    report(err instanceof ApiError ? err : new ApiError("Backend unavailable", 0));
+    return false;
+  }
+}
+
+/** Reloads GET /api/visitors after an edit or a forget (20 §4 item 4). */
+export async function reloadVisitors() {
+  try {
+    const { visitors } = await getVisitors();
+    agentStore.dispatch({ type: "@hydrate", snapshot: { visitors } });
+  } catch (err) {
+    report(err);
   }
 }
 
@@ -125,6 +208,10 @@ export async function setMenuAvailability(name: string, available: boolean): Pro
 /* --------------------------- data loading --------------------------- */
 
 let analyticsTimer: ReturnType<typeof setInterval> | null = null;
+let healthTimer: ReturnType<typeof setInterval> | null = null;
+let menuRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+const MENU_RETRY_MS = 10_000;
 
 /** Initial fill + periodic reloads for the dashboard (skipped in demo mode). */
 export async function loadDashboardData() {
@@ -136,7 +223,8 @@ export async function loadDashboardData() {
       snapshot: {
         orders,
         visitors,
-        activity: activity.map((a) => ({ id: `a-${a.timestamp}-${a.label}`, kind: a.kind, label: a.label, detail: a.detail, ts: a.timestamp })),
+        // Activity rows keep the backend's own time string; the feed parses it.
+        activity: activity.map((a) => ({ id: `a-${a.timestamp}-${a.label}`, kind: a.kind, label: a.label, detail: a.detail, timestamp: a.timestamp })),
       },
     });
   } catch (err) {
@@ -150,14 +238,24 @@ export async function loadDashboardData() {
   }
 }
 
+/**
+ * Dashboard-only polling: analytics and metrics every 30 s (20 §4 item 4).
+ * Both endpoints need the operator token, so the public display never calls
+ * this — see `connectAgent`.
+ */
 export function startAnalyticsPolling() {
   stopAnalyticsPolling();
-  analyticsTimer = setInterval(() => {
+  const tick = () => {
     if (agentStore.get().mode === "demo") return;
     getAnalytics()
       .then((analytics) => agentStore.dispatch({ type: "@analytics", analytics }))
       .catch(() => undefined);
-  }, 30_000);
+    getMetrics()
+      .then((metrics) => agentStore.dispatch({ type: "@metrics", metrics }))
+      .catch(() => undefined);
+  };
+  tick();
+  analyticsTimer = setInterval(tick, 30_000);
 }
 
 export function stopAnalyticsPolling() {
@@ -165,13 +263,63 @@ export function stopAnalyticsPolling() {
   analyticsTimer = null;
 }
 
+/** GET /health every 30 s (no token). Feeds the System panel's three rows. */
+export function startHealthPolling() {
+  stopHealthPolling();
+  const tick = () => {
+    if (agentStore.get().mode === "demo") return;
+    getHealth()
+      .then((h) => {
+        const c = h.components ?? {};
+        const map = (v: string | undefined) =>
+          v === "ok" ? "online" : v === "error" ? "offline" : v === "online" || v === "degraded" || v === "offline" ? v : "unknown";
+        const s = agentStore.get();
+        agentStore.dispatch({
+          type: "@hydrate",
+          snapshot: {
+            system: {
+              ...s.system,
+              backend: map(c.backend as string | undefined),
+              ai_agent: map(c.ai_agent as string | undefined),
+              database: map(c.database as string | undefined),
+            },
+          },
+        });
+      })
+      .catch(() => undefined);
+  };
+  tick();
+  healthTimer = setInterval(tick, 30_000);
+}
+
+export function stopHealthPolling() {
+  if (healthTimer) clearInterval(healthTimer);
+  healthTimer = null;
+}
+
+/**
+ * GET /api/menu (no token). On failure the display shows "Menu loading…" and
+ * this retries every 10 s until it succeeds (16 §2o item 6). The menu is never
+ * sample or hard-coded data.
+ */
 export async function loadMenu() {
+  if (menuRetryTimer) {
+    clearTimeout(menuRetryTimer);
+    menuRetryTimer = null;
+  }
   try {
     const { menu } = await getMenu();
     agentStore.dispatch({ type: "@menu", menu });
+    agentStore.dispatch({ type: "@menu_error", failed: false });
   } catch {
-    /* display shows its calm brand screen; never a stale or sample menu */
+    agentStore.dispatch({ type: "@menu_error", failed: true });
+    menuRetryTimer = setTimeout(() => void loadMenu(), MENU_RETRY_MS);
   }
+}
+
+export function stopMenuRetry() {
+  if (menuRetryTimer) clearTimeout(menuRetryTimer);
+  menuRetryTimer = null;
 }
 
 /* ----------------------------- websocket ----------------------------- */
@@ -214,9 +362,15 @@ function open() {
     agentStore.dispatch({ type: "@connection", connection: "live" });
     agentStore.dispatch({ type: "@token_error", message: null });
     armWatchdog();
-    if (currentRole === "dashboard") void loadDashboardData();
+    // GET /api/menu needs no token, so both roles load it.
     void loadMenu();
-    startAnalyticsPolling();
+    // Everything else is token-protected: the public display must never call
+    // it (20 §4 item 3).
+    if (currentRole === "dashboard") {
+      void loadDashboardData();
+      startAnalyticsPolling();
+      startHealthPolling();
+    }
   };
   ws.onmessage = (m) => {
     armWatchdog();
@@ -228,6 +382,8 @@ function open() {
     }
     if (!data || typeof data.type !== "string") return;
     if (data.type === "heartbeat") return;
+    // capture_request belongs to the voice page; ignored quietly (20 §4 item 5).
+    if (data.type === "capture_request") return;
     // event_id dedup; boot_id change resets the remembered id.
     if (data.type === "state_snapshot") {
       if (data.boot_id !== lastBootId) {
@@ -240,8 +396,9 @@ function open() {
     }
     if (agentStore.get().mode === "demo") return; // demo ignores live events
     agentStore.dispatch(data);
-    if (data.type === "order_created" || data.type === "order_updated") {
-      // Reload the orders list so tabs/badges stay exact.
+    if ((data.type === "order_created" || data.type === "order_updated") && currentRole === "dashboard") {
+      // Reload the orders list so tabs/badges stay exact. Token-protected, so
+      // the public display never does it (20 §4 item 3).
       getOrders("all")
         .then(({ orders }) => agentStore.dispatch({ type: "@hydrate", snapshot: { orders } }))
         .catch(() => undefined);
@@ -276,6 +433,8 @@ export function disconnectAgent() {
   clearTimeout(reconnectTimer);
   clearTimeout(watchdog);
   stopAnalyticsPolling();
+  stopHealthPolling();
+  stopMenuRetry();
   ws?.close();
   ws = null;
 }
