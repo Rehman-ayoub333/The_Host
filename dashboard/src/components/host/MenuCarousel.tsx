@@ -6,13 +6,14 @@ const ROTATE_MS = 6000;
 
 /**
  * Idle menu carousel for the SMD display.
- * Purely frontend-owned: cycles the available items from GET /api/menu
- * on a timer, independent of the agent. Rendered only while THE HOST is
- * idle. If the backend cannot be reached there are no items and the
- * display keeps its calm brand screen — never a stale or sample menu.
+ * The items come only from GET /api/menu (no token), kept current by
+ * `menu_updated` — never sample or hard-coded data (16 §2o item 6). While the
+ * request is failing the screen says "Menu loading…" and the service retries
+ * every 10 s.
  */
 export function MenuCarousel({ className }: { className?: string }) {
   const items = useAgent((s) => s.menu).filter((m) => m.available);
+  const menuFailed = useAgent((s) => s.menuFailed);
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
@@ -21,7 +22,15 @@ export function MenuCarousel({ className }: { className?: string }) {
     return () => clearInterval(t);
   }, [items.length]);
 
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    if (!menuFailed) return null;
+    return (
+      <div className={cn("flex flex-col items-center text-center", className)}>
+        <p className="label-caps !text-gold/80">Our Menu</p>
+        <p className="mt-4 text-[clamp(1.1rem,2vw,1.8rem)] text-muted-foreground">Menu loading…</p>
+      </div>
+    );
+  }
   const item = items[index % items.length]!;
 
   return (

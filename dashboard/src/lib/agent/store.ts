@@ -26,6 +26,7 @@ export const initialSnapshot: AgentSnapshot = {
   menuFailed: false,
   recommendation: null,
   orderReady: null,
+  readyQueue: [],
   system: {
     backend: "unknown",
     ai_agent: "unknown",
@@ -111,6 +112,8 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       return n({ metrics: e.metrics });
     case "@token_error":
       return n({ tokenError: e.message });
+    case "@ready_done":
+      return n({ readyQueue: s.readyQueue.slice(1) });
     case "@reset":
       return { ...initialSnapshot, connection: s.connection, state: s.connection === "live" ? "idle" : "offline", updatedAt: now };
 
@@ -133,7 +136,12 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
         sessionId: e.session_id ?? s.sessionId,
       });
     case "order_ready":
-      return n({ orderReady: { order_id: e.order_id, customer_name: e.customer_name, until: now + 8000 } });
+      // Appended, never replaced: two orders becoming ready together must both
+      // be shown on the display (16 §2o item 6).
+      return n({
+        orderReady: { order_id: e.order_id, customer_name: e.customer_name, until: now + 8000 },
+        readyQueue: [...s.readyQueue, { order_id: e.order_id, customer_name: e.customer_name }],
+      });
     case "operational_mode_changed":
       return n({ opMode: { mode: e.mode, reason: e.reason } });
     case "speech_transcript": {

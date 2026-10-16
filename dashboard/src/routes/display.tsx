@@ -6,7 +6,7 @@ import { AIOrb } from "@/components/host/AIOrb";
 import { BrandMark } from "@/components/host/Brand";
 import { VoiceWaveform } from "@/components/host/VoiceWaveform";
 import { MenuCarousel } from "@/components/host/MenuCarousel";
-import { useAgent } from "@/lib/agent/store";
+import { agentStore, useAgent } from "@/lib/agent/store";
 import { connectAgent } from "@/lib/agent/service";
 import { STATE_META, fmtCountdown, toMs, useNow } from "@/lib/agent/ui";
 import { cn } from "@/lib/utils";
@@ -25,48 +25,74 @@ export const Route = createFileRoute("/display")({
   component: SMDDisplay,
 });
 
+/** Each announcement stays on screen 15 s (16 §2o item 6). */
+const READY_MS = 15_000;
+
+/**
+ * Shows the queued "order ready" announcements one after another, 15 s each.
+ * Nothing is dropped: the head is removed only after its 15 s have passed,
+ * and the next one takes its place.
+ */
+export function readyHeadline(a: { order_id: number; customer_name?: string | null | undefined }): string {
+  return a.customer_name
+    ? `Order #${a.order_id} for ${a.customer_name} is ready!`
+    : `Order #${a.order_id} is ready!`;
+}
+
+function useReadyQueue() {
+  const queue = useAgent((s) => s.readyQueue);
+  const head = queue[0] ?? null;
+
+  useEffect(() => {
+    if (!head) return;
+    const t = setTimeout(() => agentStore.dispatch({ type: "@ready_done" }), READY_MS);
+    return () => clearTimeout(t);
+  }, [head]);
+
+  return head;
+}
+
 /** Speaks an order-ready sentence once per order (public display only). */
-function useOrderReadyVoice() {
-  const orderReady = useAgent((s) => s.orderReady);
+function useOrderReadyVoice(head: { order_id: number; customer_name?: string | null | undefined } | null) {
   const lastAgentState = useAgent((s) => s.lastAgentState);
   const spoken = useRef(new Set<number>());
 
   useEffect(() => {
-    if (!orderReady || spoken.current.has(orderReady.order_id)) return;
+    if (!head || spoken.current.has(head.order_id)) return;
     // Only when no conversation is running (last agent state was IDLE).
     if (lastAgentState !== "IDLE") return;
-    spoken.current.add(orderReady.order_id);
-    const sentence = orderReady.customer_name
-      ? `${orderReady.customer_name}, your order is ready`
-      : `Order ${orderReady.order_id} is ready`;
+    spoken.current.add(head.order_id);
+    const sentence = head.customer_name
+      ? `${head.customer_name}, your order is ready`
+      : `Order ${head.order_id} is ready`;
     try {
       const u = new SpeechSynthesisUtterance(sentence);
       window.speechSynthesis?.speak(u);
     } catch {
       /* speech is best-effort */
     }
-  }, [orderReady, lastAgentState]);
+  }, [head, lastAgentState]);
 }
 
 function SMDDisplay() {
   const state = useAgent((s) => s.state);
-  const caption = useAgent((s) => s.caption);
   const orders = useAgent((s) => s.orders);
   const focus = useAgent((s) => s.focus);
   const mode = useAgent((s) => s.mode);
   const opMode = useAgent((s) => s.opMode);
   const recommendation = useAgent((s) => s.recommendation);
-  const orderReady = useAgent((s) => s.orderReady);
-  const transcript = useAgent((s) => s.transcript);
   const now = useNow(1000);
   const meta = STATE_META[state];
 
   // The public display connects with its own role=smd socket — never the
-  // dashboard's data, never the operator token.
+  // dashboard's data, never the operator token. The backend sends this role
+  // no spoken-line events at all (16 §2o item 2), and this screen renders no
+  // spoken words of any kind: guest speech is never shown in public.
   useEffect(() => {
     connectAgent("smd");
   }, []);
-  useOrderReadyVoice();
+  const ready = useReadyQueue();
+  useOrderReadyVoice(ready);
 
   const resting = opMode && opMode.mode !== "ONLINE" && mode !== "demo";
   const idle = state === "idle" && !resting;
@@ -74,17 +100,13 @@ function SMDDisplay() {
   const memoryStates = state === "remembering";
   const voice = state === "listening" || state === "speaking";
   const order = orders.find((o) => ["CONFIRMED", "PREPARING", "READY"].includes(o.status));
-  const readyActive = orderReady && now && orderReady.until > now;
   const recActive = recommendation && now && recommendation.until > now;
   const showSide = !resting && ((orderStates && !!order) || (memoryStates && !!focus) || !!recActive);
-
-  // Public display: final transcript lines only, latest one or two, short.
-  const finalLines = transcript.filter((l) => l.final).slice(-2);
 
   let headline: string = meta.verb;
   if (memoryStates && focus) headline = focus.returning ? `Welcome back, ${focus.name}!` : `Nice to meet you, ${focus.name}!`;
   if (idle) headline = "Ready when you are.";
-  if (readyActive) headline = orderReady.customer_name ? `${orderReady.customer_name}, your order is ready` : `Order #${orderReady.order_id} is ready`;
+  if (ready) headline = readyHeadline(ready);
 
   const toneText = meta.tone === "warn" ? "text-destructive" : meta.tone === "off" ? "text-muted-foreground" : "text-foreground";
 
@@ -132,18 +154,8 @@ function SMDDisplay() {
                 {state === "offline" && <p className="mt-2 text-center text-[clamp(1rem,1.8vw,1.6rem)] text-muted-foreground">Please speak with a host</p>}
               </>
             )}
-            {voice && caption && (
-              <p key={caption.text} className="animate-rise mt-6 max-w-[60vw] text-center text-[clamp(1.25rem,2.6vw,2.4rem)] font-medium leading-snug text-foreground">
-                “{caption.text}”
-              </p>
-            )}
-            {!voice && finalLines.length > 0 && !idle && (
-              <div className="mt-6 space-y-2 text-center">
-                {finalLines.map((l) => (
-                  <p key={l.id} className="max-w-[60vw] text-[clamp(1rem,2vw,1.8rem)] leading-snug text-foreground/80">“{l.text}”</p>
-                ))}
-              </div>
-            )}
+            {/* No spoken words are ever rendered here: the waveform shows that
+                THE HOST is listening or speaking without revealing anything. */}
             <VoiceWaveform active={voice} tone={state === "speaking" ? "ivory" : "gold"} bars={56} className={cn("mt-6 h-14 w-[min(70vw,520px)] transition-opacity", voice ? "opacity-100" : "opacity-30")} />
           </div>
 

@@ -132,6 +132,15 @@ export interface Activity {
   timestamp?: BoothTime | null | undefined;
 }
 
+/**
+ * One queued "order ready" announcement for the public display (16 §2o item 6).
+ * Several are shown one after another, 15 s each, and none is ever dropped.
+ */
+export interface ReadyAnnouncement {
+  order_id: number;
+  customer_name?: string | null | undefined;
+}
+
 /** GET /api/metrics (20 §4 item 4). Every value is an integer. */
 export interface Metrics {
   date: string;
@@ -213,6 +222,7 @@ export type LocalAction =
   | { type: "@analytics"; analytics: Analytics | null }
   | { type: "@metrics"; metrics: Metrics | null }
   | { type: "@token_error"; message: string | null }
+  | { type: "@ready_done" }
   | { type: "@reset" };
 
 export interface AgentSnapshot {
@@ -243,6 +253,8 @@ export interface AgentSnapshot {
   menuFailed: boolean;
   recommendation: { item: string; reason: string; until: number } | null;
   orderReady: { order_id: number; customer_name?: string | null | undefined; until: number } | null;
+  /** FIFO of announcements still to show on the display; never dropped. */
+  readyQueue: ReadyAnnouncement[];
   system: Record<SystemComponent, ComponentStatus>;
   lastError: string | null;
   tokenError: string | null;
