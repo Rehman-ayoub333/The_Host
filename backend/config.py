@@ -26,7 +26,7 @@ STALL_NAME = os.getenv("STALL_NAME", "Bite & Pour")
 MENU_JSON_PATH = _resolved_path("MENU_JSON_PATH", "./data/menu.json")
 BUSINESS_INFO_JSON_PATH = _resolved_path("BUSINESS_INFO_JSON_PATH", "./data/business_info.json")
 DB_PATH = _resolved_path("DB_PATH", "./data/the_host.db")
-FRONTEND_DIR = _resolved_path("FRONTEND_DIR", "../frontend")
+FRONTEND_DIR = _resolved_path("FRONTEND_DIR", "../booth")
 CORS_ALLOW_ORIGINS = _origins(
     "CORS_ALLOW_ORIGINS",
     "http://localhost:8080,http://localhost:5173,http://localhost:4173",

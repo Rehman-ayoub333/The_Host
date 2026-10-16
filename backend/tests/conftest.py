@@ -39,7 +39,7 @@ def fresh_backend(tmp_path, monkeypatch):
     business_info_path.write_text(json.dumps(BUSINESS_INFO_SEED), encoding="utf-8")
     monkeypatch.setattr(config, "MENU_JSON_PATH", menu_path)
     monkeypatch.setattr(config, "BUSINESS_INFO_JSON_PATH", business_info_path)
-    monkeypatch.setattr(config, "DB_PATH", tmp_path / "campus_ai.db")
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "the_host.db")
     event_bus.PUBLISHED.clear()
     event_bus._sockets.clear()
     event_bus.set_loop(None)

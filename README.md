@@ -197,14 +197,14 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
 # 2. Install the backend dependencies
-pip install -r campusai-v1\backend\requirements.txt
+pip install -r backend\requirements.txt
 
 # 3. Create your own configuration from the example and add your key
-Copy-Item campusai-v1\backend\.env.example campusai-v1\backend\.env
-notepad campusai-v1\backend\.env
+Copy-Item backend\.env.example backend\.env
+notepad backend\.env
 
 # 4. Run the backend from the backend folder
-cd campusai-v1\backend
+cd backend
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -221,7 +221,7 @@ build cached from before that change, load the page once with **Ctrl+Shift+R** t
 
 ## Configuration
 
-Every value lives in `campusai-v1/backend/.env`; `campusai-v1/backend/.env.example` lists
+Every value lives in `backend/.env`; `backend/.env.example` lists
 them all. **Put no real secret in any file that is committed.**
 
 | Variable | Purpose | Default |
@@ -234,8 +234,8 @@ them all. **Put no real secret in any file that is committed.**
 | `STALL_NAME` | The stall the agent says it works at. | `Bite & Pour` |
 | `MENU_JSON_PATH` | Seed file the menu table is loaded from on first run. | `./data/menu.json` |
 | `BUSINESS_INFO_JSON_PATH` | Seed file for the stall facts the agent may state. | `./data/business_info.json` |
-| `DB_PATH` | The SQLite file. | `./data/campus_ai.db` |
-| `FRONTEND_DIR` | Folder served as the voice page. | `../frontend` |
+| `DB_PATH` | The SQLite file. | `./data/the_host.db` |
+| `FRONTEND_DIR` | Folder served as the voice page. | `../booth` |
 | `CORS_ALLOW_ORIGINS` | Comma-separated origins allowed to call the API. No wildcard. | `http://localhost:8080,http://localhost:5173,http://localhost:4173` |
 | `PORT` | Port recorded for the frontends to use. | `8000` |
 | `VISION_SEND_MODE` | How a snapshot reaches the model: `client_content` (picture and question as one turn) or `realtime` (two calls). | `client_content` |
@@ -311,11 +311,17 @@ closing is what actually ends the conversation.
 ## Testing
 
 ```powershell
-cd campusai-v1\backend
-..\..\.venv\Scripts\python.exe -m pytest -q
+.\scripts\run-tests.ps1
 ```
 
-**326 tests pass.** They cover the data model, all 13 tools, the system prompt, the event bus
+Or by hand, from the backend folder:
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m pytest -q
+```
+
+**515 tests pass.** They cover the data model, all 13 tools, the system prompt, the event bus
 and its role filtering, the activity labels, the state machine, both WebSockets, every REST
 endpoint including its error cases, the operator controls, visitor correction, metrics and
 the order-ready announcement with every condition that defers it. The tools and the live
@@ -390,21 +396,17 @@ session are tested against fakes, so the suite needs no API key and makes no net
 ## Project structure
 
 ```
-campusai-v1/
-├── backend/      the FastAPI backend — all the code described above, plus its tests
-└── frontend/     the voice page: the screen that listens, speaks and watches
+THE_HOST/
+├── backend/      the FastAPI backend and the Gemini Live agent — all the code above
+│   ├── data/     the menu and stall-facts seed files (the SQLite file is never committed)
+│   └── tests/    the full suite
+├── booth/        the voice page: the screen that listens, speaks and watches
+├── dashboard/    the operator dashboard and the public display (TanStack Start)
+└── scripts/      one-command start and test scripts for Windows
 ```
 
-The `campusai-v1` folder name is historical: the conversational engine began as a university
-timetable assistant called CampusAI and was migrated to this restaurant domain. The database
-filename comes from the same history. Both names were kept deliberately rather than renamed
-mid-project.
-
-The `backend/` folder at the repository root is **legacy code from an earlier, unrelated
-project and is not used** by THE HOST.
-
-The operator dashboard and the public display are a separate local web app. They are clients
-of the contract above and are not part of this repository.
+`backend/` serves `booth/` itself, at `/`. `dashboard/` is a separate web app that runs on
+its own port and talks to the backend over the REST and WebSocket contract above.
 
 ## Roadmap
 
@@ -430,3 +432,6 @@ All three are BS Computer Science students at GCUF Samundri Campus.
 THE HOST runs on Google's Gemini Live API, which gives it language and voice. Everything
 around it — the ordering system, the memory, the operator dashboard and public display, the
 human oversight and the recovery when the network drops — is the team's own work.
+
+The dashboard's initial front-end scaffold was generated with **Lovable**; the panels, the
+event handling and everything it shows were built by the team on top of it.

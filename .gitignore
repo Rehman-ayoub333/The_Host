@@ -1,13 +1,25 @@
+# Secrets and data -- never committed.
+.env
+*.db
+
+# Python
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-.env
-*.db
+
+# Dashboard (dashboard/.gitignore covers its own build output as well)
+node_modules
+dashboard/.tanstack
+dashboard/dist
+
+# Editors and tooling
 .vscode/
 .claude/
+
+# Internal planning documents, not part of the public repository.
 host-spec/
-HOST-HANDOFF-BRIEFING.md
-THE_HOST_Proposal.docx
-NEW-CHAT-START-HERE.md
 AGENT-STATE.md
+HOST-HANDOFF-BRIEFING.md
+NEW-CHAT-START-HERE.md
+THE_HOST_Proposal.docx

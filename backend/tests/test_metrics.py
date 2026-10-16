@@ -169,7 +169,7 @@ def test_a_pause_does_not_make_the_ai_agent_offline(served):
 
 
 def test_a_broken_database_shows_in_the_components(served, monkeypatch):
-    monkeypatch.setattr(config, "DB_PATH", "Z:/nowhere/at/all/campus_ai.db")
+    monkeypatch.setattr(config, "DB_PATH", "Z:/nowhere/at/all/the_host.db")
     body = served.get("/health").json()
     print("GET /health with an unreachable database:", json.dumps(body, indent=2))
     assert body["db"] == "error"

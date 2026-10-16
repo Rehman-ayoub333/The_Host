@@ -753,5 +753,5 @@ class NoStoreStaticFiles(StaticFiles):
 app.mount(
     "/",
     NoStoreStaticFiles(directory=config.FRONTEND_DIR, html=True),
-    name="frontend",
+    name="booth",
 )

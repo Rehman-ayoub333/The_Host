@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 
-FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
+BOOTH = Path(__file__).resolve().parents[2] / "booth"
 CHROMIUM = (
     Path(os.environ.get("LOCALAPPDATA", ""))
     / "ms-playwright"
@@ -87,7 +87,7 @@ def _build_app():
         routes=[
             Route("/api/vision", vision, methods=["POST"]),
             WebSocketRoute("/ws/session", session),
-            Mount("/", app=StaticFiles(directory=str(FRONTEND), html=True)),
+            Mount("/", app=StaticFiles(directory=str(BOOTH), html=True)),
         ]
     )
 
