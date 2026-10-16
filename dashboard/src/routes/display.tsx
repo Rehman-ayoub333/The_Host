@@ -74,7 +74,7 @@ function useOrderReadyVoice(head: { order_id: number; customer_name?: string | n
   }, [head, lastAgentState]);
 }
 
-function SMDDisplay() {
+export function SMDDisplay() {
   const state = useAgent((s) => s.state);
   const orders = useAgent((s) => s.orders);
   const focus = useAgent((s) => s.focus);
