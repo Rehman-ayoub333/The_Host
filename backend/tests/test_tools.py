@@ -134,6 +134,60 @@ def test_build_order_keeps_one_draft_and_publishes_created_then_updated(ctx):
     assert len(event_bus.PUBLISHED) == before
 
 
+# 16 section 2o item 11: THE HOST asks for the name after the items are
+# settled, so the name arrives on a later build_order with the SAME items. That
+# call must publish order_updated, or the dashboard's open draft never learns
+# the name -- it only appeared on the CONFIRMED event, after the draft had gone.
+
+
+def test_a_late_name_on_an_unchanged_draft_publishes_the_name(ctx):
+    first = tools.build_order([{"name": "Chicken Burger"}])
+    assert _published("order_created")[0]["order"]["guest_name"] is None
+    assert _published("order_updated") == []
+
+    second = tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")
+
+    assert second["order_id"] == first["order_id"]
+    updates = _published("order_updated")
+    assert len(updates) == 1
+    assert updates[0]["order"]["id"] == first["order_id"]
+    assert updates[0]["order"]["guest_name"] == "Ahmed"
+    assert updates[0]["order"]["status"] == "PENDING_CONFIRMATION"
+    assert len(_pending_rows(ctx["session_id"])) == 1
+
+
+def test_the_same_name_again_publishes_nothing(ctx):
+    tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")
+    before = len(event_bus.PUBLISHED)
+
+    tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")
+
+    assert len(event_bus.PUBLISHED) == before
+
+
+def test_a_later_call_with_no_name_publishes_nothing_and_keeps_the_name(ctx):
+    order_id = tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")["order_id"]
+    before = len(event_bus.PUBLISHED)
+
+    tools.build_order([{"name": "Chicken Burger"}])
+
+    assert len(event_bus.PUBLISHED) == before
+    assert data.get_order(order_id)["guest_name"] == "Ahmed"
+
+
+def test_a_late_on_the_house_publishes_the_flag(ctx):
+    first = tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")
+    assert _published("order_created")[0]["order"]["complimentary"] is False
+
+    tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed", complimentary=True)
+
+    updates = _published("order_updated")
+    assert len(updates) == 1
+    assert updates[0]["order"]["id"] == first["order_id"]
+    assert updates[0]["order"]["complimentary"] is True
+    assert updates[0]["order"]["guest_name"] == "Ahmed"
+
+
 def test_build_order_rejects_unknown_unavailable_and_empty_items(ctx):
     assert tools.build_order([{"name": "Pizza"}]) == {
         "source": "order",

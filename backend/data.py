@@ -558,39 +558,51 @@ def create_order_draft(items, guest_name, session_id, complimentary=False) -> di
     on_the_house = 1 if complimentary else 0
     with closing(_connect()) as conn:
         row = conn.execute(
-            "SELECT id, items FROM orders "
+            "SELECT id, items, guest_name, complimentary FROM orders "
             "WHERE session_id = ? AND status = 'PENDING_CONFIRMATION' "
             "ORDER BY id DESC LIMIT 1",
             (session_id,),
         ).fetchone()
         if row is not None:
+            # 16 section 2o item 11: a late name or a late "on the house" has to
+            # reach the dashboard, so the caller is told the draft was `updated`
+            # whenever this call really changed one of them. Only a call that
+            # changes nothing at all is `existing`, which publishes no event.
+            changed = False
             # 16 section 2l item 3: the name usually arrives on a LATER
             # build_order than the items, because THE HOST asks for it after the
             # order is clear and before the confirmation question. Updating only
             # the items threw that name away -- live order #19 was confirmed
             # with no name on it after the guest had given one. A call that
-            # brings no name leaves the one already there alone.
-            if guest_name:
+            # brings no name leaves the one already there alone, and the same
+            # name again is not a change.
+            if guest_name and guest_name != row["guest_name"]:
                 conn.execute(
                     "UPDATE orders SET guest_name = ? WHERE id = ?",
                     (guest_name, row["id"]),
                 )
                 conn.commit()
+                changed = True
             # 16 section 2m item 5, and for the same reason as the name above:
             # "this one is on the house" can arrive on a later build_order than
             # the items, so a call that does not say so leaves the flag alone.
-            # Only the guest-of-honour rule ever sets it.
-            if on_the_house:
+            # Only the guest-of-honour rule ever sets it, and only 0 to 1 is a
+            # change -- a flag already set is not set again.
+            if on_the_house and not row["complimentary"]:
                 conn.execute(
                     "UPDATE orders SET complimentary = 1 WHERE id = ?", (row["id"],)
                 )
                 conn.commit()
+                changed = True
             try:
                 current = json.loads(row["items"])
             except (TypeError, ValueError):
                 current = None
             if current == items:
-                return {"order_id": int(row["id"]), "action": "existing"}
+                return {
+                    "order_id": int(row["id"]),
+                    "action": "updated" if changed else "existing",
+                }
             conn.execute("UPDATE orders SET items = ? WHERE id = ?", (payload, row["id"]))
             conn.commit()
             return {"order_id": int(row["id"]), "action": "updated"}

@@ -150,6 +150,101 @@ def test_create_order_draft_keeps_one_draft_per_session():
     assert other_session["order_id"] != first["order_id"]
 
 
+# 16 section 2o item 11: a late name or a late "on the house" has to reach the
+# dashboard, so the draft reports `updated` whenever this call really changed
+# one of them. Only a call that changes nothing stays `existing`.
+
+
+def test_a_late_name_on_an_unchanged_draft_is_an_update():
+    first = _draft([BURGER])
+    assert first["action"] == "created"
+    assert data.get_order(first["order_id"])["guest_name"] is None
+
+    named = _draft([BURGER], guest_name="Ahmed")
+
+    assert named == {"order_id": first["order_id"], "action": "updated"}
+    assert data.get_order(first["order_id"])["guest_name"] == "Ahmed"
+
+
+def test_the_same_name_again_changes_nothing():
+    first = _draft([BURGER], guest_name="Ahmed")
+    assert first["action"] == "created"
+
+    again = _draft([BURGER], guest_name="Ahmed")
+
+    assert again == {"order_id": first["order_id"], "action": "existing"}
+    assert data.get_order(first["order_id"])["guest_name"] == "Ahmed"
+
+
+def test_a_different_name_on_an_unchanged_draft_is_an_update():
+    first = _draft([BURGER], guest_name="Ahmed")
+
+    corrected = _draft([BURGER], guest_name="Ayesha")
+
+    assert corrected == {"order_id": first["order_id"], "action": "updated"}
+    assert data.get_order(first["order_id"])["guest_name"] == "Ayesha"
+
+
+def test_a_call_with_no_name_keeps_the_stored_one_and_changes_nothing():
+    first = _draft([BURGER], guest_name="Ahmed")
+
+    nameless = _draft([BURGER])
+
+    assert nameless == {"order_id": first["order_id"], "action": "existing"}
+    assert data.get_order(first["order_id"])["guest_name"] == "Ahmed"
+
+
+def _complimentary(order_id):
+    """The flag as every order event carries it: a real boolean."""
+    return data.order_view(data.get_order(order_id))["complimentary"]
+
+
+def test_on_the_house_arriving_later_is_an_update_once():
+    first = data.create_order_draft([BURGER], "Ahmed", "s-1")
+    assert first["action"] == "created"
+    assert _complimentary(first["order_id"]) is False
+
+    on_the_house = data.create_order_draft([BURGER], "Ahmed", "s-1", complimentary=True)
+
+    assert on_the_house == {"order_id": first["order_id"], "action": "updated"}
+    assert _complimentary(first["order_id"]) is True
+
+    # The flag is already 1: setting it again is not a change.
+    again = data.create_order_draft([BURGER], "Ahmed", "s-1", complimentary=True)
+
+    assert again == {"order_id": first["order_id"], "action": "existing"}
+    assert _complimentary(first["order_id"]) is True
+
+
+def test_a_later_call_that_does_not_say_on_the_house_leaves_the_flag_alone():
+    first = data.create_order_draft([BURGER], "Ahmed", "s-1", complimentary=True)
+
+    ordinary = data.create_order_draft([BURGER], "Ahmed", "s-1")
+
+    assert ordinary == {"order_id": first["order_id"], "action": "existing"}
+    assert _complimentary(first["order_id"]) is True
+
+
+def test_changed_items_are_still_an_update_whatever_else_the_call_brings():
+    first = _draft([BURGER])
+
+    more = _draft([BURGER, LEMONADE])
+
+    assert more == {"order_id": first["order_id"], "action": "updated"}
+    assert data.get_order(first["order_id"])["items"] == [BURGER, LEMONADE]
+
+
+def test_changed_items_and_a_new_name_together_are_one_update():
+    first = _draft([BURGER])
+
+    both = _draft([BURGER, LEMONADE], guest_name="Ahmed")
+
+    assert both == {"order_id": first["order_id"], "action": "updated"}
+    order = data.get_order(first["order_id"])
+    assert order["guest_name"] == "Ahmed"
+    assert order["items"] == [BURGER, LEMONADE]
+
+
 def test_create_order_draft_starts_a_new_row_once_the_draft_is_gone():
     first = _draft([BURGER])
     data.update_order_status(first["order_id"], "CONFIRMED")
