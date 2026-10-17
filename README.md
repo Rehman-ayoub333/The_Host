@@ -223,8 +223,14 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000
 | `.\scripts\start-dashboard.ps1` | The dashboard — runs `bun install` first if `node_modules` is missing |
 | `.\scripts\start-all.ps1` | Both of the above, each in its own window |
 | `.\scripts\run-tests.ps1` | The full backend suite (any extra arguments go straight to pytest) |
+| `.\scripts\preflight.ps1` | One PASS/FAIL/WARN line per readiness check, for the day of the event |
+| `.\scripts\reset-for-gala.ps1` | Starts the event with an empty database, keeping the old one as a backup |
 
-No script reads, prints or echoes your `.env`.
+No script reads, prints or echoes your `.env`. `preflight.ps1` only checks that the file
+exists; it never opens it, and no script ever reads or prints the operator token.
+
+**Running the stall on the day:** [docs/GALA-RUNBOOK.md](docs/GALA-RUNBOOK.md) — setup,
+roles, the kitchen flow, the operator buttons, and what to do when the internet drops.
 
 Then open **http://localhost:8000/** in Chrome and allow the microphone and camera. The page
 greets a guest on its own, so it must be a visible window of its own — presence detection
