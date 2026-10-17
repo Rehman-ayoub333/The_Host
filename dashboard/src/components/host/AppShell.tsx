@@ -30,7 +30,7 @@ const NAV = [
   { label: "System", items: [{ to: "/settings", label: "Settings", icon: Settings }] },
 ] as const;
 
-function Sidebar({ onDemo, onNavigate }: { onDemo: () => void; onNavigate?: () => void }) {
+function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const connection = useAgent((s) => s.connection);
   const mode = useAgent((s) => s.mode);
   const live = mode === "demo" || connection === "live";
@@ -62,13 +62,10 @@ function Sidebar({ onDemo, onNavigate }: { onDemo: () => void; onNavigate?: () =
           </div>
         ))}
       </nav>
+      {/* 16 §2p item 4: no Demo Mode button here. It lives in Settings, so the
+          main screen cannot suggest the system is staged, and cannot be put
+          into a demo by an accidental click. */}
       <div className="space-y-2 px-4 pb-4">
-        <Button
-          onClick={onDemo}
-          className="flex w-full items-center justify-center gap-2 rounded-md bg-gold px-4 py-3 text-xs font-bold uppercase tracking-[0.22em] text-primary-foreground shadow-[var(--glow-gold)] transition-colors hover:bg-gold-bright"
-        >
-          <Play className="h-3.5 w-3.5 fill-current" /> Demo Mode
-        </Button>
         <a
           href="/display"
           target="_blank"
@@ -99,7 +96,7 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
   return (
     <div className="flex min-h-screen w-full">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 border-r border-line bg-background/60 backdrop-blur lg:block">
-        <Sidebar onDemo={() => setDemoOpen(true)} />
+        <Sidebar />
       </aside>
 
       {navOpen && (
@@ -109,13 +106,7 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
              <Button variant="ghost" size="icon" className="absolute right-3 top-3 text-muted-foreground" onClick={() => setNavOpen(false)} aria-label="Close menu">
               <X className="h-5 w-5" />
              </Button>
-            <Sidebar
-              onDemo={() => {
-                setNavOpen(false);
-                setDemoOpen(true);
-              }}
-              onNavigate={() => setNavOpen(false)}
-            />
+            <Sidebar onNavigate={() => setNavOpen(false)} />
           </aside>
         </div>
       )}

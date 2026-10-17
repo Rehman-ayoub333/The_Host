@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { Plug } from "lucide-react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Play, Plug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppShell } from "@/components/host/AppShell";
 import { Panel } from "@/components/host/Panel";
 import { SystemPanel } from "@/components/host/panels";
+import { startDemo } from "@/lib/agent/demo";
 import { connectAgent, getAgentConfig, saveAgentConfig } from "@/lib/agent/service";
 import { useAgent } from "@/lib/agent/store";
 
@@ -25,6 +26,7 @@ export const Route = createFileRoute("/settings")({
 function SettingsPage() {
   const connection = useAgent((s) => s.connection);
   const tokenError = useAgent((s) => s.tokenError);
+  const navigate = useNavigate();
   const [agentUrl, setAgentUrl] = useState("");
   const [token, setToken] = useState("");
   useEffect(() => {
@@ -70,6 +72,24 @@ function SettingsPage() {
           </form>
         </Panel>
         <SystemPanel className="xl:col-span-4" />
+
+        {/* 16 §2p item 4: Demo Mode lives here, out of the way, so the main
+            screen never suggests the system is staged. The demo itself is
+            unchanged. */}
+        <Panel title="Demo Mode (backup)" icon={<Play className="h-4 w-4" />} className="xl:col-span-8">
+          <p className="text-sm text-muted-foreground">
+            Plays a scripted conversation with DEMO DATA badges. Use only if the live system cannot run.
+          </p>
+          <Button
+            onClick={() => {
+              startDemo();
+              void navigate({ to: "/" });
+            }}
+            className="mt-4 inline-flex items-center gap-2 rounded-md bg-gold px-5 py-2.5 text-xs font-bold uppercase tracking-[0.22em] text-primary-foreground transition-colors hover:bg-gold-bright"
+          >
+            <Play className="h-3.5 w-3.5 fill-current" /> Start Demo Mode
+          </Button>
+        </Panel>
       </div>
     </AppShell>
   );
