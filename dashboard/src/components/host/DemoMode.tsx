@@ -34,7 +34,7 @@ export function DemoIntro({ open, onClose }: { open: boolean; onClose: () => voi
           <Play className="h-4 w-4 fill-current" /> Start Demo
         </Button>
         <p className="mt-4 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-          <MonitorPlay className="h-3.5 w-3.5" /> Open the SMD display in another window — it follows along.
+          <MonitorPlay className="h-3.5 w-3.5" /> Open the display screen in another window — it follows along.
         </p>
       </div>
     </div>

@@ -75,7 +75,7 @@ function Sidebar({ onDemo, onNavigate }: { onDemo: () => void; onNavigate?: () =
           rel="noreferrer"
           className="flex w-full items-center justify-center gap-2 rounded-md border border-line-strong px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.18em] text-gold transition-colors hover:bg-gold/10"
         >
-          <MonitorPlay className="h-3.5 w-3.5" /> Open SMD Display
+          <MonitorPlay className="h-3.5 w-3.5" /> Open Display Screen
         </a>
       </div>
       <div className="border-t border-line px-6 py-4">

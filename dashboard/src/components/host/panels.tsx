@@ -909,7 +909,7 @@ export function StateStrip({ className }: { className?: string }) {
     <section className={cn("panel overflow-hidden", className)}>
       <header className="flex items-center justify-between border-b border-line px-4 py-2.5">
         <p className="text-sm font-semibold">
-          THE HOST visual states <span className="ml-2 text-xs font-normal text-muted-foreground">— the nine states of the SMD screen</span>
+          THE HOST visual states <span className="ml-2 text-xs font-normal text-muted-foreground">— the nine states of the display screen</span>
         </p>
       </header>
       <div className="grid grid-cols-3 gap-px bg-line sm:grid-cols-5 lg:grid-cols-9">
