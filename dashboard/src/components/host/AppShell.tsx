@@ -8,7 +8,6 @@ import {
   Home,
   Menu,
   MonitorPlay,
-  Play,
   Settings,
   ShoppingBag,
   Users,
@@ -21,7 +20,7 @@ import { STATE_META } from "@/lib/agent/ui";
 import { cn } from "@/lib/utils";
 import { BrandMark } from "./Brand";
 import { StatusDot } from "./Panel";
-import { DemoIntro, DemoStepper } from "./DemoMode";
+import { DemoStepper } from "./DemoMode";
 
 const NAV = [
   { label: "Core", items: [{ to: "/", label: "Command Center", icon: Home }, { to: "/vision", label: "Live Vision", icon: Eye }] },
@@ -88,7 +87,6 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function AppShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
-  const [demoOpen, setDemoOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const state = useAgent((s) => s.state);
   const meta = STATE_META[state];
@@ -126,14 +124,15 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
             <span className="label-caps !text-[0.6rem]">THE HOST</span>
             <span className="text-xs font-semibold">{meta.label}</span>
           </div>
-          <Button onClick={() => setDemoOpen(true)} className="rounded-md bg-gold px-3 py-2 text-[0.65rem] font-bold uppercase text-primary-foreground transition-colors hover:bg-gold-bright lg:hidden">
-            Demo
-          </Button>
+          {/* 16 §2q item 4: no Demo Mode entry on the main screen at all.
+              It is reachable only from Settings (§2p item 4). */}
         </header>
         <main className="flex-1 p-4 pb-28 sm:p-6 sm:pb-28">{children}</main>
       </div>
 
-      <DemoIntro open={demoOpen} onClose={() => setDemoOpen(false)} />
+      {/* The demo bar, shown only while a demo is running. The intro dialog is
+          not mounted here: with the header button gone there is no way to open
+          it from this screen, and Settings starts the demo directly. */}
       <DemoStepper />
     </div>
   );
