@@ -115,31 +115,6 @@ function OpenDraft() {
   );
 }
 
-function JustDid() {
-  const activity = useAgent((s) => s.activity);
-  // The same rows as the Activity panel, newest first — read from the one
-  // store field, never a second copy of the data.
-  const rows = activity.slice(0, 8);
-
-  return (
-    <div className="rounded-md border border-line bg-background/40 p-3">
-      <p className="label-caps mb-1.5">What THE HOST just did</p>
-      {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nothing yet</p>
-      ) : (
-        <ol className="space-y-1">
-          {rows.map((a) => (
-            <li key={a.id} className="flex items-baseline justify-between gap-2">
-              <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">{a.label}</span>
-              <span className="font-mono text-[0.6rem] text-muted-foreground">{fmtClock(a.timestamp)}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
-  );
-}
-
 const SPEAKER_LABEL = { visitor: "Guest", host: "THE HOST" } as const;
 
 function LiveTranscript() {
@@ -201,21 +176,23 @@ function LineRow({ line, previous }: { line: TranscriptLine; previous?: Transcri
 export function LivePanel({ className }: { className?: string }) {
   const sessionId = useAgent((s) => s.sessionId);
 
+  // 16 §2p item 2: arranged for a narrower box — Conversation and Mode side by
+  // side, then the open draft, then the transcript. "What THE HOST just did" is
+  // gone: the AI Activity panel beside it shows the same agent_activity rows.
   return (
     <Panel
-      title="Live"
+      title="Live conversation"
       icon={<Radio className="h-4 w-4" />}
       className={className}
       action={sessionId ? <span className="font-mono text-[0.62rem] uppercase tracking-widest text-muted-foreground">Session {sessionId}</span> : null}
     >
       <p className="mb-3 text-[0.68rem] text-muted-foreground">Operator only. Guest speech is never shown on the public display or saved.</p>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1.4fr]">
-        <div className="grid content-start gap-3 sm:grid-cols-2 lg:grid-cols-1">
+      <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <ConversationState />
           <OperationalMode_ />
-          <OpenDraft />
-          <JustDid />
         </div>
+        <OpenDraft />
         <LiveTranscript />
       </div>
     </Panel>

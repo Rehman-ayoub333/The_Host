@@ -20,10 +20,10 @@ export const Route = createFileRoute("/")({
 function CommandCenter() {
   return (
     <AppShell title="Command Center" subtitle="Monitor everything THE HOST sees, hears and does — in real time.">
+      {/* 16 §2p item 2: the original design's order — the AI Host and Live
+          Vision on top, then the nine states, then the working panels, with
+          Live conversation where the old voice panel stood. */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        {/* The Live panel sits full width above every other panel (16 §2o
-            item 5) and replaces the old transcript panel in this grid. */}
-        <LivePanel className="xl:col-span-12" />
         <CorePanel className="xl:col-span-5" />
         <VisionPanel className="xl:col-span-7" />
         <div className="xl:col-span-12">
@@ -32,8 +32,9 @@ function CommandCenter() {
         <OrdersPanel className="xl:col-span-5" />
         <ActivityPanel className="xl:col-span-4" />
         <VisitorsPanel className="xl:col-span-3" />
-        <AnalyticsPanel className="xl:col-span-5" />
-        <SystemPanel className="xl:col-span-4" />
+        <LivePanel className="xl:col-span-5" />
+        <AnalyticsPanel className="xl:col-span-4" />
+        <SystemPanel className="xl:col-span-3" />
       </div>
     </AppShell>
   );
