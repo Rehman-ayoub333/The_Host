@@ -91,12 +91,18 @@ def test_the_other_triggers_keep_their_own_opening():
 # ------------------------------------------- 2h item 5: the VAD field it sets
 
 
-def test_the_start_sensitivity_field_is_gone():
-    # 16 section 2j item 6 removed it: with the handheld microphone it is not
-    # needed, and it may be why short replies went unheard (session 2b4d1ebc).
+def test_the_start_sensitivity_is_high_for_short_replies():
+    # 16 section 2j item 6 removed START_SENSITIVITY_LOW. 2r item 5 then set the
+    # field the other way after Rehman's C1 test: the handheld microphone keeps
+    # the room out, so the server may start listening more readily, and a short
+    # soft "yes" or a name is what that buys.
+    from google.genai import types
+
     built = live_session.build_live_config(datetime.now())
     detection = built.realtime_input_config.automatic_activity_detection
-    assert detection.start_of_speech_sensitivity is None
+    assert detection.start_of_speech_sensitivity == (
+        types.StartSensitivity.START_SENSITIVITY_HIGH
+    )
 
 
 def test_every_other_vad_field_stays_at_the_server_default():
@@ -104,7 +110,8 @@ def test_every_other_vad_field_stays_at_the_server_default():
     detection = built.realtime_input_config.automatic_activity_detection
     assert detection.disabled is None
     assert detection.end_of_speech_sensitivity is None
-    assert detection.prefix_padding_ms is None
+    # 2r item 5: the one addition, so a quiet first syllable is not clipped.
+    assert detection.prefix_padding_ms == 300
 
 
 # ------------------------------- 2h item 5: proactive audio, both paths

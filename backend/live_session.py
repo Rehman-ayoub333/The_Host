@@ -288,12 +288,16 @@ def build_live_config(
         session_resumption=types.SessionResumptionConfig(handle=resume_handle),
         # 16 section 2j item 6: the server waits about 800 ms of silence before it
         # decides the guest has finished, which is most of the pause Rehman heard
-        # before every reply. START_SENSITIVITY_LOW is deliberately gone (it was
-        # 2h item 5): with the handheld microphone it is not needed, and it may be
-        # why short replies went unheard. Every other VAD field, the end-of-speech
-        # sensitivity included, stays at the server default.
+        # before every reply.
+        # 2r item 5: and short replies have to be heard. The handheld microphone
+        # keeps the room out, so the server may start listening more readily
+        # (START_SENSITIVITY_HIGH), and 300 ms of prefix padding keeps the first
+        # syllable of a quiet "yes" or a name instead of clipping it. The
+        # end-of-speech sensitivity stays at the server default.
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
+                start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
+                prefix_padding_ms=config.PREFIX_PADDING_MS,
                 silence_duration_ms=config.SILENCE_DURATION_MS,
             )
         ),

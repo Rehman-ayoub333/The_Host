@@ -61,6 +61,10 @@ ANNOUNCE_MAX_DEFER_S = 20
 # 16 section 2j item 6: Google's guidance is 500-800 ms and the server default is
 # about 800, which made every reply feel a beat late at the booth.
 SILENCE_DURATION_MS = 500
+# 16 section 2r item 5: how much audio from just before the server decided the
+# guest had started speaking is kept. A short soft reply ("yes", a name) loses
+# its first syllable without this, which is one way it goes unheard.
+PREFIX_PADDING_MS = 300
 # 16 section 2j item 5: Gemini has heard the guest, or has been given a tool
 # result, and nothing has come back for this long. The conversation is not over,
 # so the connection is rebuilt rather than the session ended.
