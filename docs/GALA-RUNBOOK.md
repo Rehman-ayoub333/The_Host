@@ -43,6 +43,11 @@ any script here.
    Open the voice page, order one item out loud, give a first name, confirm, then on the
    dashboard move the order PREPARING → READY → COLLECTED and watch the display screen
    announce it. Then run `reset-for-gala.ps1` once more so the gala starts clean.
+
+   Doing this tonight also gets the dashboard built. The dashboard runs as a **production
+   build**, and the first start after a `git pull` builds it, which takes a few seconds and
+   prints `Building the dashboard`. Getting it out of the way now means gala night starts in
+   about a second instead.
 7. **Stop both servers** and close the laptop.
 
 ---
@@ -62,6 +67,13 @@ Three windows, in this order.
    cd F:\PIAIC_6_PROJECTS\THE_HOST
    .\scripts\start-all.ps1
    ```
+   **The gala uses the dashboard exactly as this starts it** — the production build, which
+   is the default. The dashboard window should say
+   `Dashboard on http://localhost:8080/ (production)`. If it instead says
+   `DEVELOPMENT server, not for the gala`, someone has passed `-Dev`: close that window and
+   start it again without the switch. `-Dev` is for everyday work on the dashboard, never
+   for the gala — it recompiles pages on demand and can leave the dashboard feeling like it
+   is hanging.
 2. **The voice page must stay visible.** THE HOST greets guests by itself, and presence
    detection pauses while the tab is hidden. A partly overlapped window is fine; a
    minimised one is not. `?debug=mic` shows the microphone readout so you can see it is
@@ -146,8 +158,13 @@ pip install -r backend\requirements.txt
 cd dashboard
 bun install
 cd ..
+.\scripts\start-dashboard.ps1
 .\scripts\preflight.ps1
 ```
+
+Start the dashboard once here, before the gala: it builds the production dashboard on that
+first run, and a backup laptop you have to reach for mid-gala should not be building
+anything. `Ctrl + C` it once it says `(production)`.
 
 **`.env` is not in the repository and never will be.** Copy `backend\.env` from the booth
 laptop by USB stick, by hand. Do not email it, do not put it in a chat, and delete it from

@@ -15,6 +15,7 @@ import config
 
 REPO_ROOT = config.BASE_DIR.parent
 SCRIPT = REPO_ROOT / "scripts" / "start-dashboard.ps1"
+RUNBOOK = REPO_ROOT / "docs" / "GALA-RUNBOOK.md"
 
 
 def script_text() -> str:
@@ -67,6 +68,22 @@ def test_a_stale_or_missing_build_is_rebuilt():
     assert ".output is missing" in text
     assert "LastWriteTime" in text
     assert "-Recurse" in text
+
+
+def test_the_runbook_says_the_gala_uses_the_production_dashboard():
+    """16 section 2r item 3: the runbook says the gala uses the default."""
+    text = RUNBOOK.read_text(encoding="utf-8")
+    assert "production build" in text
+    assert "(production)" in text
+    # The operator has to be able to spot the wrong one from the window text.
+    assert "DEVELOPMENT server, not for the gala" in text
+    assert "-Dev" in text
+
+
+def test_the_runbook_carries_no_secret():
+    text = RUNBOOK.read_text(encoding="utf-8")
+    for forbidden in ("AIza", "host-spec", "HOST-HANDOFF", "AGENT-STATE"):
+        assert forbidden not in text, forbidden
 
 
 def test_the_script_reads_no_configuration_and_names_no_secret():
