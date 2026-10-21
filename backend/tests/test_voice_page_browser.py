@@ -12,6 +12,7 @@ Skipped unless Playwright and its Chromium are both installed.
 
 import json
 import os
+import re
 import socket
 import threading
 import time
@@ -41,6 +42,13 @@ pytestmark = pytest.mark.skipif(
 # one THE HOST line, so the screen has both to show or withhold.
 GUEST_LINE = "a guest said this out loud"
 HOST_LINE = "and THE HOST answered"
+
+# 16 section 2r item 2(a): the counter line, exactly as the spec writes it. The
+# pattern is anchored at both ends so a line that grew any extra field -- above
+# all one carrying audio content or text -- fails this test.
+COUNTER_LINE = re.compile(
+    r"^mic frames/s (\d+(?:\.\d+)?) maxgap_ms (\d+) longtasks (\d+)$"
+)
 
 
 def _free_port() -> int:
@@ -176,3 +184,55 @@ def test_a_guest_transcript_line_is_not_rendered(booth):
     assert page.evaluate(
         "document.querySelectorAll('#transcript .line-agent').length"
     ) == 1
+
+
+def test_mic_counter_line_prints_every_five_seconds(booth):
+    """16 section 2r item 2(a): frames/s, maxgap_ms and longtasks, every 5 s."""
+    page, lines = booth
+    # Two windows plus a margin, so this proves the line repeats rather than
+    # being printed once at start-up.
+    page.wait_for_timeout(11500)
+
+    counters = [
+        COUNTER_LINE.match(line.split("info: ", 1)[-1])
+        for line in lines
+        if "mic frames/s" in line
+    ]
+    matched = [match for match in counters if match]
+    assert len(counters) >= 2, lines
+    # Every counter line has exactly the three fields and nothing else.
+    assert len(matched) == len(counters), [
+        line for line in lines if "mic frames/s" in line
+    ]
+
+    # The fake microphone really is delivering frames, so a rate of zero would
+    # mean the counter is wired to something that never runs.
+    for match in matched:
+        assert float(match.group(1)) > 0, match.group(0)
+
+
+def test_mic_counters_are_silent_without_the_debug_flag(page_server):
+    """16 section 2r item 2(a): they run and print only with ?debug=mic."""
+    lines: list[str] = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            executable_path=str(CHROMIUM),
+            args=[
+                "--use-fake-device-for-media-stream",
+                "--use-fake-ui-for-media-stream",
+                "--autoplay-policy=no-user-gesture-required",
+            ],
+        )
+        context = browser.new_context(permissions=["microphone", "camera"])
+        page = context.new_page()
+        page.on("console", lambda entry: lines.append(f"{entry.type}: {entry.text}"))
+        page.goto(f"{page_server}/")
+        page.wait_for_selector("#startBtn")
+        page.click("#startBtn")
+        page.wait_for_selector("#startOverlay", state="hidden", timeout=30000)
+        page.wait_for_timeout(11500)
+        context.close()
+        browser.close()
+
+    assert not [line for line in lines if "mic frames/s" in line], lines
+    assert not [line for line in lines if "mic debug on" in line], lines

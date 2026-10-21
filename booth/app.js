@@ -71,6 +71,7 @@ let sessionStartedAt = 0;
 let timers = {
   tick: null, recover: null, toast: null, snapshot: null,
   voiceActivity: null, micDebug: null, wake: null, busy: null,
+  micCounters: null,
 };
 let armed = true;
 let lastAutoGreetAt = 0;
@@ -108,6 +109,19 @@ const MIC_DEBUG = new URLSearchParams(location.search).get("debug") === "mic";
 const MIC_DEBUG_WINDOW_MS = 5000;
 const MIC_DEBUG_PRINT_MS = 500;
 const micDebug = { samples: [] };
+// 16 section 2r item 2(a): one counter line every 5 s, so the microphone path
+// can be measured before and after items 3 and 4 rather than guessed at. The
+// line carries counts and millisecond gaps only -- never audio, never text.
+// Frames are counted where `onMicFrame` receives them, which is the one place
+// every captured frame passes through on its way to the socket: that is the
+// hand-over item 1(b) says a busy main thread can delay or drop, and counting
+// there is also what keeps the reading meaningful while the booth sits idle.
+const MIC_COUNTER_MS = 5000;
+const LONGTASK_MS = 50;
+const micCounters = {
+  frames: 0, maxGapMs: 0, longTasks: 0, lastFrameAt: 0, since: 0,
+};
+let longTaskObserver = null;
 // 16 section 2i item 2: printed once at load, so Rehman can see at a glance
 // that the flag took effect even before the booth is started.
 if (MIC_DEBUG) console.info("mic debug on");
@@ -244,16 +258,79 @@ function printMicLevel() {
   }
 }
 
+function countMicFrame() {
+  // 16 section 2r item 2(a): the gap is measured between consecutive frames, so
+  // the first frame of a window only sets the mark it is measured from.
+  if (!MIC_DEBUG) return;
+  const at = now();
+  if (micCounters.lastFrameAt) {
+    const gap = at - micCounters.lastFrameAt;
+    if (gap > micCounters.maxGapMs) micCounters.maxGapMs = gap;
+  }
+  micCounters.lastFrameAt = at;
+  micCounters.frames += 1;
+}
+
+function printMicCounters() {
+  // The rate is taken over the window that actually elapsed rather than the
+  // nominal 5 s, because a main thread busy enough to delay microphone frames
+  // is busy enough to make this very interval run late.
+  const seconds = (now() - micCounters.since) / 1000;
+  const rate = seconds > 0 ? micCounters.frames / seconds : 0;
+  console.info(
+    "mic frames/s", Number(rate.toFixed(1)),
+    "maxgap_ms", Math.round(micCounters.maxGapMs),
+    "longtasks", micCounters.longTasks,
+  );
+  micCounters.frames = 0;
+  micCounters.maxGapMs = 0;
+  micCounters.longTasks = 0;
+  micCounters.since = now();
+}
+
+function startMicCounters() {
+  if (!MIC_DEBUG) return;
+  stopMicCounters();
+  micCounters.frames = 0;
+  micCounters.maxGapMs = 0;
+  micCounters.longTasks = 0;
+  micCounters.lastFrameAt = 0;
+  micCounters.since = now();
+  try {
+    longTaskObserver = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.duration >= LONGTASK_MS) micCounters.longTasks += 1;
+      }
+    });
+    longTaskObserver.observe({ type: "longtask", buffered: false });
+  } catch {
+    // A browser without the long-task entry type still gets frames and gaps.
+    longTaskObserver = null;
+  }
+  timers.micCounters = setInterval(printMicCounters, MIC_COUNTER_MS);
+}
+
+function stopMicCounters() {
+  clearInterval(timers.micCounters);
+  timers.micCounters = null;
+  if (longTaskObserver) {
+    try { longTaskObserver.disconnect(); } catch {}
+    longTaskObserver = null;
+  }
+}
+
 function startMicDebug() {
   if (!MIC_DEBUG) return;
   stopMicDebug();
   micDebug.samples = [];
   timers.micDebug = setInterval(printMicLevel, MIC_DEBUG_PRINT_MS);
+  startMicCounters();
 }
 
 function stopMicDebug() {
   clearInterval(timers.micDebug);
   timers.micDebug = null;
+  stopMicCounters();
 }
 
 function pollVoiceActivity() {
@@ -412,6 +489,7 @@ function retryAfterBusy() {
 }
 
 function onMicFrame(buffer) {
+  countMicFrame();
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(buffer);
 }
 
