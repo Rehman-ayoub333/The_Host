@@ -50,6 +50,11 @@ COUNTER_LINE = re.compile(
     r"^mic frames/s (\d+(?:\.\d+)?) maxgap_ms (\d+) longtasks (\d+)$"
 )
 
+# Byte lengths of the binary microphone frames the stand-in socket received,
+# newest run only (cleared when the server fixture starts). Lengths only: the
+# audio itself is never kept, written or printed.
+RECEIVED_FRAMES: list[int] = []
+
 
 def _free_port() -> int:
     with socket.socket() as probe:
@@ -87,7 +92,10 @@ def _build_app():
             )
         try:
             while True:
-                await websocket.receive()
+                message = await websocket.receive()
+                payload = message.get("bytes")
+                if payload is not None:
+                    RECEIVED_FRAMES.append(len(payload))
         except Exception:
             pass
 
@@ -104,6 +112,7 @@ def _build_app():
 def page_server():
     import uvicorn
 
+    RECEIVED_FRAMES.clear()
     port = _free_port()
     server = uvicorn.Server(
         uvicorn.Config(_build_app(), host="127.0.0.1", port=port, log_level="error")
@@ -209,6 +218,26 @@ def test_mic_counter_line_prints_every_five_seconds(booth):
     # mean the counter is wired to something that never runs.
     for match in matched:
         assert float(match.group(1)) > 0, match.group(0)
+
+
+def test_microphone_frames_are_1600_samples_of_16_bit_mono(booth):
+    """16 section 2r item 4: frames of about 100 ms, 1600 samples at 16 kHz.
+
+    Measured where it matters -- the byte length of what actually arrives at
+    the socket -- rather than by reading the downsampler. 1600 Int16 mono
+    samples is 3200 bytes, whatever rate the capture device runs at.
+    """
+    page, _lines = booth
+    page.click("#talkBtn")
+
+    deadline = time.time() + 30
+    while time.time() < deadline and len(RECEIVED_FRAMES) < 5:
+        page.wait_for_timeout(250)
+
+    assert len(RECEIVED_FRAMES) >= 5, RECEIVED_FRAMES
+    sizes = RECEIVED_FRAMES[:20]
+    print("frame byte lengths:", sizes)
+    assert set(sizes) == {3200}, sizes
 
 
 def test_mic_counters_are_silent_without_the_debug_flag(page_server):

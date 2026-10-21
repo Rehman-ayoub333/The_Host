@@ -11,6 +11,7 @@ let stream = null;
 let src = null;
 let proc = null;
 let mute = null;
+let workletReady = false;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -25,6 +26,9 @@ export const audio = {
     }
     playCtx = new AudioContext({ sampleRate: C.OUTPUT_SAMPLE_RATE });
     capCtx = new AudioContext();
+    // The worklet module is registered against a context, so a fresh capture
+    // context needs it added again.
+    workletReady = false;
     await playCtx.resume();
     await capCtx.resume();
     master = playCtx.createGain();
@@ -53,16 +57,38 @@ export const audio = {
         autoGainControl: true,
       },
     });
+    // 16 section 2r item 4: capture runs on the audio thread. The module is
+    // added once per capture context; a second addModule for the same URL is
+    // harmless but pointless.
+    if (!workletReady) {
+      await capCtx.audioWorklet.addModule("./mic-worklet.js");
+      workletReady = true;
+    }
+
     src = capCtx.createMediaStreamSource(stream);
-    proc = capCtx.createScriptProcessor(C.MIC_BUFFER_SIZE, 1, 1);
+    // One frame is 1600 samples at 16 kHz, about 100 ms. The worklet gathers
+    // the matching number of samples at the capture device's own rate so the
+    // downsampler below yields exactly that.
+    const frameRatio = capCtx.sampleRate / C.INPUT_SAMPLE_RATE;
+    proc = new AudioWorkletNode(capCtx, "mic-capture", {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      processorOptions: {
+        blockSamples: Math.round(C.MIC_FRAME_SAMPLES * frameRatio),
+      },
+    });
+    // The silent path to the destination is kept from the ScriptProcessorNode
+    // days: it is what guarantees the graph is pulled, and at gain 0 nothing
+    // of the guest's voice is ever played back into the room.
     mute = capCtx.createGain();
     mute.gain.value = 0;
     src.connect(proc);
     proc.connect(mute);
     mute.connect(capCtx.destination);
 
-    proc.onaudioprocess = (event) => {
-      const input = event.inputBuffer.getChannelData(0);
+    proc.port.onmessage = (event) => {
+      const input = event.data;
       let squares = 0;
       for (let i = 0; i < input.length; i += 1) squares += input[i] * input[i];
       const rms = input.length ? Math.sqrt(squares / input.length) : 0;
@@ -89,7 +115,8 @@ export const audio = {
       try { src.disconnect(); } catch {}
     }
     if (proc) {
-      proc.onaudioprocess = null;
+      proc.port.onmessage = null;
+      try { proc.port.close(); } catch {}
       try { proc.disconnect(); } catch {}
     }
     if (mute) {

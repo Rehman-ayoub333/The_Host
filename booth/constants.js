@@ -5,7 +5,10 @@ export const C = {
   DETECT_INTERVAL_MS: 400, ARRIVAL_CONSECUTIVE: 3, ABSENCE_MS: 6000,
   MIN_FACE_WIDTH_RATIO: 0.08, MIN_DETECTION_CONFIDENCE: 0.6, GREET_COOLDOWN_MS: 45000,
   SNAPSHOT_WIDTH: 640, SNAPSHOT_HEIGHT: 480, SNAPSHOT_QUALITY: 0.85,
-  MIC_BUFFER_SIZE: 4096, INPUT_SAMPLE_RATE: 16000, OUTPUT_SAMPLE_RATE: 24000,
+  // 16 section 2r item 4: one microphone frame, about 100 ms at 16 kHz. This
+  // replaces the old ScriptProcessorNode buffer size, which configured a node
+  // the page no longer creates.
+  MIC_FRAME_SAMPLES: 1600, INPUT_SAMPLE_RATE: 16000, OUTPUT_SAMPLE_RATE: 24000,
   AGENT_LABEL: "THE HOST", VISION_REPORT_MS: 2000,
   // 16 section 2j item 7: measured at the booth, not guessed. Quiet idle runs
   // 0.00-0.05 and speech into the handheld mic 0.4-1.0, so 0.20 sits well clear
