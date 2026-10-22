@@ -203,11 +203,23 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       return s; // the voice page's business (20 §4 item 5)
     case "interrupted":
       return s;
+    // 16 §2k item 3: the voice page holds its clocks on this; the dashboard
+    // has no state of its own for it. The connection row it might look like it
+    // belongs to is about THIS browser's /ws/events socket, not the backend's
+    // Gemini link, so nothing here changes (16 §2s item 4a).
+    case "reconnecting":
+      return s;
     case "error":
       return n({ lastError: e.message });
     case "heartbeat":
       return s;
   }
+  // 16 §2s item 4a: the reducer is total. It used to fall out of the switch and
+  // return undefined for any event not listed above, which set the snapshot to
+  // undefined and made every useAgent selector throw -- taking the whole
+  // Command Center into the router's error page, for the rest of the session.
+  // An event this build does not know about now changes nothing instead.
+  return s;
 }
 
 /* ---------------- store + demo-only cross-window sync ---------------- */

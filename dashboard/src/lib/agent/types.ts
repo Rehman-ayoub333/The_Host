@@ -208,6 +208,11 @@ export type AgentEvent =
   | (Envelope & { type: "agent_activity"; kind: ActivityKind; label: string; detail?: string })
   | (Envelope & { type: "capture_request" })
   | (Envelope & { type: "interrupted" })
+  // 16 §2k item 3. Described as an audio-socket event, but live_session's
+  // _send_control publishes EVERY control event to the bus, so it arrives on
+  // /ws/events too. Leaving it out of this union is what let it reach the
+  // reducer unhandled (16 §2s item 4a).
+  | (Envelope & { type: "reconnecting"; active: boolean })
   | (Envelope & { type: "error"; message: string; recoverable?: boolean })
   | { type: "heartbeat"; timestamp?: BoothTime };
 
