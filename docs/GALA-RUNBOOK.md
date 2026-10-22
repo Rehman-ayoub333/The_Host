@@ -40,9 +40,10 @@ any script here.
    ```powershell
    .\scripts\start-all.ps1
    ```
-   Open the voice page, order one item out loud, give a first name, confirm, then on the
-   dashboard move the order PREPARING → READY → COLLECTED and watch the display screen
-   announce it. Then run `reset-for-gala.ps1` once more so the gala starts clean.
+   Open `http://localhost:8080/display`, press **Start THE HOST**, order one item out loud,
+   give a first name, confirm, then on the dashboard move the order
+   PREPARING → READY → COLLECTED and watch the TV announce it. Then run
+   `reset-for-gala.ps1` once more so the gala starts clean.
 
    Doing this tonight also gets the dashboard built. The dashboard runs as a **production
    build**, and the first start after a `git pull` builds it, which takes a few seconds and
@@ -54,15 +55,21 @@ any script here.
 
 ## 2. Setting up at the stall
 
-Three windows, in this order.
+**Two screens, and only two.**
 
-| Window | Address | Where it goes |
+| Screen | Address | Where it goes |
 |---|---|---|
-| The voice page | `http://127.0.0.1:8000/?debug=mic` | Booth laptop, **full screen**, facing the guests |
-| The display screen | `http://localhost:8080/display` | Second monitor or TV, **full screen** |
-| The dashboard | `http://localhost:8080/` | Operator's screen |
+| THE HOST | `http://localhost:8080/display` | The TV on top of the stall, **full screen**, facing the guests |
+| The dashboard | `http://localhost:8080/` | The laptop on the front table, the operator's screen |
 
-1. **Start everything:**
+The TV is THE HOST: the camera, the handheld microphone and THE HOST's voice all belong to
+that page. The laptop is the operator's, and it holds the only screen with order controls
+and guest names on it. The page at `http://127.0.0.1:8000/` is **the fallback only** — it is
+not part of the setup, and it is used solely if `/display` will not start (section 4).
+
+1. **Plug in the hardware first,** before any window is opened: the external camera, the
+   handheld microphone, the speaker, and the HDMI cable to the TV.
+2. **Start everything:**
    ```powershell
    cd F:\PIAIC_6_PROJECTS\THE_HOST
    .\scripts\start-all.ps1
@@ -74,19 +81,31 @@ Three windows, in this order.
    start it again without the switch. `-Dev` is for everyday work on the dashboard, never
    for the gala — it recompiles pages on demand and can leave the dashboard feeling like it
    is hanging.
-2. **The voice page must stay visible.** THE HOST greets guests by itself, and presence
-   detection pauses while the tab is hidden. A partly overlapped window is fine; a
-   minimised one is not. `?debug=mic` shows the microphone readout so you can see it is
-   hearing.
-3. **The display screen** goes on the second monitor or the TV. In Windows press
-   `Win + P` and choose **Extend** (not Duplicate), drag the browser window across, then
-   press `F11` for full screen.
-4. **The microphone.** Plug in the handheld microphone and set it as the Windows default
-   input: right-click the speaker icon → Sound settings → Input → choose the handheld
-   microphone. Say a few words and watch the input level move.
-5. **The operator token.** On the dashboard open **Settings**, paste the token into
-   *Operator token*, and press **Save & connect**. The agent link must read `LIVE`.
-6. **Run preflight until every line is PASS:**
+3. **Put the TV on its own screen.** In Windows press `Win + P` and choose **Extend** (not
+   Duplicate). Open a browser window, go to `http://localhost:8080/display`, drag it onto
+   the TV, and press `F11` for full screen.
+4. **The Windows sound devices.** Right-click the speaker icon → **Sound settings**:
+   - **Output** — choose the **stall speaker**, not the TV. THE HOST's voice is played by
+     the `/display` page through whatever Windows calls the default output, and a TV's own
+     speakers point away from the guest. Press *Test* and listen to where the sound comes
+     from.
+   - **Input** — choose the **handheld microphone**. Say a few words and watch the level move.
+5. **Press Start THE HOST on the TV.** `/display` opens on one full-screen button, because a
+   browser will not give a page the microphone, the camera or sound until someone clicks.
+   Under the button, set **Camera** to the external camera and **Microphone** to the handheld
+   microphone, then press the button. The choice is remembered in that browser, so a reload
+   does not ask again. **After this click the TV never needs touching again** — THE HOST
+   greets guests itself, wakes on speech, and listens.
+6. **Leave the TV window focused and on top.** Face detection pauses while the window is
+   hidden, which is also what holds the empty-room timer. A partly overlapped window is
+   fine; a minimised one is not. The operator's two keys work on this window: **Space**
+   starts a conversation, **Escape** ends one.
+7. **The operator token.** On the laptop open the dashboard → **Settings**, paste the token
+   into *Operator token*, and press **Save & connect**. The agent link must read `LIVE`.
+8. **Never start the dashboard's camera preview.** The dashboard's **Live Vision** page has
+   a preview that opens the camera on the laptop. At the gala the camera belongs to
+   `/display`, and two pages cannot have it at once. Leave the preview off all evening.
+9. **Run preflight until every line is PASS:**
    ```powershell
    .\scripts\preflight.ps1
    ```
@@ -97,9 +116,9 @@ Three windows, in this order.
 
 | Who | Looks after |
 |---|---|
-| **Rehman** | THE HOST and the voice page — that it is visible, hearing, and talking to guests |
+| **Rehman** | THE HOST on the TV — that the window is focused, hearing, and talking to guests |
 | **Saad** | The dashboard — moves every order PREPARING → READY → COLLECTED |
-| **Umair** | The display screen, and the backup checks in section 5 |
+| **Umair** | The TV's announcements, and the backup checks in section 5 |
 
 One person to a job. If something looks wrong, say so out loud rather than reaching across
 to someone else's laptop.
@@ -115,7 +134,7 @@ it is being taken, and becomes a real order the moment the guest confirms. From 
 is Saad's:
 
 1. **PREPARING** — the kitchen has started it.
-2. **READY** — it is on the counter. The display screen announces
+2. **READY** — it is on the counter. The TV announces
    *"Order #27 for Ahmed is ready!"* and speaks it aloud.
 3. **COLLECTED** — the guest has taken it.
 
@@ -135,8 +154,15 @@ back to work.
 
 ### If something goes wrong
 
-- **A short outage.** The mode shows *"Reconnecting…"* in amber and THE HOST recovers by
-  itself. Wait. Do not restart anything.
+- **A short outage.** The TV's caption reads *"Reconnecting…"* and the dashboard shows the
+  mode in amber. THE HOST recovers by itself, and the conversation carries on where it left
+  off. Wait. Do not restart anything.
+- **`/display` will not start.** If the TV page will not open the camera or the microphone
+  — the Start screen keeps saying a device is blocked — fall back to the old voice page:
+  open `http://127.0.0.1:8000/?debug=mic` on the laptop, full screen, facing the guests, and
+  set the TV to `http://localhost:8080/display` as a display-only screen (do not press
+  Start THE HOST on it). That is the pre-gala arrangement and it still works. Tell the
+  operator, because the camera then belongs to the laptop.
 - **The venue internet fails.** Switch the booth laptop to the phone hotspot, then press
   **Retry connection** on the dashboard. The mode should return to `ONLINE`.
 - **Nothing works.** Open **Settings → Demo Mode (backup)** and press **Start Demo Mode**.
