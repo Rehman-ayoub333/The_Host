@@ -73,7 +73,12 @@ LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
 def log_file_path(directory, now=None) -> Path:
-    """16 section 2t item 7: one file per day, named for that day."""
+    """16 section 2t item 7: the log file, named for its day.
+
+    The name is fixed when the backend starts, so a run that crosses midnight
+    keeps writing to the file it opened. A gala evening is one run, and the next
+    start opens the next day's file.
+    """
     day = (now or datetime.now()).strftime("%Y-%m-%d")
     return Path(directory) / f"the_host-{day}.log"
 
