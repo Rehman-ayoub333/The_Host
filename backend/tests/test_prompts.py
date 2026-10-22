@@ -48,6 +48,34 @@ def test_the_system_instruction_covers_the_two_step_order_rule():
         assert tool_name in text
 
 
+def test_the_speak_first_rule_is_not_in_the_prompt():
+    """16 section 2s item 3's gate, measured against the real API on 22 Oct 2026.
+
+    The rule was added, compared old against new over the six turns item 3
+    lists, and removed because the gate it sets was not met: 3 of 6 new-prompt
+    turns spoke before the tool, and the gate needs at least 5 of 6. (Order
+    outcomes were correct in both passes, which is the gate's other half.) The
+    rule is gone; the banned-filler list it sat beside stays, as item 3 says.
+    """
+    text = prompts.build_system_instruction(datetime(2026, 10, 10, 18, 42))
+
+    assert "first say a very short natural acknowledgement" not in text
+    assert "Sure, one moment." not in text
+    assert "Let me check that." not in text
+    # What item 3 said must survive either outcome.
+    assert (
+        "Never use filler such as 'Great question', 'Absolutely!', 'I can "
+        "definitely help with that', 'How can I assist you today?', 'As an AI' "
+        "or 'I'm just an AI'." in text
+    )
+    # The instruction that was already there to cover the wait is untouched:
+    # it asks for a short "I am checking" rather than a scripted filler.
+    assert (
+        "Never state a result before the tool has returned it; while you wait, "
+        "say briefly that you are checking." in text
+    )
+
+
 def test_the_three_prompt_constants_are_plain_formatted_strings():
     for constant in (prompts.opening_instruction("presence"), prompts.VISION_PROMPT):
         assert isinstance(constant, str)
