@@ -78,6 +78,20 @@ def log_file_path(directory, now=None) -> Path:
     return Path(directory) / f"the_host-{day}.log"
 
 
+def remove_file_logging() -> None:
+    """Detach the log file handler (16 section 2t item 7).
+
+    The lifespan runs once per process in production, but a test that starts the
+    app leaves the handler on the root logger otherwise, and every later test in
+    the session then writes into that run's file.
+    """
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if getattr(handler, "_the_host_log_file", False):
+            root.removeHandler(handler)
+            handler.close()
+
+
 def setup_file_logging(directory=None, now=None) -> Path:
     """Write the same INFO lines the console gets to a file as well.
 
@@ -92,13 +106,9 @@ def setup_file_logging(directory=None, now=None) -> Path:
     handler.setLevel(logging.INFO)
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
     handler.addFilter(REDACT_TOKEN)
-    root = logging.getLogger()
-    for existing in list(root.handlers):
-        if getattr(existing, "_the_host_log_file", False):
-            root.removeHandler(existing)
-            existing.close()
+    remove_file_logging()
     handler._the_host_log_file = True
-    root.addHandler(handler)
+    logging.getLogger().addHandler(handler)
     return path
 
 
@@ -162,6 +172,7 @@ async def lifespan(app: FastAPI):
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         event_bus.set_loop(None)
+        remove_file_logging()
 
 
 app = FastAPI(lifespan=lifespan)

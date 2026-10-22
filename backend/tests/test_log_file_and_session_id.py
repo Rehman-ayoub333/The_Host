@@ -110,6 +110,34 @@ def test_the_operator_token_is_redacted_in_the_log_file(log_dir):
     assert "token=[REDACTED]" in written
 
 
+def test_the_app_logs_into_the_configured_directory_and_detaches_on_shutdown(
+    tmp_path, monkeypatch
+):
+    """The lifespan opened the file but never closed it, so every later test in
+    the session wrote into that run's file -- and the doubles' numbers landed in
+    a phase's evidence. The real backend/logs/ must stay untouched by a test."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+    directory = tmp_path / "its-own-logs"
+    monkeypatch.setattr(config, "LOG_DIR", directory)
+
+    with TestClient(main.app):
+        attached = [
+            handler
+            for handler in logging.getLogger().handlers
+            if getattr(handler, "_the_host_log_file", False)
+        ]
+        assert len(attached) == 1
+        assert main.log_file_path(directory).exists()
+
+    assert not [
+        handler
+        for handler in logging.getLogger().handlers
+        if getattr(handler, "_the_host_log_file", False)
+    ]
+
+
 def test_setting_up_twice_leaves_one_log_file_handler(log_dir):
     main.setup_file_logging()
     main.setup_file_logging()

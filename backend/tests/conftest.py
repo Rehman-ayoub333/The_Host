@@ -40,6 +40,10 @@ def fresh_backend(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MENU_JSON_PATH", menu_path)
     monkeypatch.setattr(config, "BUSINESS_INFO_JSON_PATH", business_info_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "the_host.db")
+    # 16 section 2t item 7: a test that starts the app runs the lifespan, which
+    # opens the log file. Without this every such test writes into the real
+    # backend/logs/ file and mixes its doubles' numbers into a phase's evidence.
+    monkeypatch.setattr(config, "LOG_DIR", tmp_path / "logs")
     event_bus.PUBLISHED.clear()
     event_bus._sockets.clear()
     event_bus.set_loop(None)
