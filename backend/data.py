@@ -229,9 +229,19 @@ def init_db() -> None:
                 timestamp TEXT NOT NULL,
                 tool TEXT NOT NULL,
                 input_args TEXT NOT NULL,
-                result TEXT NOT NULL
+                result TEXT NOT NULL,
+                session_id TEXT
             )"""
         )
+        # 16 section 2t item 7: which conversation a tool call belongs to. The
+        # 22 Oct retest could only be read by matching timestamps by eye, because
+        # this table had no session of its own. NULL for every row logged before
+        # the column existed.
+        agent_log_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(agent_log)")
+        }
+        if "session_id" not in agent_log_columns:
+            conn.execute("ALTER TABLE agent_log ADD COLUMN session_id TEXT")
 
         if conn.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0] == 0:
             rows = _load_json_list(config.MENU_JSON_PATH, "the menu")
@@ -983,16 +993,18 @@ def get_business_info(topic=None) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def log_action(tool: str, input_args: dict, result: dict) -> None:
+def log_action(tool: str, input_args: dict, result: dict, session_id=None) -> None:
     try:
         with closing(_connect()) as conn:
             conn.execute(
-                "INSERT INTO agent_log (timestamp, tool, input_args, result) VALUES (?, ?, ?, ?)",
+                "INSERT INTO agent_log (timestamp, tool, input_args, result, session_id) "
+                "VALUES (?, ?, ?, ?, ?)",
                 (
                     _now(),
                     tool,
                     json.dumps(input_args, default=str),
                     json.dumps(result, default=str),
+                    str(session_id) if session_id else None,
                 ),
             )
             conn.commit()

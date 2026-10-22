@@ -2,6 +2,9 @@
 .env
 *.db
 
+# 16 section 2t item 7: the backend's own log files.
+backend/logs/
+
 # Python
 .venv/
 __pycache__/

@@ -6,6 +6,8 @@ import re
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager, closing
+from datetime import datetime
+from pathlib import Path
 from time import monotonic
 
 import httpx
@@ -64,6 +66,42 @@ for _logger_name in ("uvicorn.access", "uvicorn.error"):
     logging.getLogger(_logger_name).addFilter(REDACT_TOKEN)
 
 
+# -------------------------------------------------------------- the log file
+
+
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+
+def log_file_path(directory, now=None) -> Path:
+    """16 section 2t item 7: one file per day, named for that day."""
+    day = (now or datetime.now()).strftime("%Y-%m-%d")
+    return Path(directory) / f"the_host-{day}.log"
+
+
+def setup_file_logging(directory=None, now=None) -> Path:
+    """Write the same INFO lines the console gets to a file as well.
+
+    The evidence for a phase lived only in a terminal that scrolls away, so the
+    22 Oct retest could not be re-read afterwards. The handler carries the token
+    filter too, because a redaction that holds only on the console is no
+    redaction at all once the line is on disk.
+    """
+    path = log_file_path(directory or config.LOG_DIR, now)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    handler.addFilter(REDACT_TOKEN)
+    root = logging.getLogger()
+    for existing in list(root.handlers):
+        if getattr(existing, "_the_host_log_file", False):
+            root.removeHandler(existing)
+            existing.close()
+    handler._the_host_log_file = True
+    root.addHandler(handler)
+    return path
+
+
 def _clamp(limit: int, default: int) -> int:
     try:
         return max(LIMIT_MIN, min(LIMIT_MAX, int(limit)))
@@ -89,10 +127,9 @@ async def _sweep_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+    log_path = setup_file_logging()
+    log.info("log file %s", log_path)
     if not config.GEMINI_API_KEY:
         raise RuntimeError(
             "GEMINI_API_KEY is not set. Copy .env.example to .env and add your key."

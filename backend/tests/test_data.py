@@ -43,7 +43,8 @@ def test_init_db_creates_every_table_and_keeps_agent_log():
         "agent_log",
     } <= names
     columns = {row["name"] for row in _rows("PRAGMA table_info(agent_log)")}
-    assert columns == {"id", "timestamp", "tool", "input_args", "result"}
+    # 16 section 2t item 7 added session_id to this table.
+    assert columns == {"id", "timestamp", "tool", "input_args", "result", "session_id"}
 
 
 def test_seeds_menu_and_business_info_only_when_empty():

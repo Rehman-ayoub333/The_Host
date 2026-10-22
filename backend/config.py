@@ -27,6 +27,9 @@ MENU_JSON_PATH = _resolved_path("MENU_JSON_PATH", "./data/menu.json")
 BUSINESS_INFO_JSON_PATH = _resolved_path("BUSINESS_INFO_JSON_PATH", "./data/business_info.json")
 DB_PATH = _resolved_path("DB_PATH", "./data/the_host.db")
 FRONTEND_DIR = _resolved_path("FRONTEND_DIR", "../booth")
+# 16 section 2t item 7: the console scrolls away and a phase's evidence is gone
+# with it. The same INFO lines are also written to a file named for the day.
+LOG_DIR = _resolved_path("LOG_DIR", "./logs")
 CORS_ALLOW_ORIGINS = _origins(
     "CORS_ALLOW_ORIGINS",
     "http://localhost:8080,http://localhost:5173,http://localhost:4173",

@@ -36,7 +36,8 @@ def _owns_order(order) -> bool:
 
 
 def _finish(tool: str, args: dict, result: dict) -> dict:
-    data.log_action(tool, args, result)
+    # 16 section 2t item 7: every tool call carries the conversation it came from.
+    data.log_action(tool, args, result, session_id=_ctx().get("session_id"))
     return result
 
 
