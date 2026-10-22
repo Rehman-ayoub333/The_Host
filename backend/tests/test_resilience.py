@@ -11,7 +11,9 @@ guest stopped speaking.
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -1019,3 +1021,224 @@ def test_no_log_line_in_the_whole_turn_carries_the_transcript(caplog):
     assert secret not in caplog.text
     assert "Club Sandwich" not in caplog.text
     assert "coming up" not in caplog.text
+
+
+# ------------------------------- 2s item 2: timing a tool and the answer after it
+#
+# The retest's slow turns could only be bounded from the gap between two log
+# lines, because nothing recorded how long a tool took or how long Gemini then
+# took to speak. These two lines record exactly that, and -- like every other
+# line in this file -- carry no arguments and no text.
+
+# Distinctive enough that finding either one in a log line is proof of a leak.
+TOOL_ARG_SECRET = "a Club Sandwich for Rehman please"
+TOOL_RESULT_SECRET = "Club Sandwich, Rs. 550, available now"
+
+DONE_LINE = re.compile(r"^tool done session \w+ name=(\w+) ms=(\d+)$")
+TO_OUTPUT_LINE = re.compile(r"^tool to output session \w+ name=(\w+) s=(\d+\.\d\d)$")
+
+
+def lines_matching(caplog, prefix):
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith(prefix)
+    ]
+
+
+def slow_tool_session(monkeypatch, took=0.42):
+    """A session whose one tool takes `took` seconds of a clock we drive."""
+    session, ws = doubles.new_session()
+    clock = [1000.0]
+    monkeypatch.setattr(live_session, "_now", lambda: clock[0])
+
+    def fake_tool(**kwargs):
+        clock[0] += took
+        return {"available": True, "detail": TOOL_RESULT_SECRET}
+
+    monkeypatch.setitem(live_session.tools.TOOL_FUNCTIONS, "check_item_availability", fake_tool)
+    return session, ws, clock
+
+
+def test_tool_done_reports_the_tools_own_time(monkeypatch, caplog):
+    session, _ws, _clock = slow_tool_session(monkeypatch, took=0.42)
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(
+            session._handle_message(
+                doubles.message(
+                    tool_call=doubles.call(
+                        "check_item_availability", {"item": TOOL_ARG_SECRET}
+                    )
+                )
+            )
+        )
+
+    done = lines_matching(caplog, "tool done")
+    print("tool done lines:", done)
+    assert len(done) == 1
+    match = DONE_LINE.match(done[0])
+    # The whole line is the session, the name and the number: nothing else fits.
+    assert match is not None, done[0]
+    assert match.group(1) == "check_item_availability"
+    assert match.group(2) == "420"
+
+
+def test_tool_to_output_is_timed_from_the_response_to_the_next_output(monkeypatch, caplog):
+    session, _ws, clock = slow_tool_session(monkeypatch)
+
+    async def go():
+        await session._handle_message(
+            doubles.message(
+                tool_call=doubles.call("check_item_availability", {"item": TOOL_ARG_SECRET})
+            )
+        )
+        # Gemini thinks for 1.5 s, then starts speaking.
+        clock[0] += 1.5
+        await session._handle_message(doubles.message(doubles.content(audio=b"chunk")))
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(go())
+
+    after = lines_matching(caplog, "tool to output")
+    print("tool to output lines:", after)
+    assert len(after) == 1
+    match = TO_OUTPUT_LINE.match(after[0])
+    assert match is not None, after[0]
+    assert match.group(1) == "check_item_availability"
+    assert match.group(2) == "1.50"
+
+
+def test_tool_to_output_is_logged_once_however_much_output_follows(monkeypatch, caplog):
+    """It measures the wait, so the second and third chunks add nothing."""
+    session, _ws, clock = slow_tool_session(monkeypatch)
+
+    async def go():
+        await session._handle_message(
+            doubles.message(tool_call=doubles.call("check_item_availability", {"item": "x"}))
+        )
+        clock[0] += 0.75
+        for _ in range(3):
+            await session._handle_message(doubles.message(doubles.content(audio=b"chunk")))
+        await session._handle_message(doubles.message(doubles.content(agent="Yes we do")))
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(go())
+
+    after = lines_matching(caplog, "tool to output")
+    print("tool to output lines:", after)
+    assert len(after) == 1
+    assert "s=0.75" in after[0]
+
+
+def test_every_tool_call_in_one_batch_gets_its_own_done_line(monkeypatch, caplog):
+    """2s item 2 says every tool call, and a batch is several of them."""
+    session, _ws, _clock = slow_tool_session(monkeypatch)
+    batch = SimpleNamespace(
+        function_calls=[
+            SimpleNamespace(
+                name="check_item_availability", args={"item": TOOL_ARG_SECRET}, id="call-1"
+            ),
+            SimpleNamespace(
+                name="signal_confirmation_request",
+                args={"summary": TOOL_ARG_SECRET},
+                id="call-2",
+            ),
+        ]
+    )
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(session._handle_message(doubles.message(tool_call=batch)))
+
+    done = lines_matching(caplog, "tool done")
+    print("tool done lines:", done)
+    assert len(done) == 2
+    assert [DONE_LINE.match(line).group(1) for line in done] == [
+        "check_item_availability",
+        "signal_confirmation_request",
+    ]
+    # The confirmation summary is a spoken sentence, and it stays out of both.
+    for line in done:
+        assert TOOL_ARG_SECRET not in line
+
+
+def test_neither_new_line_carries_arguments_or_text(monkeypatch, caplog):
+    """The standing rule, checked on the two lines 2s item 2 adds."""
+    session, _ws, clock = slow_tool_session(monkeypatch)
+
+    async def go():
+        await session._handle_message(
+            doubles.message(
+                tool_call=doubles.call(
+                    "check_item_availability", {"item": TOOL_ARG_SECRET}
+                )
+            )
+        )
+        clock[0] += 1.0
+        await session._handle_message(doubles.message(doubles.content(audio=b"chunk")))
+
+    with caplog.at_level(logging.DEBUG, logger="live_session"):
+        asyncio.run(go())
+
+    new_lines = lines_matching(caplog, "tool done") + lines_matching(caplog, "tool to output")
+    print("the two new lines:", new_lines)
+    assert len(new_lines) == 2
+    for line in new_lines:
+        assert TOOL_ARG_SECRET not in line
+        assert TOOL_RESULT_SECRET not in line
+        # No fragment of either is in there, whole or in part.
+        for word in ("Club", "Sandwich", "Rehman", "please", "Rs.", "available"):
+            assert word not in line, line
+        # And nothing beyond the shape the spec gives.
+        assert DONE_LINE.match(line) or TO_OUTPUT_LINE.match(line), line
+
+
+def test_an_interrupted_turn_does_not_invent_a_gap(monkeypatch, caplog):
+    """A turn cut off before Gemini answered leaves nothing to measure."""
+    session, _ws, clock = slow_tool_session(monkeypatch)
+
+    async def go():
+        await session._handle_message(
+            doubles.message(tool_call=doubles.call("check_item_availability", {"item": "x"}))
+        )
+        # The guest talks over it: the turn ends with the response unanswered.
+        await session._handle_message(doubles.message(doubles.content(interrupted=True)))
+        assert session.tool_response_pending is None
+        # A minute later the next turn speaks. That is not a 60 s tool wait.
+        clock[0] += 60
+        await session._handle_message(doubles.message(doubles.content(audio=b"chunk")))
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(go())
+
+    assert lines_matching(caplog, "tool to output") == []
+
+
+def test_a_rebuilt_connection_does_not_report_the_old_wait(monkeypatch, caplog):
+    """2s item 2: the connection that owed the answer is gone with it."""
+    session, _ws, clock = slow_tool_session(monkeypatch)
+    seen = {}
+
+    async def fake_reconnect_loop(exc):
+        # Whatever _recover did to the clocks, it did before reaching here.
+        seen["pending"] = session.tool_response_pending
+        return True
+
+    monkeypatch.setattr(session, "_reconnect_loop", fake_reconnect_loop)
+
+    async def go():
+        await session._handle_message(
+            doubles.message(tool_call=doubles.call("check_item_availability", {"item": "x"}))
+        )
+        assert session.tool_response_pending is not None
+        clock[0] += 9
+        await session._recover(LiveDropped("stall"))
+        # The rebuilt connection speaks: that is not a 9 s tool wait.
+        await session._handle_message(doubles.message(doubles.content(audio=b"chunk")))
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(go())
+
+    print("pending when the rebuild started:", seen["pending"])
+    assert seen["pending"] is None
+    assert lines_matching(caplog, "tool to output") == []

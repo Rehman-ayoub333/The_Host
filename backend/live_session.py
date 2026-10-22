@@ -375,6 +375,11 @@ class LiveSession:
         # silence alone can never trigger the watchdog.
         self.awaiting_model_since = None
         self.last_audio_chunk_at = None
+        # 16 section 2s item 2: the tool response Gemini has not answered yet,
+        # as (tool name, the moment it was sent). It is what the "tool to
+        # output" line measures, and it carries a name and a number, nothing
+        # else. None means no tool response is waiting on an answer.
+        self.tool_response_pending = None
         # 16 section 2j item 9: one latency line per turn, and no words in it.
         self.turn_latency_logged = False
         # 16 section 2l item 4: how this conversation ended decides what happens
@@ -729,6 +734,8 @@ class LiveSession:
         # and a reconnect this session asked for is no longer wanted.
         self.awaiting_model_since = None
         self.last_audio_chunk_at = None
+        # 2s item 2: nothing is waiting on an answer either.
+        self.tool_response_pending = None
         self.recover_pending = None
         self.go_away_waiting = False
         if self.stack is not None:
@@ -1082,6 +1089,8 @@ class LiveSession:
         self.first_audio_sent = False
         self.awaiting_model_since = None
         self.last_audio_chunk_at = None
+        # 2s item 2: the connection that owed the answer is gone with it.
+        self.tool_response_pending = None
         self.go_away_waiting = False
         self.recover_pending = None
         try:
@@ -1192,6 +1201,21 @@ class LiveSession:
     def _model_output(self) -> None:
         """16 section 2j item 5: Gemini has answered, so nothing is owed to us."""
         self.awaiting_model_since = None
+        # 16 section 2s item 2: this output is the one a waiting tool response
+        # was waiting for, so the gap is measured here and the wait is over.
+        # Any model output counts -- audio, an output transcription, a further
+        # tool call, or generation_complete -- because each one is Gemini
+        # answering. Only the tool's name and the number are written.
+        pending = self.tool_response_pending
+        if pending is not None:
+            self.tool_response_pending = None
+            name, sent_at = pending
+            log.info(
+                "tool to output session %s name=%s s=%.2f",
+                self.ctx["session_id"],
+                name,
+                _now() - sent_at,
+            )
 
     def _log_turn_latency(self) -> None:
         """16 section 2j item 9: the first output of a turn, timed from the guest.
@@ -1330,6 +1354,10 @@ class LiveSession:
         # the next turn gets its own latency line.
         self.awaiting_model_since = None
         self.last_audio_chunk_at = None
+        # 16 section 2s item 2: a turn cut short by an interruption can end with
+        # a tool response still unanswered. That wait is over with the turn, and
+        # measuring it against the next turn's output would invent a long gap.
+        self.tool_response_pending = None
         self.turn_latency_logged = False
         if self.go_away_waiting:
             # 2j item 4: the server gave us time to finish the turn, and we have.
@@ -1593,12 +1621,19 @@ class LiveSession:
             if name == "signal_confirmation_request":
                 # A pure UI signal: no state message, no activity, no logging.
                 self.ctx["awaiting_confirmation"] = True
+                started = _now()
                 result = tools.signal_confirmation_request(**args)
+                tool_ms = (_now() - started) * 1000
             else:
                 if name == "recommend_item":
                     self.recommended_this_turn = True
                 await self._maybe_send_state(TOOL_STATES.get(name, "THINKING"))
+                # 16 section 2s item 2: the tool's own time, timed around the
+                # call itself. The state message above is ours, not the tool's,
+                # so it is deliberately outside the measurement.
+                started = _now()
                 result = await self._run_tool(name, args)
+                tool_ms = (_now() - started) * 1000
                 if "error" not in result:
                     if name == "build_order":
                         self.ctx["awaiting_confirmation"] = False
@@ -1610,6 +1645,14 @@ class LiveSession:
                 name,
                 self.ctx["session_id"],
                 "true" if "error" in result else "false",
+            )
+            # 16 section 2s item 2: how long the tool itself took. No arguments
+            # and no result text, on every tool call.
+            log.info(
+                "tool done session %s name=%s ms=%.0f",
+                self.ctx["session_id"],
+                name,
+                tool_ms,
             )
             if name == "look_at_camera":
                 # Its row goes out with the capture_request, after the response
@@ -1630,6 +1673,10 @@ class LiveSession:
         await self.session.send_tool_response(function_responses=function_responses)
         # 16 section 2j item 5: Gemini has its result; something must come back.
         self.awaiting_model_since = _now()
+        # 16 section 2s item 2: the clock for "tool to output" starts when the
+        # response really leaves. One response carries the whole batch, so the
+        # name recorded is the last tool in it -- the one the response waited on.
+        self.tool_response_pending = (name, self.awaiting_model_since)
         if look_requested:
             # 09 section 17: the page is asked for the picture only after the model
             # has its tool response, and a second call restarts the whole wait.
