@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Maximize, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,11 @@ import { MenuCarousel } from "@/components/host/MenuCarousel";
 import { agentStore, useAgent } from "@/lib/agent/store";
 import { connectAgent } from "@/lib/agent/service";
 import { STATE_META, fmtCountdown, toMs, useNow } from "@/lib/agent/ui";
+import type { AgentStateName } from "@/lib/agent/types";
+import { C } from "@/lib/booth/constants";
+import { deviceIdOrDefault, listDevices, loadDeviceChoice, saveDeviceChoice, SYSTEM_DEFAULT, type DeviceChoice, type DeviceLists } from "@/lib/booth/devices";
+import type { LocalState, SessionView } from "@/lib/booth/session";
+import { isMicDebug, useHostSession } from "@/lib/booth/useHostSession";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/display")({
@@ -52,6 +57,65 @@ function useReadyQueue() {
   return head;
 }
 
+/**
+ * 16 §2t item 3: the orb follows the conversation the page itself is holding.
+ *
+ * While a conversation runs, the page's own `/ws/session` state wins: it is the
+ * same state the backend publishes, and it arrives here first. Between
+ * conversations there is nothing of its own to show, so the `role=smd` event
+ * stream decides — which is what drove this screen before.
+ */
+export function displayState(local: LocalState, fromEvents: AgentStateName): AgentStateName {
+  switch (local) {
+    case "noticed":
+    case "connecting":
+      // The guest has been noticed and the conversation is being set up.
+      return "seeing";
+    case "listening":
+      return "listening";
+    case "thinking":
+      return "thinking";
+    case "speaking":
+      return "speaking";
+    case "taking_order":
+      return "taking_order";
+    case "needs_help":
+      return "needs_help";
+    case "error":
+      return "offline";
+    case "idle":
+    case "booth_off":
+      return fromEvents;
+  }
+}
+
+/**
+ * 16 §2t items 4 and §2i item 6: what is written under the orb.
+ *
+ * THE HOST's own words, and nothing else. The guest's words never reach
+ * `hostLine` (the session drops them), so there is no path by which they could
+ * be printed on a screen the next guest in the queue can read.
+ */
+export function displayCaption(view: SessionView): string {
+  if (view.reconnecting) return C.RECONNECTING_LABEL;
+  if (view.oneMoment) return C.ONE_MOMENT_LABEL;
+  return view.hostLine;
+}
+
+/**
+ * 16 §2t item 4: the display's two keys, with the window focused.
+ *
+ * Space starts a conversation and Escape ends one. Neither applies while the
+ * caret is in the debug text box, where a space is just a space.
+ */
+export function displayKeyAction(event: { code?: string; key: string; targetTag?: string | undefined }): "start" | "end" | null {
+  const tag = (event.targetTag ?? "").toUpperCase();
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return null;
+  if (event.code === "Space" || event.key === " ") return "start";
+  if (event.key === "Escape") return "end";
+  return null;
+}
+
 /** Speaks an order-ready sentence once per order (public display only). */
 function useOrderReadyVoice(head: { order_id: number; customer_name?: string | null | undefined } | null) {
   const lastAgentState = useAgent((s) => s.lastAgentState);
@@ -74,25 +138,132 @@ function useOrderReadyVoice(head: { order_id: number; customer_name?: string | n
   }, [head, lastAgentState]);
 }
 
+/**
+ * 16 §2t item 4: the one click a browser needs before the microphone, the
+ * camera and sound, with the two drop-downs that say which devices to use.
+ * After this click the screen never needs touching again.
+ */
+function StartScreen({ onStart, starting, note }: { onStart: (choice: DeviceChoice) => void; starting: boolean; note: string }) {
+  const [choice, setChoice] = useState<DeviceChoice>(() => loadDeviceChoice());
+  const [lists, setLists] = useState<DeviceLists>({ cameras: [], mics: [] });
+
+  useEffect(() => {
+    void listDevices().then(setLists);
+  }, []);
+
+  const field = "w-full border border-line bg-surface-2 px-3 py-2 font-mono text-sm text-foreground";
+
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-8 bg-background px-7 text-center">
+      <BrandMark size="lg" tagline />
+      <Button
+        onClick={() => {
+          saveDeviceChoice(choice);
+          onStart(choice);
+        }}
+        disabled={starting}
+        className="h-auto px-10 py-5 font-display text-3xl font-semibold"
+      >
+        {starting ? "Starting…" : "Start THE HOST"}
+      </Button>
+      <div className="grid w-full max-w-md gap-4 text-left sm:grid-cols-2">
+        <label className="block">
+          <span className="label-caps mb-1 block">Camera</span>
+          <select className={field} value={choice.cameraId} onChange={(event) => setChoice({ ...choice, cameraId: event.target.value })} aria-label="Camera">
+            <option value={SYSTEM_DEFAULT}>System default</option>
+            {lists.cameras.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="label-caps mb-1 block">Microphone</span>
+          <select className={field} value={choice.micId} onChange={(event) => setChoice({ ...choice, micId: event.target.value })} aria-label="Microphone">
+            <option value={SYSTEM_DEFAULT}>System default</option>
+            {lists.mics.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="max-w-md text-sm text-muted-foreground">
+        {note || "The camera, the microphone and THE HOST's voice all belong to this screen. Space starts a conversation, Escape ends one."}
+      </p>
+    </div>
+  );
+}
+
 export function SMDDisplay() {
-  const state = useAgent((s) => s.state);
+  const fromEvents = useAgent((s) => s.state);
   const orders = useAgent((s) => s.orders);
   const focus = useAgent((s) => s.focus);
   const mode = useAgent((s) => s.mode);
   const opMode = useAgent((s) => s.opMode);
   const recommendation = useAgent((s) => s.recommendation);
   const now = useNow(1000);
-  const meta = STATE_META[state];
 
   // The public display connects with its own role=smd socket — never the
-  // dashboard's data, never the operator token. The backend sends this role
-  // no spoken-line events at all (16 §2o item 2), and this screen renders no
-  // spoken words of any kind: guest speech is never shown in public.
+  // dashboard's data, never the operator token. It carries the menu carousel,
+  // the ready-order queue and the state snapshot, exactly as before (§2t item 3).
   useEffect(() => {
     connectAgent("smd");
   }, []);
   const ready = useReadyQueue();
   useOrderReadyVoice(ready);
+
+  // 16 §2t item 3: this screen IS THE HOST now — camera, microphone, voice and
+  // the conversation itself. The video element is never shown: it exists so the
+  // face detector and the capture_request snapshot have a frame to read.
+  const { session, view, started, start } = useHostSession();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [starting, setStarting] = useState(false);
+  const debugMic = isMicDebug();
+  const [typed, setTyped] = useState("");
+
+  const state = displayState(view.state, fromEvents);
+  const meta = STATE_META[state];
+  const caption = displayCaption(view);
+
+  const onStart = useCallback(
+    async (choice: DeviceChoice) => {
+      setStarting(true);
+      try {
+        await start({
+          video: videoRef.current,
+          cameraId: deviceIdOrDefault(choice.cameraId),
+          micId: deviceIdOrDefault(choice.micId),
+        });
+      } finally {
+        setStarting(false);
+      }
+    },
+    [start],
+  );
+
+  // 16 §2t item 4: no guest-facing buttons. With this window focused, Space
+  // starts a conversation and Escape ends one — the operator's own two keys.
+  useEffect(() => {
+    if (!started || !session) return;
+    const onKey = (event: KeyboardEvent) => {
+      const action = displayKeyAction({
+        code: event.code,
+        key: event.key,
+        targetTag: (event.target as HTMLElement | null)?.tagName,
+      });
+      if (action === "start") {
+        event.preventDefault();
+        if (!session.isSessionActive()) void session.startSession("button");
+      } else if (action === "end") {
+        if (session.isSessionActive()) session.endSession("user");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [started, session]);
 
   const resting = opMode && opMode.mode !== "ONLINE" && mode !== "demo";
   // A queued announcement takes the screen even when THE HOST is back to IDLE:
@@ -116,6 +287,13 @@ export function SMDDisplay() {
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-hidden bg-background">
       <div className="pointer-events-none absolute inset-3 border border-line sm:inset-6" />
+
+      {/* The camera feed the detector and the snapshot read. Kept in the layout
+          (not display:none, which stops a browser decoding frames) but invisible:
+          the TV shows the orb, never a picture of the guest. */}
+      <video ref={videoRef} muted playsInline className="pointer-events-none absolute h-px w-px opacity-0" aria-hidden="true" />
+
+      {!started && <StartScreen onStart={(choice) => void onStart(choice)} starting={starting} note={view.notes.join(" ")} />}
 
       <Button
         variant="ghost"
@@ -157,9 +335,44 @@ export function SMDDisplay() {
                 {state === "offline" && <p className="mt-2 text-center text-[clamp(1rem,1.8vw,1.6rem)] text-muted-foreground">Please speak with a host</p>}
               </>
             )}
-            {/* No spoken words are ever rendered here: the waveform shows that
-                THE HOST is listening or speaking without revealing anything. */}
+            {/* 16 §2t item 4: THE HOST's own words, shown under the orb. The
+                guest's words are never shown — they never reach `hostLine`, so
+                there is no path to this element for them. */}
+            {caption && (
+              <p
+                data-testid="host-caption"
+                className={cn(
+                  "animate-rise mt-5 max-w-[min(80vw,900px)] text-center text-[clamp(1.1rem,2vw,1.8rem)] leading-snug",
+                  view.oneMoment || view.reconnecting ? "text-champagne" : "text-muted-foreground",
+                )}
+              >
+                {caption}
+              </p>
+            )}
             <VoiceWaveform active={voice} tone={state === "speaking" ? "ivory" : "gold"} bars={56} className={cn("mt-6 h-14 w-[min(70vw,520px)] transition-opacity", voice ? "opacity-100" : "opacity-30")} />
+
+            {/* 16 §2t item 4: the text box exists only with ?debug=mic. */}
+            {debugMic && started && (
+              <form
+                className="mt-6 flex w-[min(70vw,520px)] gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  session?.sendText(typed);
+                  setTyped("");
+                }}
+              >
+                <input
+                  value={typed}
+                  onChange={(event) => setTyped(event.target.value)}
+                  placeholder="Type to THE HOST (debug only)"
+                  aria-label="Type to THE HOST"
+                  className="flex-1 border border-line bg-surface-2 px-3 py-2 font-mono text-sm text-foreground"
+                />
+                <Button type="submit" variant="outline">
+                  Send
+                </Button>
+              </form>
+            )}
           </div>
 
           {orderStates && order && (

@@ -62,6 +62,11 @@ export interface SessionView {
   errorMessage: string;
   /** 16 §2i item 6: THE HOST's latest line. A guest's line never reaches here. */
   hostLine: string;
+  /**
+   * 16 §2t item 4: the guest stopped speaking at least ONE_MOMENT_MS ago and
+   * THE HOST has still not started. The caption says so until it does.
+   */
+  oneMoment: boolean;
   micAvailable: boolean;
   cameraAvailable: boolean;
   presenceAvailable: boolean;
@@ -123,6 +128,7 @@ export class HostSession {
     reconnecting: false,
     errorMessage: "",
     hostLine: "",
+    oneMoment: false,
     micAvailable: false,
     cameraAvailable: false,
     presenceAvailable: false,
@@ -151,6 +157,7 @@ export class HostSession {
     busy: Timer;
     micCounters: Timer;
     vision: Timer;
+    oneMoment: Timer;
   } = {
     tick: null,
     recover: null,
@@ -161,6 +168,7 @@ export class HostSession {
     busy: null,
     micCounters: null,
     vision: null,
+    oneMoment: null,
   };
 
   private vision = { sentPeople: -1, sentAt: 0, warned: false };
@@ -273,8 +281,36 @@ export class HostSession {
     this.onVoiceActivityChanged(active);
   }
 
-  /** 16 §2t item 4 hangs the THINKING switch here; the port itself does nothing. */
-  private onVoiceActivityChanged(_active: boolean) {}
+  /**
+   * 16 §2t item 4: the wait is always visibly alive.
+   *
+   * The page's own voice-activity end is the earliest moment anything knows the
+   * guest has finished -- the backend only learns it when Gemini transcribes
+   * them, a second or more later, and the server's own 500 ms end-of-speech wait
+   * comes before even that. So the orb goes to THINKING from here rather than
+   * waiting for a state message, and if THE HOST has still not started talking
+   * ONE_MOMENT_MS later the caption says so.
+   */
+  private onVoiceActivityChanged(active: boolean) {
+    if (active) {
+      // The guest is talking again: there is nothing to wait for yet.
+      this.clearOneMoment();
+      return;
+    }
+    if (!this.isSessionActive()) return;
+    // THE HOST already talking is not a wait, so its state is left alone.
+    if (this.view.state !== "speaking") this.setState("thinking");
+    if (this.timers.oneMoment) clearTimeout(this.timers.oneMoment);
+    this.timers.oneMoment = setTimeout(() => {
+      if (this.isSessionActive()) this.patch({ oneMoment: true });
+    }, C.ONE_MOMENT_MS);
+  }
+
+  private clearOneMoment() {
+    if (this.timers.oneMoment) clearTimeout(this.timers.oneMoment);
+    this.timers.oneMoment = null;
+    if (this.view.oneMoment) this.patch({ oneMoment: false });
+  }
 
   private pollVoiceActivity = () => {
     if (!this.isSessionActive() || !this.ws || this.ws.readyState !== SOCKET_OPEN) return;
@@ -490,8 +526,10 @@ export class HostSession {
     }
   }
 
-  /** 16 §2t item 4 hangs the caption reset here. */
-  private onInterrupted() {}
+  /** The turn was cut short, so whatever was being waited for is moot. */
+  private onInterrupted() {
+    this.clearOneMoment();
+  }
 
   private appendTranscript(role: string, text: string, final: boolean) {
     // 16 §2i item 6: this screen faces the queue, and at the 5c test it showed
@@ -563,6 +601,7 @@ export class HostSession {
     if (!retry) this.busy.tries = 0;
     this.lastRole = null;
     this.lastFinal = true;
+    this.clearOneMoment();
     this.patch({ hostLine: "" });
     if (this.timers.recover) clearTimeout(this.timers.recover);
     this.timers.recover = null;
@@ -620,8 +659,10 @@ export class HostSession {
     };
   }
 
-  /** 16 §2t item 4 hangs the "One moment…" clearing here. */
-  private onHostAudio() {}
+  /** 16 §2t item 4: "until it does" — THE HOST has started talking. */
+  private onHostAudio() {
+    this.clearOneMoment();
+  }
 
   endSession(reason: "user" | "timeout" | "cap" | "absent" | "error") {
     this.endingByUs = true;
@@ -658,7 +699,8 @@ export class HostSession {
     this.wake.lastEndAt = this.now();
     this.wake.speechSince = 0;
     this.cap.sentAt = 0;
-    this.patch({ reconnecting: false, hostLine: "" });
+    this.clearOneMoment();
+    this.patch({ reconnecting: false, hostLine: "", oneMoment: false });
     if (reason !== "error") this.setState("idle");
     this.openIdleMic();
   }

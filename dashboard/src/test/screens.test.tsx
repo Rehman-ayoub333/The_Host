@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/agent/service", () => ({
   connectAgent: () => undefined,
   disconnectAgent: () => undefined,
+  // 16 §2t item 3: /display reads the agent link to reach /ws/session.
+  getAgentConfig: () => ({ agentUrl: "http://localhost:8000", token: "" }),
   setOrderStatus: () => Promise.resolve(true),
   announceAgain: () => Promise.resolve(true),
   updateVisitor: () => Promise.resolve(true),
@@ -55,10 +57,12 @@ afterEach(() => {
   agentStore.dispatch({ type: "@reset" });
 });
 
-describe("the public display renders no spoken line", () => {
+describe("the public display renders no spoken line from the event stream", () => {
   it("shows neither the guest's words nor THE HOST's, even if events reach the store", () => {
     // The backend never sends these to role=smd; this proves the screen would
-    // not render them even so.
+    // not render them even so. 16 §2t item 4 adds THE HOST's caption, but it is
+    // fed by the page's own /ws/session socket -- never by this event stream,
+    // which still carries no transcripts at all.
     dispatchAll([
       { type: "agent_state_changed", state: "LISTENING", timestamp: "2026-10-16T10:06:10", session_id: "a1b2c3d4" },
       { type: "speech_transcript", role: "visitor", text: GUEST_LINE, final: true, session_id: "a1b2c3d4" },
