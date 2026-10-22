@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/host/AppShell";
+import { PanelBoundary } from "@/components/host/PanelBoundary";
 import { ActivityPanel, CorePanel, TranscriptPanel } from "@/components/host/panels";
 
 export const Route = createFileRoute("/activity")({
@@ -16,10 +17,16 @@ export const Route = createFileRoute("/activity")({
   component: () => (
     <AppShell title="AI Activity" subtitle="Every event received from the agent, newest first.">
       <div className="grid gap-4 xl:grid-cols-12">
-        <ActivityPanel limit={80} className="xl:col-span-7" />
+        <PanelBoundary name="Activity" className="xl:col-span-7">
+          <ActivityPanel limit={80} />
+        </PanelBoundary>
         <div className="grid content-start gap-4 xl:col-span-5">
-          <CorePanel />
-          <TranscriptPanel />
+          <PanelBoundary name="AI Host">
+            <CorePanel />
+          </PanelBoundary>
+          <PanelBoundary name="Transcript">
+            <TranscriptPanel />
+          </PanelBoundary>
         </div>
       </div>
     </AppShell>

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/host/AppShell";
+import { PanelBoundary } from "@/components/host/PanelBoundary";
 import { ActivityPanel, VisionPanel } from "@/components/host/panels";
 
 export const Route = createFileRoute("/vision")({
@@ -16,8 +17,12 @@ export const Route = createFileRoute("/vision")({
   component: () => (
     <AppShell title="Live Vision" subtitle="Camera feed, detections and current focus as reported by the agent.">
       <div className="grid gap-4 xl:grid-cols-12">
-        <VisionPanel tall className="xl:col-span-9" />
-        <ActivityPanel limit={10} className="xl:col-span-3" />
+        <PanelBoundary name="Live Vision" className="xl:col-span-9">
+          <VisionPanel tall />
+        </PanelBoundary>
+        <PanelBoundary name="Activity" className="xl:col-span-3">
+          <ActivityPanel limit={10} />
+        </PanelBoundary>
       </div>
     </AppShell>
   ),

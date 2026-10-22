@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/host/AppShell";
 import { LivePanel } from "@/components/host/LivePanel";
+import { PanelBoundary } from "@/components/host/PanelBoundary";
 import { ActivityPanel, AnalyticsPanel, CorePanel, OrdersPanel, StateStrip, SystemPanel, VisionPanel, VisitorsPanel } from "@/components/host/panels";
 
 export const Route = createFileRoute("/")({
@@ -23,18 +24,38 @@ function CommandCenter() {
       {/* 16 §2p item 2: the original design's order — the AI Host and Live
           Vision on top, then the nine states, then the working panels, with
           Live conversation where the old voice panel stood. */}
+      {/* 16 §2s item 4b: one boundary each, so a panel that throws costs that
+          panel and nothing else. */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <CorePanel className="xl:col-span-5" />
-        <VisionPanel className="xl:col-span-7" />
+        <PanelBoundary name="AI Host" className="xl:col-span-5">
+          <CorePanel />
+        </PanelBoundary>
+        <PanelBoundary name="Live Vision" className="xl:col-span-7">
+          <VisionPanel />
+        </PanelBoundary>
         <div className="xl:col-span-12">
-          <StateStrip />
+          <PanelBoundary name="States">
+            <StateStrip />
+          </PanelBoundary>
         </div>
-        <OrdersPanel className="xl:col-span-5" />
-        <ActivityPanel className="xl:col-span-4" />
-        <VisitorsPanel className="xl:col-span-3" />
-        <LivePanel className="xl:col-span-5" />
-        <AnalyticsPanel className="xl:col-span-4" />
-        <SystemPanel className="xl:col-span-3" />
+        <PanelBoundary name="Orders" className="xl:col-span-5">
+          <OrdersPanel />
+        </PanelBoundary>
+        <PanelBoundary name="Activity" className="xl:col-span-4">
+          <ActivityPanel />
+        </PanelBoundary>
+        <PanelBoundary name="Visitors" className="xl:col-span-3">
+          <VisitorsPanel />
+        </PanelBoundary>
+        <PanelBoundary name="Live conversation" className="xl:col-span-5">
+          <LivePanel />
+        </PanelBoundary>
+        <PanelBoundary name="Analytics" className="xl:col-span-4">
+          <AnalyticsPanel />
+        </PanelBoundary>
+        <PanelBoundary name="System" className="xl:col-span-3">
+          <SystemPanel />
+        </PanelBoundary>
       </div>
     </AppShell>
   );

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/host/AppShell";
+import { PanelBoundary } from "@/components/host/PanelBoundary";
 import { AnalyticsPanel, OrdersPanel } from "@/components/host/panels";
 
 export const Route = createFileRoute("/orders")({
@@ -16,8 +17,12 @@ export const Route = createFileRoute("/orders")({
   component: () => (
     <AppShell title="Orders" subtitle="Orders created by THE HOST, with times supplied by the kitchen system.">
       <div className="grid gap-4 xl:grid-cols-12">
-        <OrdersPanel limit={50} className="xl:col-span-8" />
-        <AnalyticsPanel className="xl:col-span-4" />
+        <PanelBoundary name="Orders" className="xl:col-span-8">
+          <OrdersPanel limit={50} />
+        </PanelBoundary>
+        <PanelBoundary name="Analytics" className="xl:col-span-4">
+          <AnalyticsPanel />
+        </PanelBoundary>
       </div>
     </AppShell>
   ),

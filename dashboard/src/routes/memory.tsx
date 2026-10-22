@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/host/AppShell";
+import { PanelBoundary } from "@/components/host/PanelBoundary";
 import { MemoryPanel, VisitorsPanel } from "@/components/host/panels";
 
 export const Route = createFileRoute("/memory")({
@@ -16,8 +17,12 @@ export const Route = createFileRoute("/memory")({
   component: () => (
     <AppShell title="Memory" subtitle="Only what the agent's memory system has actually stored.">
       <div className="grid gap-4 xl:grid-cols-12">
-        <MemoryPanel limit={100} className="xl:col-span-8" />
-        <VisitorsPanel className="xl:col-span-4" />
+        <PanelBoundary name="Memory" className="xl:col-span-8">
+          <MemoryPanel limit={100} />
+        </PanelBoundary>
+        <PanelBoundary name="Visitors" className="xl:col-span-4">
+          <VisitorsPanel />
+        </PanelBoundary>
       </div>
     </AppShell>
   ),
