@@ -563,6 +563,36 @@ def test_interrupted_flushes_the_buffers_and_returns_to_the_resting_state():
     validate(ws)
 
 
+def test_the_interruption_line_says_whether_the_host_was_speaking(caplog):
+    """16 section 2u item 2: the evidence that tells echo apart from a guest.
+
+    The field is the diagnosis for THE HOST hearing itself: an interruption that
+    lands while its own audio is in flight is the one that can be its own voice
+    coming back through the handheld microphone.
+    """
+    session, ws = listening()
+    session_id = session.ctx["session_id"]
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        # Nothing has been said yet, so no audio is in flight.
+        feed(session, [message(content(interrupted=True))])
+        # Now a turn has started producing audio, and is cut off mid-word.
+        feed(
+            session,
+            [
+                message(content(audio=b"\x01")),
+                message(content(interrupted=True)),
+            ],
+        )
+
+    messages = [record.getMessage() for record in caplog.records]
+    print("interruption lines:", [m for m in messages if m.startswith("interrupted")])
+
+    assert f"interrupted session {session_id} while_speaking=false" in messages
+    assert f"interrupted session {session_id} while_speaking=true" in messages
+    validate(ws)
+
+
 def test_an_interrupted_greeting_is_not_greeted_a_second_time():
     """16 section 2a item 5: greeted is set at the first turn_complete OR interrupted."""
     session, ws = listening()
@@ -700,7 +730,7 @@ def test_the_evidence_log_lines_never_carry_the_text(caplog):
         asyncio.run(session._uplink())
 
     messages = [record.getMessage() for record in caplog.records]
-    assert f"interrupted session {session_id}" in messages
+    assert f"interrupted session {session_id} while_speaking=false" in messages
     assert f"vision_frame session {session_id}" in messages
     assert f"text_input session {session_id} chars=18" in messages
 

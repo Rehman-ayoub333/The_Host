@@ -1261,7 +1261,15 @@ class LiveSession:
         server_content = message.server_content
         if server_content is not None:
             if server_content.interrupted:
-                log.info("interrupted session %s", self.ctx["session_id"])
+                # 16 section 2u item 2: whether THE HOST's own audio was in
+                # flight when Gemini cut the turn. `first_audio_sent` is true
+                # from this turn's first audio chunk until the turn ends, which
+                # is exactly the window in which THE HOST can hear itself.
+                log.info(
+                    "interrupted session %s while_speaking=%s",
+                    self.ctx["session_id"],
+                    "true" if self.first_audio_sent else "false",
+                )
                 await self._send_control({"type": "interrupted"})
                 await self._end_of_turn(interrupted=True)
 
