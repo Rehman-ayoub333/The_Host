@@ -13,10 +13,8 @@ from time import monotonic
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, StrictBool, StrictInt, ValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import config
 import data
@@ -784,27 +782,23 @@ async def websocket_session(websocket: WebSocket):
         )
 
 
-class NoStoreStaticFiles(StaticFiles):
-    """16 section 2e item 2.
+# ------------------------------------------------------------- the root page
 
-    Chrome served the pre-Phase-4 `app.js` through a whole booth test, so the
-    page ignored `capture_request` and the fault looked like a backend one.
-    Every file this mount serves now says `no-store`, the 404 included.
-    """
-
-    async def get_response(self, path, scope):
-        try:
-            response = await super().get_response(path, scope)
-        except StarletteHTTPException as exc:
-            # Same body FastAPI's own handler would have produced, but routed
-            # through here so the header is on the miss as well.
-            response = JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
-        response.headers["Cache-Control"] = "no-store"
-        return response
+# 16 section 2v item 5: the old voice page is retired. THE HOST is the display
+# screen now, and the backend serves no static files at all -- just this one
+# line, for anyone who opens the backend's own address by habit.
+ROOT_PAGE = """<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>THE HOST</title></head>
+<body>
+<p>THE HOST backend is running. The display screen is at
+<a href="http://localhost:8080/display">http://localhost:8080/display</a></p>
+</body>
+</html>
+"""
 
 
-app.mount(
-    "/",
-    NoStoreStaticFiles(directory=config.FRONTEND_DIR, html=True),
-    name="booth",
-)
+@app.get("/", response_class=HTMLResponse)
+async def get_root() -> HTMLResponse:
+    """16 section 2v item 5: a tiny page saying where THE HOST actually is."""
+    return HTMLResponse(ROOT_PAGE, headers={"Cache-Control": "no-store"})

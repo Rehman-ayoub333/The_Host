@@ -65,8 +65,9 @@ any script here.
 
 The TV is THE HOST: the camera, the handheld microphone and THE HOST's voice all belong to
 that page. The laptop is the operator's, and it holds the only screen with order controls
-and guest names on it. The page at `http://127.0.0.1:8000/` is **the fallback only** — it is
-not part of the setup, and it is used solely if `/display` will not start (section 4).
+and guest names on it. `http://127.0.0.1:8000/` is the backend, not a screen: it answers
+with one line saying where the display is. There is no second voice page any more — if
+`/display` will not start, see section 4.
 
 1. **Plug in the hardware first,** before any window is opened: the external camera, the
    handheld microphone, the speaker, and the HDMI cable to the TV.
@@ -168,11 +169,10 @@ back to work.
   guest: the orb stays idle, and nothing happens when someone speaks in front of it. Check
   **Settings → Display screen devices** on the laptop first — a saved camera or microphone
   that has been unplugged is named there, and the TV itself says nothing about it. If that
-  is not it, fall back to the old voice page: open `http://127.0.0.1:8000/?debug=mic` on the
-  laptop, full screen, facing the guests, and set the TV to
-  `http://localhost:8080/display` as a display-only screen (do not tap it). That is the
-  pre-gala arrangement and it still works. Tell the operator, because the camera then
-  belongs to the laptop.
+  is not it, open `http://localhost:8080/display` on the **laptop** instead, full screen and
+  facing the guests, and tap it once. It is the same page with the laptop's own camera and
+  microphone. Tell the operator, because the camera then belongs to the laptop, and they
+  keep the dashboard in a second window.
 - **The venue internet fails.** Switch the booth laptop to the phone hotspot, then press
   **Retry connection** on the dashboard. The mode should return to `ONLINE`.
 - **Nothing works.** Open **Settings → Demo Mode (backup)** and press **Start Demo Mode**.

@@ -107,12 +107,14 @@ try {
     Report "FAIL" "Menu endpoint" "GET /api/menu did not answer"
 }
 
+# 16 section 2v item 5: the display screen IS THE HOST, so this is a FAIL and
+# not a WARN. It is served by the dashboard, not by the backend.
 try {
-    $booth = Invoke-WebRequest -Uri "http://127.0.0.1:8000/" -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop
-    if ([int]$booth.StatusCode -eq 200) { Report "PASS" "Voice page" "HTTP 200 at http://127.0.0.1:8000/" }
-    else { Report "FAIL" "Voice page" "HTTP $([int]$booth.StatusCode)" }
+    $display = Invoke-WebRequest -Uri "http://localhost:8080/display" -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop
+    if ([int]$display.StatusCode -eq 200) { Report "PASS" "Display screen" "HTTP 200 at http://localhost:8080/display" }
+    else { Report "FAIL" "Display screen" "HTTP $([int]$display.StatusCode)" }
 } catch {
-    Report "FAIL" "Voice page" "the voice page did not answer"
+    Report "FAIL" "Display screen" "not answering -- run scripts\start-dashboard.ps1"
 }
 
 # --------------------------------------------------------------- the dashboard

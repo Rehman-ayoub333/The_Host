@@ -69,26 +69,31 @@ def test_the_example_env_ships_the_new_default():
     assert "GEMINI_VOICE=Sulafat" in lines
 
 
-def test_the_voice_page_is_never_cached(monkeypatch):
-    """16 section 2e item 2: a stale app.js silently disabled a whole phase."""
+def test_the_root_page_says_where_the_display_is(monkeypatch):
+    """16 section 2v item 5: the old voice page is retired.
+
+    Ported from test_the_voice_page_is_never_cached (2e item 2, a stale app.js).
+    The backend serves no static files at all now, so there is nothing left to
+    cache; the one thing `/` has to do is say where THE HOST actually is.
+    """
     monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
 
     with TestClient(main.app) as client:
-        for path in ("/", "/app.js", "/no-such-file.js"):
-            response = client.get(path)
-            print(
-                f"GET {path} -> {response.status_code} "
-                f"Cache-Control: {response.headers.get('cache-control')!r}"
-            )
-            assert response.headers["cache-control"] == "no-store"
+        response = client.get("/")
+        print(f"GET / -> {response.status_code} {response.headers.get('content-type')!r}")
+        print("body:", response.text.strip())
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert response.headers["cache-control"] == "no-store"
+        assert "THE HOST backend is running" in response.text
+        assert "http://localhost:8080/display" in response.text
 
-        assert client.get("/").status_code == 200
-        assert client.get("/app.js").status_code == 200
-        missing = client.get("/no-such-file.js")
-        assert missing.status_code == 404
-        assert missing.json() == {"detail": "Not Found"}
-
-    assert isinstance(main.app.routes[-1].app, main.NoStoreStaticFiles)
+        # Nothing static is served any more, so a file of the retired page is a
+        # plain 404 rather than a hit.
+        for path in ("/app.js", "/index.html", "/no-such-file.js"):
+            missing = client.get(path)
+            print(f"GET {path} -> {missing.status_code}")
+            assert missing.status_code == 404
 
 
 def test_the_retired_records_endpoint_is_gone(monkeypatch):

@@ -48,14 +48,8 @@ a screen comes from the database — never from a guess.
 
 ```mermaid
 flowchart LR
-    subgraph Browser["Voice page (served by the backend)"]
-        PRES["presence.js<br/>on-device person detection"]
-        AUD["audio.js<br/>mic in / speaker out"]
-        ROB["robot.js<br/>robot face, 11 states"]
-    end
-
     subgraph Backend["FastAPI backend"]
-        MAIN["main.py<br/>routes, sockets, static"]
+        MAIN["main.py<br/>routes, sockets"]
         LIVE["live_session.py<br/>the conversation"]
         TOOLS["tools.py<br/>13 tools"]
         BUS["event_bus.py<br/>role filtering"]
@@ -70,11 +64,11 @@ flowchart LR
 
     subgraph Screens["Separate local web app"]
         DASH["Operator dashboard"]
-        SMD["Public display"]
+        SMD["Public display — THE HOST itself:<br/>camera, microphone, voice, orb, captions"]
     end
 
-    AUD <-->|"/ws/session — audio + 5 event types"| MAIN
-    PRES -->|"POST /api/vision"| MAIN
+    SMD <-->|"/ws/session — audio + 5 event types"| MAIN
+    SMD -->|"POST /api/vision"| MAIN
     MAIN --> LIVE
     LIVE <-->|audio, tool calls| GEM
     LIVE --> PROMPT
@@ -89,7 +83,6 @@ flowchart LR
     BUS -->|"/ws/events (smd) — filtered"| SMD
     DASH -->|"REST, operator token"| MAIN
     SMD -->|"GET /api/menu"| MAIN
-    MAIN --> ROB
 ```
 
 Two WebSockets, deliberately separate:
@@ -143,10 +136,14 @@ completed transcript lines, never partials.
 same order can never be announced twice. The order-ready event goes to both screens, and if
 a conversation is running THE HOST speaks the announcement itself. It waits for a gap: an
 announcement is never injected while a model turn is producing output, while the guest is
-mid-sentence, or while the voice page's microphone meter says the guest is talking, because
-doing so makes the model cut its own sentence off. Even in a gap it waits 0.8 seconds and
-looks again, since a guest's first syllable reaches the room before it reaches the backend.
-Deferred announcements leave one per turn end, or as soon as the guest falls silent.
+mid-sentence, or while the display screen's microphone meter says the guest is talking,
+because doing so makes the model cut its own sentence off. Even in a gap it waits 0.8
+seconds and looks again, since a guest's first syllable reaches the room before it reaches
+the backend. Deferred announcements leave one per turn end, or as soon as the guest falls
+silent. An order leaves the pending list only once THE HOST has finished saying it, and an
+order THE HOST has already announced is never handed to the display a second time. An
+order that becomes ready between conversations gets the banner and one soft chime on the
+display — THE HOST has one voice, and the screen never speaks in another.
 
 **Guests of honour, and how THE HOST sounds.** A guest who says they are the Vice
 Chancellor or the chief guest of the gala is greeted as "Sir" or "Ma'am", thanked on the
@@ -182,10 +179,10 @@ Fill these in alongside the real menu in `data/menu.json`; leaving one out is al
 | Backend | Python 3.13, FastAPI, Uvicorn |
 | AI | Gemini Live API via `google-genai` (audio in/out, function calling) |
 | Storage | SQLite (single local file) |
-| Voice page | Vanilla HTML/CSS/JavaScript, Web Audio API, MediaPipe for presence |
-| Tests | pytest |
+| Display screen | TanStack Start (React), Web Audio API, MediaPipe for presence |
+| Tests | pytest, vitest |
 
-No paid services, no cloud database, no build step for the voice page.
+No paid services and no cloud database.
 
 ## Getting started (Windows)
 
@@ -219,7 +216,7 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000
 
 | Script | What it starts |
 |---|---|
-| `.\scripts\start-backend.ps1` | The backend on `127.0.0.1:8000`, which also serves the voice page at `/` |
+| `.\scripts\start-backend.ps1` | The backend on `127.0.0.1:8000` |
 | `.\scripts\start-dashboard.ps1` | The dashboard — runs `bun install` first if `node_modules` is missing |
 | `.\scripts\start-all.ps1` | Both of the above, each in its own window |
 | `.\scripts\run-tests.ps1` | The full backend suite (any extra arguments go straight to pytest) |
@@ -232,16 +229,17 @@ exists; it never opens it, and no script ever reads or prints the operator token
 **Running the stall on the day:** [docs/GALA-RUNBOOK.md](docs/GALA-RUNBOOK.md) — setup,
 roles, the kitchen flow, the operator buttons, and what to do when the internet drops.
 
-Then open **http://localhost:8000/** in Chrome and allow the microphone and camera. The page
-greets a guest on its own, so it must be a visible window of its own — presence detection
-pauses while the tab is hidden. A partly overlapped window is fine; a minimised one is not.
+Then open **http://localhost:8080/display** in Chrome and tap the screen once, which is how
+a browser lets a page use the microphone, camera and sound. The camera and the microphone
+themselves are chosen on the laptop, in the dashboard's Settings. The display greets a guest
+on its own, so it must be a visible window of its own — presence detection pauses while the
+tab is hidden. A partly overlapped window is fine; a minimised one is not.
+
+`http://127.0.0.1:8000/` is the backend, not a screen: it answers with one line saying where
+the display is.
 
 `.env` is never committed and the key is only ever read by the backend process. It is never
 logged, never sent to a browser, and never written into any file by the application.
-
-**Hard-refresh note.** The backend now serves every static file with `Cache-Control:
-no-store`, so the browser cannot keep an old copy of the voice page. If you have an older
-build cached from before that change, load the page once with **Ctrl+Shift+R** to clear it.
 
 ## Configuration
 
@@ -259,7 +257,6 @@ them all. **Put no real secret in any file that is committed.**
 | `MENU_JSON_PATH` | Seed file the menu table is loaded from on first run. | `./data/menu.json` |
 | `BUSINESS_INFO_JSON_PATH` | Seed file for the stall facts the agent may state. | `./data/business_info.json` |
 | `DB_PATH` | The SQLite file. | `./data/the_host.db` |
-| `FRONTEND_DIR` | Folder served as the voice page. | `../booth` |
 | `CORS_ALLOW_ORIGINS` | Comma-separated origins allowed to call the API. No wildcard. | `http://localhost:8080,http://localhost:5173,http://localhost:4173` |
 | `PORT` | Port recorded for the frontends to use. | `8000` |
 | `VISION_SEND_MODE` | How a snapshot reaches the model: `client_content` (picture and question as one turn) or `realtime` (two calls). | `client_content` |
@@ -297,7 +294,7 @@ anything requires it.
 | `/ws/events?role=dashboard` | Read-only observer stream for the operator. Also needs the operator token, passed as a query parameter because a browser cannot set a header on a WebSocket handshake |
 | `/ws/events?role=smd` | Read-only observer stream for the public display, filtered in the backend |
 
-**What the voice page sends back on `/ws/session`:** microphone audio as raw PCM,
+**What the display screen sends back on `/ws/session`:** microphone audio as raw PCM,
 `vision_frame` (one JPEG, when the guest shows the camera something or THE HOST asks for a
 picture), `text_input` (a typed line, when the microphone is unavailable) and
 `voice_activity` — `{"active": true}` or `{"active": false}`, nothing else. It comes from
@@ -328,7 +325,7 @@ closing is what actually ends the conversation.
 | `agent_activity` | One line for the activity feed. Dashboard only |
 | `system_status_changed` | A component the backend can actually observe changed. Dashboard only |
 | `operational_mode_changed` | `ONLINE`, `OFFLINE`, `PAUSED` or `OPERATOR_TAKEOVER` |
-| `capture_request` | The agent is asking the voice page for one picture. Never public |
+| `capture_request` | The agent is asking the display screen for one picture. Never public |
 | `error` | A plain, human-readable failure message |
 | `heartbeat` | Every 10 seconds, so a client knows the stream is alive |
 
@@ -424,13 +421,13 @@ THE_HOST/
 ├── backend/      the FastAPI backend and the Gemini Live agent — all the code above
 │   ├── data/     the menu and stall-facts seed files (the SQLite file is never committed)
 │   └── tests/    the full suite
-├── booth/        the voice page: the screen that listens, speaks and watches
-├── dashboard/    the operator dashboard and the public display (TanStack Start)
+├── dashboard/    the operator dashboard and the display screen (TanStack Start)
 └── scripts/      one-command start and test scripts for Windows
 ```
 
-`backend/` serves `booth/` itself, at `/`. `dashboard/` is a separate web app that runs on
-its own port and talks to the backend over the REST and WebSocket contract above.
+`backend/` serves no static files. `dashboard/` is a separate web app that runs on its own
+port and talks to the backend over the REST and WebSocket contract above; its `/display`
+route is the screen that listens, speaks and watches.
 
 ## Roadmap
 
