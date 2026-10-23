@@ -43,7 +43,7 @@ export const Route = createFileRoute("/settings")({
  * default, because a warning on a guest-facing screen would be worse than the
  * wrong microphone.
  */
-function DisplayDevicesPanel() {
+function DisplayDevicesPanel({ className }: { className?: string | undefined }) {
   const [choice, setChoice] = useState<DeviceChoice>(() => loadDeviceChoice());
   const [lists, setLists] = useState<DeviceLists>({ cameras: [], mics: [] });
   const [saved, setSaved] = useState(false);
@@ -63,7 +63,8 @@ function DisplayDevicesPanel() {
   }
 
   return (
-    <Panel title="Display screen devices" icon={<MonitorSpeaker className="h-4 w-4" />}>
+    // PanelBoundary gives the panel its grid class, so it has to arrive here.
+    <Panel title="Display screen devices" icon={<MonitorSpeaker className="h-4 w-4" />} className={className}>
       <div className="max-w-xl space-y-4">
         <p className="text-sm text-muted-foreground">
           The camera and microphone THE HOST uses on the display screen. Saved in this browser, and read by /display on the
@@ -163,7 +164,7 @@ export function SettingsPage() {
 
         {/* 16 §2u item 5: the TV has no controls on it any more, so the display's
             camera and microphone are chosen here, on the laptop. */}
-        <PanelBoundary name="Display screen devices" className="xl:col-span-8">
+        <PanelBoundary name="Display screen devices" className="xl:col-span-4">
           <DisplayDevicesPanel />
         </PanelBoundary>
 

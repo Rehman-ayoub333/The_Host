@@ -119,6 +119,18 @@ describe("the Display screen devices section (16 §2u item 5)", () => {
     expect(screen.getByLabelText("Microphone")).toHaveValue(SYSTEM_DEFAULT);
   });
 
+  it("takes its slot in the grid, rather than collapsing to one column", async () => {
+    // PanelBoundary hands the panel its grid class as a prop (PanelBoundary.tsx),
+    // so a panel that does not forward className renders one column wide. That
+    // is exactly what happened to this section the first time.
+    render(<SettingsPage />);
+
+    const heading = await screen.findByText("Display screen devices");
+    const section = heading.closest("section");
+    expect(section).not.toBeNull();
+    expect(section!.className).toContain("col-span-");
+  });
+
   it("warns the operator about a saved device that is gone", async () => {
     saveDeviceChoice({ cameraId: "cam-unplugged", micId: "mic-a" });
 
