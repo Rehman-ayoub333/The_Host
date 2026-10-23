@@ -10,6 +10,21 @@
  */
 import { C } from "./constants";
 
+/**
+ * 16 §2u item 4: what the debug playback line reports.
+ *
+ * `maxLateMs` is the worst lateness seen in the window: how long after the
+ * previous chunk's audio ended the next chunk could first be scheduled. Zero
+ * means playback was continuous -- each chunk was already queued behind the one
+ * before it. `underruns` counts the chunks whose lateness passed
+ * PLAYBACK_UNDERRUN_MS, which is audible as THE HOST's voice breaking up.
+ */
+export interface PlaybackStats {
+  chunks: number;
+  maxLateMs: number;
+  underruns: number;
+}
+
 export interface AudioPort {
   init(): Promise<void>;
   probeMic(deviceId?: string): Promise<boolean>;
@@ -20,6 +35,15 @@ export interface AudioPort {
   isPlaying(): boolean;
   getMicAmp(): number;
   getPlaybackAmp(): number;
+  /**
+   * 16 §2u item 4: the turn is over, so the silence until THE HOST speaks again
+   * is a guest talking rather than starved playback. Does not stop any audio
+   * that is still playing out -- a turn ends at the backend long before the last
+   * chunk of it has been heard.
+   */
+  endPlaybackTurn(): void;
+  /** Reads the counters for the last window and starts a fresh one. */
+  takePlaybackStats(): PlaybackStats;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -38,6 +62,11 @@ let src: MediaStreamAudioSourceNode | null = null;
 let proc: AudioWorkletNode | null = null;
 let mute: GainNode | null = null;
 let workletReady = false;
+// 16 §2u item 4: the playback meter. `turnEndAt` is where the previous chunk of
+// THIS turn finished, in the playback context's own clock; null means the turn
+// has no chunk before this one, so there is nothing to be late against.
+let turnEndAt: number | null = null;
+let stats: PlaybackStats = { chunks: 0, maxLateMs: 0, underruns: 0 };
 
 export const audio: AudioPort = {
   async init() {
@@ -197,6 +226,27 @@ export const audio: AudioPort = {
     envelope.push({ start: startAt, end: endAt, amp });
     active.add(node);
     node.onended = () => active.delete(node);
+
+    // 16 §2u item 4: measure, in the same clock the audio is scheduled on. A
+    // chunk that had to be pushed past the previous one's end is a gap the guest
+    // hears -- THE HOST's voice breaking up between words.
+    stats.chunks += 1;
+    if (turnEndAt !== null) {
+      const lateMs = Math.max(0, (startAt - turnEndAt) * 1000);
+      if (lateMs > stats.maxLateMs) stats.maxLateMs = lateMs;
+      if (lateMs > C.PLAYBACK_UNDERRUN_MS) stats.underruns += 1;
+    }
+    turnEndAt = endAt;
+  },
+
+  endPlaybackTurn() {
+    turnEndAt = null;
+  },
+
+  takePlaybackStats() {
+    const taken = stats;
+    stats = { chunks: 0, maxLateMs: 0, underruns: 0 };
+    return taken;
   },
 
   flushPlayback() {
@@ -210,6 +260,8 @@ export const audio: AudioPort = {
     active.clear();
     nextPlayTime = 0;
     envelope.length = 0;
+    // Nothing of this turn is left to be late against.
+    turnEndAt = null;
   },
 
   isPlaying() {

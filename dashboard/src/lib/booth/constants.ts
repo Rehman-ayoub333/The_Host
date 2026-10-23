@@ -71,6 +71,14 @@ export const C = {
   // for this long after, the page sends silence instead of the microphone and
   // its own voice-activity detection ignores the window.
   ECHO_GATE_TAIL_MS: 300,
+  // 16 §2u item 4: playback never starves. A chunk that can only be scheduled
+  // more than this long after the previous chunk of the same turn finished is an
+  // underrun -- a gap the guest hears as THE HOST's voice breaking up.
+  PLAYBACK_UNDERRUN_MS: 150,
+  // 16 §2u item 4: the caption is rewritten at most 10 times a second, so a
+  // fast run of transcript fragments cannot turn into a React render per
+  // fragment while audio is being scheduled.
+  CAPTION_MIN_MS: 100,
 } as const;
 
 /** 16 §2i item 3: how long after the wrap-up line is asked for the page waits

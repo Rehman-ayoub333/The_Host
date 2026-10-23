@@ -158,6 +158,8 @@ export class HostSession {
     micCounters: Timer;
     vision: Timer;
     oneMoment: Timer;
+    caption: Timer;
+    playCounters: Timer;
   } = {
     tick: null,
     recover: null,
@@ -169,6 +171,8 @@ export class HostSession {
     micCounters: null,
     vision: null,
     oneMoment: null,
+    caption: null,
+    playCounters: null,
   };
 
   private vision = { sentPeople: -1, sentAt: 0, warned: false };
@@ -188,6 +192,10 @@ export class HostSession {
   // what the echo gate's 300 ms tail is measured from. 0 means it has not played
   // since the page loaded.
   private echo = { lastPlayingAt: 0 };
+  // 16 §2u item 4: when the caption was last rewritten, and the newest text
+  // still waiting for the rate limit to allow it through.
+  private caption: { lastAt: number; pending: string | null } = { lastAt: 0, pending: null };
+  private playCounters = { since: 0 };
   private micDebug: { samples: { at: number; level: number }[] } = { samples: [] };
   private micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, lastFrameAt: 0, since: 0 };
   private longTaskObserver: PerformanceObserver | null = null;
@@ -407,10 +415,36 @@ export class HostSession {
     this.micCounters.since = this.now();
   };
 
+  /**
+   * 16 §2u item 4: the debug-only proof that playback does not starve.
+   *
+   * `late_ms` is the worst lateness in the window and `underruns` the number of
+   * chunks that passed PLAYBACK_UNDERRUN_MS, which is the gap a guest hears as
+   * THE HOST's voice breaking up. The rate is taken over the window that really
+   * elapsed, for the same reason the microphone counters are.
+   */
+  private printPlaybackCounters = () => {
+    const seconds = (this.now() - this.playCounters.since) / 1000;
+    const stats = this.deps.audio.takePlaybackStats();
+    const rate = seconds > 0 ? stats.chunks / seconds : 0;
+    this.log().info(
+      "play chunks/s",
+      Number(rate.toFixed(1)),
+      "late_ms",
+      Math.round(stats.maxLateMs),
+      "underruns",
+      stats.underruns,
+    );
+    this.playCounters.since = this.now();
+  };
+
   private startMicCounters() {
     if (!this.deps.debugMic) return;
     this.stopMicCounters();
     this.micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, lastFrameAt: 0, since: this.now() };
+    this.playCounters.since = this.now();
+    this.deps.audio.takePlaybackStats();
+    this.timers.playCounters = setInterval(this.printPlaybackCounters, MIC_COUNTER_MS);
     try {
       this.longTaskObserver = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
@@ -428,6 +462,8 @@ export class HostSession {
   private stopMicCounters() {
     if (this.timers.micCounters) clearInterval(this.timers.micCounters);
     this.timers.micCounters = null;
+    if (this.timers.playCounters) clearInterval(this.timers.playCounters);
+    this.timers.playCounters = null;
     if (this.longTaskObserver) {
       try {
         this.longTaskObserver.disconnect();
@@ -518,7 +554,14 @@ export class HostSession {
     if (message.type === "agent_state_changed") {
       if (!this.isSessionActive()) return;
       const local = BACKEND_STATE_MAP[String(message.state)];
-      if (local) this.setState(local);
+      if (local) {
+        // 16 §2u item 4: THE HOST has stopped producing audio, so the quiet
+        // until it speaks again is the guest's turn, not starved playback. Any
+        // audio still queued keeps playing: a turn ends at the backend long
+        // before its last chunk has been heard.
+        if (local !== "speaking") this.deps.audio.endPlaybackTurn();
+        this.setState(local);
+      }
     } else if (message.type === "speech_transcript") {
       this.appendTranscript(String(message.role), String(message.text), Boolean(message.final));
     } else if (message.type === "capture_request") {
@@ -555,7 +598,45 @@ export class HostSession {
     this.lastFinal = final;
     // The text is always the whole line, so a still-open line is replaced.
     void continuing;
-    this.patch({ hostLine: text });
+    this.setCaption(text);
+  }
+
+  /**
+   * 16 §2u item 4: the caption is rewritten at most 10 times a second.
+   *
+   * Gemini's output transcription arrives in fragments that can land far faster
+   * than that, and every one of them used to be a React render -- on the same
+   * main thread that has to decode and schedule THE HOST's audio. The limit has
+   * a trailing edge, so the newest text is always shown in the end: the last
+   * fragment of a line is never the one that gets dropped.
+   */
+  private setCaption(text: string) {
+    const since = this.now() - this.caption.lastAt;
+    if (since >= C.CAPTION_MIN_MS) {
+      if (this.timers.caption) clearTimeout(this.timers.caption);
+      this.timers.caption = null;
+      this.caption.pending = null;
+      this.caption.lastAt = this.now();
+      this.patch({ hostLine: text });
+      return;
+    }
+    this.caption.pending = text;
+    if (this.timers.caption) return;
+    this.timers.caption = setTimeout(() => {
+      this.timers.caption = null;
+      const pending = this.caption.pending;
+      this.caption.pending = null;
+      if (pending === null) return;
+      this.caption.lastAt = this.now();
+      this.patch({ hostLine: pending });
+    }, C.CAPTION_MIN_MS - since);
+  }
+
+  /** A caption still waiting its turn must not reappear over a cleared line. */
+  private clearCaption() {
+    if (this.timers.caption) clearTimeout(this.timers.caption);
+    this.timers.caption = null;
+    this.caption = { lastAt: 0, pending: null };
   }
 
   private setReconnecting(active: boolean) {
@@ -642,6 +723,7 @@ export class HostSession {
     this.lastRole = null;
     this.lastFinal = true;
     this.clearOneMoment();
+    this.clearCaption();
     this.patch({ hostLine: "" });
     if (this.timers.recover) clearTimeout(this.timers.recover);
     this.timers.recover = null;
@@ -680,6 +762,12 @@ export class HostSession {
     };
     this.ws.onmessage = (event: { data: unknown }) => {
       if (event.data instanceof ArrayBuffer) {
+        // 16 §2u item 4: THE HOST's audio is decoded and scheduled here and
+        // nowhere else -- straight into the Web Audio graph, with no React state
+        // update per chunk. `lastActivity` is a plain field, and `onHostAudio`
+        // can only patch the view on the one chunk that clears "One moment…".
+        // Chunks arrive many times a second; a render on each of them is what
+        // starved playback in the first place.
         this.lastActivity = this.now();
         this.deps.audio.playPcm(event.data);
         this.onHostAudio();
@@ -740,6 +828,7 @@ export class HostSession {
     this.wake.speechSince = 0;
     this.cap.sentAt = 0;
     this.clearOneMoment();
+    this.clearCaption();
     this.patch({ reconnecting: false, hostLine: "", oneMoment: false });
     if (reason !== "error") this.setState("idle");
     this.openIdleMic();

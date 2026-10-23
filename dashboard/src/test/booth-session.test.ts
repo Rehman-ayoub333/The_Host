@@ -8,7 +8,7 @@
  * has no DOM of its own, so each one is checked by moving a fake clock.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { C, WRAP_UP_SETTLE_MS } from "@/lib/booth/constants";
+import { C, MIC_COUNTER_MS, WRAP_UP_SETTLE_MS } from "@/lib/booth/constants";
 import { HostSession, SOCKET_OPEN, type SessionDeps, type SocketLike } from "@/lib/booth/session";
 import type { AudioPort } from "@/lib/booth/audio";
 import type { FaceReading, PresencePort } from "@/lib/booth/presence";
@@ -55,6 +55,8 @@ function fakeAudio(overrides: Partial<AudioPort> = {}): AudioPort {
     isPlaying: vi.fn(() => false),
     getMicAmp: vi.fn(() => 0),
     getPlaybackAmp: vi.fn(() => 0),
+    endPlaybackTurn: vi.fn(),
+    takePlaybackStats: vi.fn(() => ({ chunks: 0, maxLateMs: 0, underruns: 0 })),
     ...overrides,
   };
 }
@@ -633,5 +635,133 @@ describe("THE HOST never hears itself (16 §2u item 3)", () => {
     await g.h.advance(C.ECHO_GATE_TAIL_MS + C.VOICE_POLL_MS * (C.VOICE_ON_POLLS + 2));
 
     expect(g.socket.json()).toContainEqual({ type: "voice_activity", active: true });
+  });
+});
+
+/* --------------------- playback never starves (§2u item 4) ---------------- */
+
+describe("playback never starves (16 §2u item 4)", () => {
+  /** One chunk of THE HOST's voice, as the backend sends it. */
+  function chunk() {
+    return new Int16Array(240).buffer;
+  }
+
+  it("schedules audio with no React state update per chunk", async () => {
+    const h = harness();
+    const socket = await inConversation(h);
+    // The view is subscribed to exactly as useSyncExternalStore does.
+    const notify = vi.fn();
+    h.session.subscribe(notify);
+
+    for (let i = 0; i < 50; i += 1) socket.onmessage?.({ data: chunk() });
+
+    expect(h.audio.playPcm).toHaveBeenCalledTimes(50);
+    // Not one render for fifty chunks: the audio path touches no view state.
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("clears One moment… on the first chunk and then stays quiet", async () => {
+    const h = harness();
+    const socket = await inConversation(h);
+    // The guest stops talking, and THE HOST does not start: the caption warns.
+    socket.deliver({ type: "voice_activity", active: false });
+    (h.session as unknown as { onVoiceActivityChanged(active: boolean): void }).onVoiceActivityChanged(false);
+    await h.advance(C.ONE_MOMENT_MS + 50);
+    expect(h.session.getView().oneMoment).toBe(true);
+
+    const notify = vi.fn();
+    h.session.subscribe(notify);
+    for (let i = 0; i < 20; i += 1) socket.onmessage?.({ data: chunk() });
+
+    // Exactly one: the chunk that cleared the notice. The other nineteen are
+    // scheduled without touching React at all.
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(h.session.getView().oneMoment).toBe(false);
+  });
+
+  it("rewrites the caption at most 10 times a second", async () => {
+    const h = harness();
+    const socket = await inConversation(h);
+    const notify = vi.fn();
+    h.session.subscribe(notify);
+
+    // Thirty fragments in the same tick, as a fast turn really delivers them.
+    for (let i = 0; i < 30; i += 1) {
+      socket.deliver({ type: "speech_transcript", role: "agent", text: `line ${i}`, final: false });
+    }
+
+    // One now, one on the trailing edge -- not thirty renders.
+    expect(notify.mock.calls.length).toBeLessThanOrEqual(2);
+    await h.advance(C.CAPTION_MIN_MS + 20);
+    // The newest text always wins in the end: the last fragment is never lost.
+    expect(h.session.getView().hostLine).toBe("line 29");
+  });
+
+  it("never exceeds 10 caption updates a second over a long turn", async () => {
+    const h = harness();
+    const socket = await inConversation(h);
+    let updates = 0;
+    let last = h.session.getView().hostLine;
+    h.session.subscribe(() => {
+      const current = h.session.getView().hostLine;
+      if (current !== last) updates += 1;
+      last = current;
+    });
+
+    // Two seconds of fragments arriving every 10 ms: 200 of them.
+    for (let i = 0; i < 200; i += 1) {
+      socket.deliver({ type: "speech_transcript", role: "agent", text: `word ${i}`, final: false });
+      await h.advance(10);
+    }
+
+    // Two seconds at 10 a second is 20, plus the trailing one.
+    expect(updates).toBeLessThanOrEqual(21);
+    expect(updates).toBeGreaterThan(0);
+  });
+
+  it("ends the playback turn when THE HOST stops speaking", async () => {
+    const h = harness();
+    const socket = await inConversation(h);
+
+    const calls = () => (h.audio.endPlaybackTurn as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+
+    // Speaking is the one state that must NOT end the playback turn: every
+    // chunk of this turn is measured against the one before it.
+    const before = calls();
+    socket.deliver({ type: "agent_state_changed", state: "SPEAKING" });
+    expect(calls()).toBe(before);
+
+    // Back to listening: the quiet that follows is the guest's turn, and must
+    // not be counted as playback that starved.
+    socket.deliver({ type: "agent_state_changed", state: "LISTENING" });
+    expect(calls()).toBe(before + 1);
+  });
+
+  it("prints the playback line every 5 s with ?debug=mic", async () => {
+    const audio = fakeAudio({
+      takePlaybackStats: vi.fn(() => ({ chunks: 50, maxLateMs: 12.4, underruns: 0 })),
+    });
+    const h = harness({ audio, debugMic: true });
+    await h.session.start({ video: null });
+    await inConversation(h);
+    const info = h.deps.logger!.info as unknown as { mock: { calls: unknown[][] } };
+
+    await h.advance(MIC_COUNTER_MS + 50);
+
+    const lines = info.mock.calls.filter((call) => call[0] === "play chunks/s");
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+    // play chunks/s <n> late_ms <m> underruns <k>
+    expect(lines[0]).toEqual(["play chunks/s", 10, "late_ms", 12, "underruns", 0]);
+  });
+
+  it("prints no playback line without ?debug=mic", async () => {
+    const h = harness();
+    await h.session.start({ video: null });
+    await inConversation(h);
+    const info = h.deps.logger!.info as unknown as { mock: { calls: unknown[][] } };
+
+    await h.advance(MIC_COUNTER_MS * 2 + 50);
+
+    expect(info.mock.calls.filter((call) => call[0] === "play chunks/s")).toHaveLength(0);
   });
 });

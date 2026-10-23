@@ -59,6 +59,8 @@ function sessionHarness(micAmp = { value: 0 }) {
     isPlaying: vi.fn(() => false),
     getMicAmp: vi.fn(() => micAmp.value),
     getPlaybackAmp: vi.fn(() => 0),
+    endPlaybackTurn: vi.fn(),
+    takePlaybackStats: vi.fn(() => ({ chunks: 0, maxLateMs: 0, underruns: 0 })),
   };
   const presence: PresencePort = {
     get state() {
@@ -226,7 +228,13 @@ describe("the caption is THE HOST's words only (16 §2t item 4, §2i item 6)", (
     const socket = await talking(h);
 
     socket.deliver({ type: "speech_transcript", role: "agent", text: "One Chicken", final: false });
+    expect(h.session.getView().hostLine).toBe("One Chicken");
+
     socket.deliver({ type: "speech_transcript", role: "agent", text: HOST_LINE, final: true });
+    // 16 §2u item 4: the caption is rewritten at most 10 times a second, so a
+    // fragment this close behind the last one lands on the trailing edge. The
+    // newest text still wins -- it is never dropped, only held back.
+    await vi.advanceTimersByTimeAsync(C.CAPTION_MIN_MS + 20);
 
     expect(h.session.getView().hostLine).toBe(HOST_LINE);
   });
