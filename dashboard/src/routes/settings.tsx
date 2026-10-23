@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Play, Plug } from "lucide-react";
+import { MonitorSpeaker, Play, Plug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppShell } from "@/components/host/AppShell";
 import { Panel } from "@/components/host/Panel";
@@ -9,6 +9,15 @@ import { SystemPanel } from "@/components/host/panels";
 import { startDemo } from "@/lib/agent/demo";
 import { connectAgent, getAgentConfig, saveAgentConfig } from "@/lib/agent/service";
 import { useAgent } from "@/lib/agent/store";
+import {
+  listDevices,
+  loadDeviceChoice,
+  missingDeviceNotes,
+  saveDeviceChoice,
+  SYSTEM_DEFAULT,
+  type DeviceChoice,
+  type DeviceLists,
+} from "@/lib/booth/devices";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -24,7 +33,80 @@ export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
 
-function SettingsPage() {
+/**
+ * 16 §2u item 5: the camera and microphone the TV uses, chosen on the laptop.
+ *
+ * The drop-downs used to sit on the Start screen, on the TV, facing guests. They
+ * live here now: the dashboard is the same browser origin, so what is saved here
+ * is exactly what `/display` reads. A device that has gone missing is reported
+ * here as well -- the display itself says nothing and falls back to the system
+ * default, because a warning on a guest-facing screen would be worse than the
+ * wrong microphone.
+ */
+function DisplayDevicesPanel() {
+  const [choice, setChoice] = useState<DeviceChoice>(() => loadDeviceChoice());
+  const [lists, setLists] = useState<DeviceLists>({ cameras: [], mics: [] });
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    void listDevices().then(setLists);
+  }, []);
+
+  const notes = missingDeviceNotes(choice, lists);
+  const field =
+    "mt-1.5 w-full rounded-md border border-line bg-input px-3 py-2.5 font-mono text-sm text-foreground outline-none transition-colors focus:border-gold";
+
+  function choose(next: DeviceChoice) {
+    setChoice(next);
+    saveDeviceChoice(next);
+    setSaved(true);
+  }
+
+  return (
+    <Panel title="Display screen devices" icon={<MonitorSpeaker className="h-4 w-4" />}>
+      <div className="max-w-xl space-y-4">
+        <p className="text-sm text-muted-foreground">
+          The camera and microphone THE HOST uses on the display screen. Saved in this browser, and read by /display on the
+          same machine — the TV itself has no controls on it.
+        </p>
+        <label className="block">
+          <span className="label-caps">Camera</span>
+          <select className={field} value={choice.cameraId} onChange={(e) => choose({ ...choice, cameraId: e.target.value })} aria-label="Camera">
+            <option value={SYSTEM_DEFAULT}>System default</option>
+            {lists.cameras.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="label-caps">Microphone</span>
+          <select className={field} value={choice.micId} onChange={(e) => choose({ ...choice, micId: e.target.value })} aria-label="Microphone">
+            <option value={SYSTEM_DEFAULT}>System default</option>
+            {lists.mics.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {notes.map((note) => (
+          <p key={note} className="rounded-sm border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            {note} — the display is using the system default.
+          </p>
+        ))}
+        {saved && notes.length === 0 && (
+          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            Saved · reload the display screen to use it
+          </p>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+export function SettingsPage() {
   const connection = useAgent((s) => s.connection);
   const tokenError = useAgent((s) => s.tokenError);
   const navigate = useNavigate();
@@ -77,6 +159,12 @@ function SettingsPage() {
         </PanelBoundary>
         <PanelBoundary name="System" className="xl:col-span-4">
           <SystemPanel />
+        </PanelBoundary>
+
+        {/* 16 §2u item 5: the TV has no controls on it any more, so the display's
+            camera and microphone are chosen here, on the laptop. */}
+        <PanelBoundary name="Display screen devices" className="xl:col-span-8">
+          <DisplayDevicesPanel />
         </PanelBoundary>
 
         {/* 16 §2p item 4: Demo Mode lives here, out of the way, so the main

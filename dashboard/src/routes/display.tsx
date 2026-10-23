@@ -11,7 +11,7 @@ import { connectAgent } from "@/lib/agent/service";
 import { STATE_META, fmtCountdown, toMs, useNow } from "@/lib/agent/ui";
 import type { AgentStateName } from "@/lib/agent/types";
 import { C } from "@/lib/booth/constants";
-import { deviceIdOrDefault, listDevices, loadDeviceChoice, saveDeviceChoice, SYSTEM_DEFAULT, type DeviceChoice, type DeviceLists } from "@/lib/booth/devices";
+import { deviceIdOrDefault, loadDeviceChoice, type DeviceChoice } from "@/lib/booth/devices";
 import type { LocalState, SessionView } from "@/lib/booth/session";
 import { isMicDebug, useHostSession } from "@/lib/booth/useHostSession";
 import { cn } from "@/lib/utils";
@@ -138,62 +138,37 @@ function useOrderReadyVoice(head: { order_id: number; customer_name?: string | n
   }, [head, lastAgentState]);
 }
 
+/** 16 §2u item 5: the one line the TV shows before it is started. */
+export const TAP_TO_BEGIN = "Tap to begin";
+
 /**
- * 16 §2t item 4: the one click a browser needs before the microphone, the
- * camera and sound, with the two drop-downs that say which devices to use.
- * After this click the screen never needs touching again.
+ * 16 §2u item 5: the Start screen, in the display's own design.
+ *
+ * A browser needs one click before it will give a page the microphone, the
+ * camera and sound, and this is that click -- but it is no longer a button and
+ * two drop-downs clashing with the stall. The TV shows its own background, the
+ * brand and one line, and a click anywhere starts THE HOST. After that the
+ * screen never needs touching again.
+ *
+ * The devices are not chosen here. They are chosen on the laptop, in the
+ * dashboard's Settings, and read from the same origin's storage (§2u item 5),
+ * so nothing guest-facing has a control on it. A saved device that has gone
+ * missing is reported there too, never on the TV.
  */
-function StartScreen({ onStart, starting, note }: { onStart: (choice: DeviceChoice) => void; starting: boolean; note: string }) {
-  const [choice, setChoice] = useState<DeviceChoice>(() => loadDeviceChoice());
-  const [lists, setLists] = useState<DeviceLists>({ cameras: [], mics: [] });
-
-  useEffect(() => {
-    void listDevices().then(setLists);
-  }, []);
-
-  const field = "w-full border border-line bg-surface-2 px-3 py-2 font-mono text-sm text-foreground";
-
+function StartScreen({ onStart, starting }: { onStart: (choice: DeviceChoice) => void; starting: boolean }) {
   return (
-    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-8 bg-background px-7 text-center">
+    <button
+      type="button"
+      onClick={() => onStart(loadDeviceChoice())}
+      disabled={starting}
+      aria-label={TAP_TO_BEGIN}
+      className="absolute inset-0 z-20 flex cursor-pointer flex-col items-center justify-center gap-10 bg-background px-7 text-center"
+    >
       <BrandMark size="lg" tagline />
-      <Button
-        onClick={() => {
-          saveDeviceChoice(choice);
-          onStart(choice);
-        }}
-        disabled={starting}
-        className="h-auto px-10 py-5 font-display text-3xl font-semibold"
-      >
-        {starting ? "Starting…" : "Start THE HOST"}
-      </Button>
-      <div className="grid w-full max-w-md gap-4 text-left sm:grid-cols-2">
-        <label className="block">
-          <span className="label-caps mb-1 block">Camera</span>
-          <select className={field} value={choice.cameraId} onChange={(event) => setChoice({ ...choice, cameraId: event.target.value })} aria-label="Camera">
-            <option value={SYSTEM_DEFAULT}>System default</option>
-            {lists.cameras.map((device) => (
-              <option key={device.id} value={device.id}>
-                {device.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="label-caps mb-1 block">Microphone</span>
-          <select className={field} value={choice.micId} onChange={(event) => setChoice({ ...choice, micId: event.target.value })} aria-label="Microphone">
-            <option value={SYSTEM_DEFAULT}>System default</option>
-            {lists.mics.map((device) => (
-              <option key={device.id} value={device.id}>
-                {device.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <p className="max-w-md text-sm text-muted-foreground">
-        {note || "The camera, the microphone and THE HOST's voice all belong to this screen. Space starts a conversation, Escape ends one."}
-      </p>
-    </div>
+      <span className="animate-pulse font-display text-4xl font-semibold leading-tight text-champagne sm:text-6xl">
+        {TAP_TO_BEGIN}
+      </span>
+    </button>
   );
 }
 
@@ -293,7 +268,7 @@ export function SMDDisplay() {
           the TV shows the orb, never a picture of the guest. */}
       <video ref={videoRef} muted playsInline className="pointer-events-none absolute h-px w-px opacity-0" aria-hidden="true" />
 
-      {!started && <StartScreen onStart={(choice) => void onStart(choice)} starting={starting} note={view.notes.join(" ")} />}
+      {!started && <StartScreen onStart={(choice) => void onStart(choice)} starting={starting} />}
 
       <Button
         variant="ghost"

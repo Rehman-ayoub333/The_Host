@@ -17,7 +17,7 @@ vi.mock("@/lib/agent/service", () => ({
   getAgentConfig: () => ({ agentUrl: "http://localhost:8000", token: "" }),
 }));
 
-import { SMDDisplay, displayCaption, displayKeyAction, displayState } from "@/routes/display";
+import { SMDDisplay, TAP_TO_BEGIN, displayCaption, displayKeyAction, displayState } from "@/routes/display";
 import { agentStore } from "@/lib/agent/store";
 import { C } from "@/lib/booth/constants";
 import { HostSession, SOCKET_OPEN, type SessionDeps, type SessionView, type SocketLike } from "@/lib/booth/session";
@@ -334,7 +334,7 @@ describe("the display's two keys (16 §2t item 4)", () => {
 
 /* ----------------------------- the Start screen ------------------------- */
 
-describe("the Start screen (16 §2t item 4)", () => {
+describe("the Start screen (16 §2u item 5)", () => {
   beforeEach(() => {
     agentStore.dispatch({ type: "@reset" });
   });
@@ -344,19 +344,26 @@ describe("the Start screen (16 §2t item 4)", () => {
     agentStore.dispatch({ type: "@reset" });
   });
 
-  it("asks for one click, with a camera and a microphone drop-down", () => {
+  it("shows the brand and one line, Tap to begin", () => {
     render(<SMDDisplay />);
 
-    expect(screen.getByRole("button", { name: /start the host/i })).toBeInTheDocument();
-    expect(screen.getByLabelText("Camera")).toBeInTheDocument();
-    expect(screen.getByLabelText("Microphone")).toBeInTheDocument();
+    expect(screen.getByText(TAP_TO_BEGIN)).toBeInTheDocument();
+    // The display's own brand, as §2u item 5 names it.
+    expect(screen.getAllByText("Bite & Pour").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("For moments worth tasting.").length).toBeGreaterThan(0);
   });
 
-  it("offers the system default on both drop-downs", () => {
+  it("starts from a click anywhere, with no button or drop-down on the TV", () => {
     render(<SMDDisplay />);
 
-    expect(screen.getByLabelText("Camera")).toHaveValue("");
-    expect(screen.getByLabelText("Microphone")).toHaveValue("");
+    // The whole screen is the target, so a guest cannot miss it.
+    const target = screen.getByRole("button", { name: TAP_TO_BEGIN });
+    expect(target.className).toContain("inset-0");
+
+    // 16 §2u item 5: the devices are chosen on the laptop, not here.
+    expect(screen.queryByLabelText("Camera")).toBeNull();
+    expect(screen.queryByLabelText("Microphone")).toBeNull();
+    expect(screen.queryByRole("button", { name: /start the host/i })).toBeNull();
   });
 
   it("shows no text box, because ?debug=mic is not set", () => {
