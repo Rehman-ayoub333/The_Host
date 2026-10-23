@@ -40,7 +40,8 @@ any script here.
    ```powershell
    .\scripts\start-all.ps1
    ```
-   Open `http://localhost:8080/display`, press **Start THE HOST**, order one item out loud,
+   On the dashboard set **Settings → Display screen devices** (Camera and Microphone), then
+   open `http://localhost:8080/display`, tap **Tap to begin**, order one item out loud,
    give a first name, confirm, then on the dashboard move the order
    PREPARING → READY → COLLECTED and watch the TV announce it. Then run
    `reset-for-gala.ps1` once more so the gala starts clean.
@@ -90,22 +91,28 @@ not part of the setup, and it is used solely if `/display` will not start (secti
      speakers point away from the guest. Press *Test* and listen to where the sound comes
      from.
    - **Input** — choose the **handheld microphone**. Say a few words and watch the level move.
-5. **Press Start THE HOST on the TV.** `/display` opens on one full-screen button, because a
-   browser will not give a page the microphone, the camera or sound until someone clicks.
-   Under the button, set **Camera** to the external camera and **Microphone** to the handheld
-   microphone, then press the button. The choice is remembered in that browser, so a reload
-   does not ask again. **After this click the TV never needs touching again** — THE HOST
+5. **Choose the display's camera and microphone on the laptop,** before touching the TV.
+   On the dashboard open **Settings → Display screen devices** and set **Camera** to the
+   external camera and **Microphone** to the handheld microphone. The choice is saved in that
+   browser and read by `/display` on the same machine, so a reload does not ask again. If a
+   saved device has been unplugged, this is where it says **Saved camera not found** or
+   **Saved microphone not found** — the TV says nothing and quietly falls back to the Windows
+   default, so check here rather than on the TV.
+6. **Tap the TV once.** `/display` shows the brand and one line, **Tap to begin** — a browser
+   will not give a page the microphone, the camera or sound until someone clicks. Tap
+   anywhere on the screen. There are no buttons and no drop-downs on the TV at all.
+   **After this one tap the TV never needs touching again** — THE HOST
    greets guests itself, wakes on speech, and listens.
-6. **Leave the TV window focused and on top.** Face detection pauses while the window is
+7. **Leave the TV window focused and on top.** Face detection pauses while the window is
    hidden, which is also what holds the empty-room timer. A partly overlapped window is
    fine; a minimised one is not. The operator's two keys work on this window: **Space**
    starts a conversation, **Escape** ends one.
-7. **The operator token.** On the laptop open the dashboard → **Settings**, paste the token
+8. **The operator token.** On the laptop open the dashboard → **Settings**, paste the token
    into *Operator token*, and press **Save & connect**. The agent link must read `LIVE`.
-8. **Never start the dashboard's camera preview.** The dashboard's **Live Vision** page has
+9. **Never start the dashboard's camera preview.** The dashboard's **Live Vision** page has
    a preview that opens the camera on the laptop. At the gala the camera belongs to
    `/display`, and two pages cannot have it at once. Leave the preview off all evening.
-9. **Run preflight until every line is PASS:**
+10. **Run preflight until every line is PASS:**
    ```powershell
    .\scripts\preflight.ps1
    ```
@@ -157,12 +164,15 @@ back to work.
 - **A short outage.** The TV's caption reads *"Reconnecting…"* and the dashboard shows the
   mode in amber. THE HOST recovers by itself, and the conversation carries on where it left
   off. Wait. Do not restart anything.
-- **`/display` will not start.** If the TV page will not open the camera or the microphone
-  — the Start screen keeps saying a device is blocked — fall back to the old voice page:
-  open `http://127.0.0.1:8000/?debug=mic` on the laptop, full screen, facing the guests, and
-  set the TV to `http://localhost:8080/display` as a display-only screen (do not press
-  Start THE HOST on it). That is the pre-gala arrangement and it still works. Tell the
-  operator, because the camera then belongs to the laptop.
+- **`/display` will not start.** The TV has been tapped but THE HOST never hears or sees a
+  guest: the orb stays idle, and nothing happens when someone speaks in front of it. Check
+  **Settings → Display screen devices** on the laptop first — a saved camera or microphone
+  that has been unplugged is named there, and the TV itself says nothing about it. If that
+  is not it, fall back to the old voice page: open `http://127.0.0.1:8000/?debug=mic` on the
+  laptop, full screen, facing the guests, and set the TV to
+  `http://localhost:8080/display` as a display-only screen (do not tap it). That is the
+  pre-gala arrangement and it still works. Tell the operator, because the camera then
+  belongs to the laptop.
 - **The venue internet fails.** Switch the booth laptop to the phone hotspot, then press
   **Retry connection** on the dashboard. The mode should return to `ONLINE`.
 - **Nothing works.** Open **Settings → Demo Mode (backup)** and press **Start Demo Mode**.
