@@ -10,6 +10,7 @@ import { agentStore, useAgent } from "@/lib/agent/store";
 import { connectAgent } from "@/lib/agent/service";
 import { STATE_META, fmtCountdown, toMs, useNow } from "@/lib/agent/ui";
 import type { AgentStateName } from "@/lib/agent/types";
+import { chime, type ChimePort } from "@/lib/booth/chime";
 import { C } from "@/lib/booth/constants";
 import { deviceIdOrDefault, loadDeviceChoice, type DeviceChoice } from "@/lib/booth/devices";
 import type { LocalState, SessionView } from "@/lib/booth/session";
@@ -116,26 +117,35 @@ export function displayKeyAction(event: { code?: string; key: string; targetTag?
   return null;
 }
 
-/** Speaks an order-ready sentence once per order (public display only). */
-function useOrderReadyVoice(head: { order_id: number; customer_name?: string | null | undefined } | null) {
+/**
+ * 16 §2v item 3: one chime per ready order, and never a word.
+ *
+ * THE HOST has one voice. An `order_ready` that arrives while a conversation is
+ * running is announced by THE HOST itself, so this screen stays quiet; one that
+ * arrives between conversations gets the banner and a soft chime.
+ *
+ * Every order id is recorded the first time it reaches the head, whether it was
+ * chimed or left to THE HOST. That is the §2v item 1 bug: the old hook returned
+ * early while a conversation ran WITHOUT recording the id, so the moment the
+ * session ended and the state went IDLE the effect re-ran and spoke an order
+ * THE HOST had already announced. A decision made once, at arrival, cannot be
+ * re-made by a later state change.
+ */
+function useOrderReadyChime(
+  head: { order_id: number; customer_name?: string | null | undefined } | null,
+  port: ChimePort = chime,
+) {
   const lastAgentState = useAgent((s) => s.lastAgentState);
-  const spoken = useRef(new Set<number>());
+  const handled = useRef(new Set<number>());
 
   useEffect(() => {
-    if (!head || spoken.current.has(head.order_id)) return;
-    // Only when no conversation is running (last agent state was IDLE).
-    if (lastAgentState !== "IDLE") return;
-    spoken.current.add(head.order_id);
-    const sentence = head.customer_name
-      ? `${head.customer_name}, your order is ready`
-      : `Order ${head.order_id} is ready`;
-    try {
-      const u = new SpeechSynthesisUtterance(sentence);
-      window.speechSynthesis?.speak(u);
-    } catch {
-      /* speech is best-effort */
-    }
-  }, [head, lastAgentState]);
+    if (!head || handled.current.has(head.order_id)) return;
+    handled.current.add(head.order_id);
+    // A conversation is running, so THE HOST speaks this one (main.py's
+    // _run_announcement): the chime would talk over its own announcement.
+    if (lastAgentState !== null && lastAgentState !== "IDLE") return;
+    port.play();
+  }, [head, lastAgentState, port]);
 }
 
 /** 16 §2u item 5: the one line the TV shows before it is started. */
@@ -188,7 +198,7 @@ export function SMDDisplay() {
     connectAgent("smd");
   }, []);
   const ready = useReadyQueue();
-  useOrderReadyVoice(ready);
+  useOrderReadyChime(ready);
 
   // 16 §2t item 3: this screen IS THE HOST now — camera, microphone, voice and
   // the conversation itself. The video element is never shown: it exists so the
