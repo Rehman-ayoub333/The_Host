@@ -349,6 +349,12 @@ class LiveSession:
         # one task that makes sure none of them waits for ever.
         self.pending_deferred_at = {}
         self.announce_watcher = None
+        # 16 section 2v item 4: an order is never handed over twice. `announced`
+        # is every order id THE HOST has spoken in this session, and
+        # `announcing_id` is the one whose announcement is in the air right now:
+        # sent to Gemini, and not yet finished.
+        self.announced = set()
+        self.announcing_id = None
         # 09 section 17: the timer waiting for a picture we asked the page for.
         self.look_timer = None
         self.transcripts = {"visitor": "", "agent": ""}
@@ -1377,19 +1383,30 @@ class LiveSession:
         if self.announcing_turn:
             self.announcing = False
             self.announcing_turn = False
-        if self.pending_announcements and not self.voice_active_effective():
+            # 16 section 2v item 4: THE HOST has finished saying it, so now the
+            # order leaves the pending list. It stayed there through the whole
+            # announcement so that nothing could lose it in between.
+            self._announcement_finished()
+        if (
+            self.pending_announcements
+            and self.announcing_id is None
+            and not self.voice_active_effective()
+        ):
             # 16 section 2d item 3: one deferred announcement per turn end, after
             # the resting state is set. Injecting it mid-turn made Gemini cut its
             # own greeting off at the booth, so it waits for a gap instead.
             # 2f item 4: the end of THE HOST's turn is not a gap at all if the
             # guest has already started talking into it.
-            order = self.pending_announcements.pop(0)
-            self.pending_deferred_at.pop(order["id"], None)
+            # 2v item 4: and never while an announcement is still in the air --
+            # the order it belongs to is still at the head of this list.
+            order = self.pending_announcements[0]
             try:
                 await self._announce_now(order)
             except Exception:
                 # The order is READY and order_ready already reached both screens;
                 # a failed injection must never end the conversation (2c item 3).
+                # It stays pending, so the watcher or the session's end still has
+                # it (2v item 4).
                 log.exception("the deferred order-ready announcement could not be spoken")
 
     # ------------------------------------------------------------ announcement
@@ -1477,10 +1494,9 @@ class LiveSession:
             # No connection to speak over: mid-reconnect (2j item 4). The
             # announcement stays pending, and the watcher takes it from there.
             return
-        if not self.pending_announcements:
+        if not self.pending_announcements or self.announcing_id is not None:
             return
-        order = self.pending_announcements.pop(0)
-        self.pending_deferred_at.pop(order["id"], None)
+        order = self.pending_announcements[0]
         try:
             await self._announce_now(order)
         except Exception:
@@ -1514,6 +1530,10 @@ class LiveSession:
                 await asyncio.sleep(ANNOUNCE_WATCH_INTERVAL_S)
                 if self.closed or not self.pending_announcements:
                     break
+                # 16 section 2v item 4: the head is still being announced, so
+                # there is nothing here to rescue yet.
+                if self.announcing_id is not None:
+                    continue
                 order = self.pending_announcements[0]
                 waited = _now() - self.pending_deferred_at.get(order["id"], _now())
                 a_real_gap = (
@@ -1531,36 +1551,65 @@ class LiveSession:
                 )
                 if not (a_real_gap or overdue):
                     continue
-                if await self._announce_pending(order, overdue=overdue):
-                    self.pending_announcements.remove(order)
-                    self.pending_deferred_at.pop(order["id"], None)
+                await self._announce_pending(order, overdue=overdue)
         finally:
             self.announce_watcher = None
 
-    async def _announce_pending(self, order, *, overdue: bool) -> bool:
-        """The 2f item 5 grace, then speak. True if the order is finished with.
+    async def _announce_pending(self, order, *, overdue: bool) -> None:
+        """The 2f item 5 grace, then speak.
 
         Past `ANNOUNCE_MAX_DEFER_S` the re-check deliberately ignores the
         visitor buffer and the voice flag -- 2g item 4 says they are ignored at
         the cap, and believing them again here is what let order #2 be lost.
         `session is None` and a running turn are always respected.
+
+        16 section 2v item 4: the order is not removed here. It leaves the
+        pending list when its announcement finishes, so a send that fails leaves
+        it for the next look instead of dropping it.
         """
         await asyncio.sleep(config.ANNOUNCE_GRACE_S)
         if self.session is None or self.turn_in_progress:
-            return False
+            return
         if not overdue and (self.transcripts["visitor"] or self.voice_active_effective()):
-            return False
+            return
         try:
             await self._announce_now(order)
         except Exception:
             log.exception("the deferred order-ready announcement could not be spoken")
-        return True
+
+    def _announcement_finished(self) -> None:
+        """16 section 2v item 4: the announcing turn is over, so the order goes.
+
+        Called from the end of the announcing turn only. The id stays in
+        `self.announced` for the rest of the session, which is what stops
+        `_drop_pending_announcements` handing it to the display a second time.
+        """
+        order_id = self.announcing_id
+        self.announcing_id = None
+        if order_id is None:
+            return
+        self.pending_announcements[:] = [
+            order for order in self.pending_announcements if order["id"] != order_id
+        ]
+        self.pending_deferred_at.pop(order_id, None)
 
     def _drop_pending_announcements(self) -> None:
         """16 section 2g item 4: nothing is lost silently. The order is READY, so
-        the public display shows and speaks it instead (04 section 5).
+        the public display shows it instead (04 section 5).
+
+        16 section 2v item 4: except one THE HOST has already announced in this
+        session. Handing that to the display announced it twice -- and until
+        2v item 3 the display said it out loud, in a voice that was not THE
+        HOST's.
         """
         for order in self.pending_announcements:
+            if order["id"] in self.announced:
+                log.info(
+                    "announce not handed over session %s order %s, already announced",
+                    self.ctx["session_id"],
+                    order["id"],
+                )
+                continue
             log.info(
                 "announce dropped session %s order %s, handed to display",
                 self.ctx["session_id"],
@@ -1576,6 +1625,7 @@ class LiveSession:
             )
         self.pending_announcements.clear()
         self.pending_deferred_at.clear()
+        self.announcing_id = None
 
     async def _announce_now(self, order) -> None:
         """2c item 3 / 04 section 5 step 3: THE HOST's own voice, this turn only."""
@@ -1603,6 +1653,10 @@ class LiveSession:
             raise
         # Only a send that really left sets the flag.
         self.announcing = True
+        # 16 section 2v item 4: THE HOST is saying this one now, and this session
+        # remembers that it did for as long as it lasts.
+        self.announcing_id = order["id"]
+        self.announced.add(order["id"])
 
     # -------------------------------------------------------------- tool calls
 

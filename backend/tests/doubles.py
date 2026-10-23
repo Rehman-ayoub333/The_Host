@@ -149,6 +149,18 @@ def call(name, args=None, call_id="call-1"):
     )
 
 
+async def announcing_turn(session):
+    """16 section 2v item 4: play out the turn in which THE HOST says it.
+
+    The announcement has already been sent to Gemini; this is Gemini answering.
+    The first audio chunk is what makes this the ANNOUNCING turn, and
+    `turn_complete` is the moment the order leaves `pending_announcements` --
+    before this it is still pending, so nothing can lose it in between.
+    """
+    await session._handle_message(message(content(audio=b"\x00\x01")))
+    await session._handle_message(message(content(turn_complete=True)))
+
+
 def states(ws):
     return [sent["state"] for sent in ws.sent if sent["type"] == "agent_state_changed"]
 

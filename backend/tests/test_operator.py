@@ -418,13 +418,19 @@ def test_an_announcement_during_audio_waits_for_the_end_of_that_turn():
     print("states:", doubles.states(ws))
     assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
     assert session.announcing is True
-    assert session.pending_announcements == []
+    # 16 section 2v item 4: the order stays pending while THE HOST says it.
+    assert [order["id"] for order in session.pending_announcements] == [27]
     # It leaves only after the resting state of the finished turn is set.
     assert doubles.states(ws) == ["LISTENING", "SPEAKING", "LISTENING"]
 
     asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x01"))))
     print("states on the announcing turn:", doubles.states(ws))
     assert doubles.states(ws)[-1] == "ANNOUNCING"
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+    print("pending after the announcing turn:", session.pending_announcements)
+    assert session.pending_announcements == []
+    assert session.announced == {27}
     doubles.validate(ws)
 
 
@@ -440,8 +446,11 @@ def test_two_pending_announcements_go_out_one_per_turn():
 
     asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
     print("after the first turn end:", session.session.inputs)
+    print("pending:", [order["id"] for order in session.pending_announcements])
     assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
-    assert [order["id"] for order in session.pending_announcements] == [28]
+    # 16 section 2v item 4: #27 has been sent but not yet said, so both are still
+    # pending. Nothing may take #28 while #27's announcement is in the air.
+    assert [order["id"] for order in session.pending_announcements] == [27, 28]
 
     # The announcing turn plays and ends; the second announcement follows it.
     asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x01"))))
@@ -449,13 +458,22 @@ def test_two_pending_announcements_go_out_one_per_turn():
     asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
 
     print("after the second turn end:", session.session.inputs)
+    print("pending:", [order["id"] for order in session.pending_announcements])
     assert session.session.inputs == [{"text": ANNOUNCEMENT_27}, {"text": ANNOUNCEMENT_28}]
-    assert session.pending_announcements == []
+    # #27 is said and gone; #28 is now the one being said. Both ids are recorded
+    # the moment their announcement leaves for Gemini, so both are here.
+    assert [order["id"] for order in session.pending_announcements] == [28]
+    assert session.announced == {27, 28}
     assert session.announcing is True
 
     asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x02"))))
     print("states:", doubles.states(ws))
     assert doubles.states(ws)[-1] == "ANNOUNCING"
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+    print("pending at the end:", session.pending_announcements)
+    assert session.pending_announcements == []
+    assert session.announced == {27, 28}
     doubles.validate(ws)
 
 
@@ -675,11 +693,17 @@ def test_an_announcement_during_the_gemini_connect_is_deferred(caplog):
     print("Gemini inputs after the greeting ended:", session.session.inputs)
     assert session.session.inputs == [{"text": ANNOUNCEMENT_20}]
     assert session.announcing is True
-    assert session.pending_announcements == []
+    # 16 section 2v item 4: still pending until THE HOST has said it.
+    assert [order["id"] for order in session.pending_announcements] == [20]
 
     asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x01"))))
     print("states:", doubles.states(ws))
     assert doubles.states(ws)[-1] == "ANNOUNCING"
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+    print("pending after the announcing turn:", session.pending_announcements)
+    assert session.pending_announcements == []
+    assert session.announced == {20}
     doubles.validate(ws)
 
 

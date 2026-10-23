@@ -166,12 +166,20 @@ def test_an_announcement_while_the_guest_speaks_is_deferred_then_leaves_on_silen
 
     print("Gemini inputs after the silence:", session.session.inputs)
     assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
-    assert session.pending_announcements == []
     assert session.announcing is True
+    # 16 section 2v item 4: sent, and still pending until the turn that says it
+    # has finished.
+    assert [order["id"] for order in session.pending_announcements] == [27]
 
     asyncio.run(session._handle_message(doubles.message(doubles.content(audio=b"\x01"))))
     print("states:", doubles.states(ws))
     assert doubles.states(ws)[-1] == "ANNOUNCING"
+    assert [order["id"] for order in session.pending_announcements] == [27]
+
+    asyncio.run(session._handle_message(doubles.message(doubles.content(turn_complete=True))))
+    print("pending after the announcing turn:", session.pending_announcements)
+    assert session.pending_announcements == []
+    assert session.announced == {27}
     doubles.validate(ws)
 
 
@@ -223,7 +231,11 @@ def test_a_pending_announcement_is_not_sent_at_the_end_of_turn_while_the_guest_s
     feed_voice(session, ws, False)
     print("Gemini inputs after the silence:", session.session.inputs)
     assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
+    # 16 section 2v item 4: and the order itself leaves when THE HOST has said it.
+    assert [order["id"] for order in session.pending_announcements] == [27]
+    asyncio.run(doubles.announcing_turn(session))
     assert session.pending_announcements == []
+    assert session.announced == {27}
     doubles.validate(ws)
 
 
