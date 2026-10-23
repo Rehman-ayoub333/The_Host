@@ -513,3 +513,125 @@ describe("the /ws/session protocol (16 §2t item 3)", () => {
     expect(h.sockets).toHaveLength(0);
   });
 });
+
+/* ------------------------- the echo gate (§2u item 3) --------------------- */
+
+describe("THE HOST never hears itself (16 §2u item 3)", () => {
+  /** A loud frame, as the handheld microphone delivers one: 1600 samples. */
+  function loudFrame() {
+    const samples = new Int16Array(C.MIC_FRAME_SAMPLES);
+    for (let i = 0; i < samples.length; i += 1) samples[i] = i % 2 === 0 ? 9000 : -9000;
+    return samples.buffer;
+  }
+
+  function binaries(socket: FakeSocket) {
+    return socket.sent.filter((item): item is ArrayBuffer => item instanceof ArrayBuffer);
+  }
+
+  function allZero(buffer: ArrayBuffer) {
+    const samples = new Int16Array(buffer);
+    return samples.every((sample) => sample === 0);
+  }
+
+  /** A session in conversation, with the microphone callback in hand. */
+  async function gated(options: { micAmp?: number } = {}) {
+    let playing = false;
+    const frames: ((frame: ArrayBuffer) => void)[] = [];
+    const audio = fakeAudio({
+      isPlaying: () => playing,
+      getMicAmp: () => options.micAmp ?? 0,
+      startMic: vi.fn(async (onFrame: (frame: ArrayBuffer) => void) => {
+        frames.push(onFrame);
+      }),
+    });
+    const h = harness({ audio });
+    await h.session.start({ video: null });
+    const socket = await inConversation(h);
+    return {
+      h,
+      socket,
+      send: (frame: ArrayBuffer) => frames.at(-1)!(frame),
+      setPlaying: (value: boolean) => {
+        playing = value;
+      },
+    };
+  }
+
+  it("sends silence of the same size while THE HOST's audio is playing", async () => {
+    const g = await gated();
+    g.setPlaying(true);
+
+    g.send(loudFrame());
+    g.send(loudFrame());
+
+    const sent = binaries(g.socket);
+    expect(sent).toHaveLength(2);
+    // The same size and rate: the uplink must not develop gaps, so a frame is
+    // still sent -- it simply carries silence instead of the room.
+    expect(sent.every((buffer) => buffer.byteLength === C.MIC_FRAME_SAMPLES * 2)).toBe(true);
+    expect(sent.every(allZero)).toBe(true);
+    expect(g.h.session.echoGateOpen()).toBe(true);
+  });
+
+  it("keeps sending silence for 300 ms after the audio ends", async () => {
+    const g = await gated();
+    g.setPlaying(true);
+    g.send(loudFrame());
+    g.setPlaying(false);
+
+    // Just inside the tail: still THE HOST's own voice in the room.
+    await g.h.advance(C.ECHO_GATE_TAIL_MS - 100);
+    g.send(loudFrame());
+    expect(g.h.session.echoGateOpen()).toBe(true);
+    expect(binaries(g.socket).every(allZero)).toBe(true);
+  });
+
+  it("lets the real microphone through once the 300 ms has passed", async () => {
+    const g = await gated();
+    g.setPlaying(true);
+    g.send(loudFrame());
+    g.setPlaying(false);
+
+    await g.h.advance(C.ECHO_GATE_TAIL_MS + 50);
+    g.send(loudFrame());
+
+    const sent = binaries(g.socket);
+    expect(sent).toHaveLength(2);
+    expect(allZero(sent[0]!)).toBe(true);
+    // The guest's own voice reaches Gemini again, unchanged.
+    expect(allZero(sent[1]!)).toBe(false);
+    expect(new Int16Array(sent[1]!)[0]).toBe(9000);
+    expect(g.h.session.echoGateOpen()).toBe(false);
+  });
+
+  it("never sends silence when THE HOST has not spoken at all", async () => {
+    const g = await gated();
+
+    g.send(loudFrame());
+
+    expect(g.h.session.echoGateOpen()).toBe(false);
+    expect(binaries(g.socket).every(allZero)).toBe(false);
+  });
+
+  it("ignores voice activity inside the window, however loud the microphone", async () => {
+    // Loud enough to be a guest talking, were it not THE HOST's own voice.
+    const g = await gated({ micAmp: 1 });
+    g.setPlaying(true);
+
+    await g.h.advance(C.VOICE_POLL_MS * (C.VOICE_ON_POLLS + 6));
+
+    expect(g.socket.json()).not.toContainEqual({ type: "voice_activity", active: true });
+  });
+
+  it("hears the guest again as soon as the window closes", async () => {
+    const g = await gated({ micAmp: 1 });
+    g.setPlaying(true);
+    await g.h.advance(C.VOICE_POLL_MS * (C.VOICE_ON_POLLS + 2));
+    expect(g.socket.json()).not.toContainEqual({ type: "voice_activity", active: true });
+
+    g.setPlaying(false);
+    await g.h.advance(C.ECHO_GATE_TAIL_MS + C.VOICE_POLL_MS * (C.VOICE_ON_POLLS + 2));
+
+    expect(g.socket.json()).toContainEqual({ type: "voice_activity", active: true });
+  });
+});

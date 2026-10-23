@@ -184,6 +184,10 @@ export class HostSession {
   private busy: { tries: number; trigger: Trigger | null } = { tries: 0, trigger: null };
   // 16 §2k item 3: true between the backend's `reconnecting` true and false.
   private link = { reconnecting: false, since: 0 };
+  // 16 §2u item 3: when THE HOST's own audio was last seen in flight, which is
+  // what the echo gate's 300 ms tail is measured from. 0 means it has not played
+  // since the page loaded.
+  private echo = { lastPlayingAt: 0 };
   private micDebug: { samples: { at: number; level: number }[] } = { samples: [] };
   private micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, lastFrameAt: 0, since: 0 };
   private longTaskObserver: PerformanceObserver | null = null;
@@ -315,6 +319,15 @@ export class HostSession {
   private pollVoiceActivity = () => {
     if (!this.isSessionActive() || !this.ws || this.ws.readyState !== SOCKET_OPEN) return;
     if (this.deps.debugMic) this.recordMicSample(this.deps.audio.getMicAmp());
+    // 16 §2u item 3: inside the echo window the microphone is carrying THE
+    // HOST's own voice, so nothing it reports means anything. The window is
+    // ignored outright -- not merely treated as "not the guest" -- so a level
+    // that is still decaying cannot start the on-poll count either.
+    if (this.echoGateOpen()) {
+      this.voice.onPolls = 0;
+      this.voice.belowSince = 0;
+      return;
+    }
     if (this.deps.audio.getMicAmp() >= C.VOICE_ACTIVE_LEVEL) {
       this.voice.belowSince = 0;
       this.voice.onPolls += 1;
@@ -586,9 +599,36 @@ export class HostSession {
     this.timers.busy = setTimeout(() => void this.startSession(this.busy.trigger ?? "button", true), C.BUSY_RETRY_MS);
   }
 
+  /**
+   * 16 §2u item 3: is THE HOST's own voice in the room right now?
+   *
+   * True while its audio is playing and for ECHO_GATE_TAIL_MS after it stops.
+   * The tail covers the speakers' own decay and the microphone's path back, and
+   * it is measured from the last moment playback was actually observed, so it is
+   * accurate to within one poll (100 ms) rather than depending on an end event.
+   */
+  echoGateOpen(): boolean {
+    if (this.deps.audio.isPlaying()) {
+      this.echo.lastPlayingAt = this.now();
+      return true;
+    }
+    if (!this.echo.lastPlayingAt) return false;
+    return this.now() - this.echo.lastPlayingAt < C.ECHO_GATE_TAIL_MS;
+  }
+
   private onMicFrame = (buffer: ArrayBuffer) => {
     this.countMicFrame();
-    if (this.ws && this.ws.readyState === SOCKET_OPEN) this.ws.send(buffer);
+    if (!this.ws || this.ws.readyState !== SOCKET_OPEN) return;
+    // 16 §2u item 3: THE HOST never hears itself. The frame still goes -- the
+    // uplink must not develop gaps, and Gemini's own end-of-speech detection
+    // reads a continuous stream -- but it carries silence instead of the room.
+    // Accepted consequence: a guest cannot talk over THE HOST; they speak after
+    // it finishes, as at a counter.
+    if (this.echoGateOpen()) {
+      this.ws.send(new ArrayBuffer(buffer.byteLength));
+      return;
+    }
+    this.ws.send(buffer);
   };
 
   /* ----------------------------- the session ---------------------------- */

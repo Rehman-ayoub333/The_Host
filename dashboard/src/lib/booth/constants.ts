@@ -64,6 +64,13 @@ export const C = {
   // talking this long afterwards the caption says so.
   ONE_MOMENT_MS: 3000,
   ONE_MOMENT_LABEL: "One moment…",
+  // 16 §2u item 3: THE HOST never hears itself. At the gala its voice comes out
+  // of the TV or the laptop speakers, close to the handheld microphone, and with
+  // start-of-speech sensitivity HIGH (§2r item 5) its own voice coming back was
+  // being taken for a guest starting to talk. While its audio is playing, and
+  // for this long after, the page sends silence instead of the microphone and
+  // its own voice-activity detection ignores the window.
+  ECHO_GATE_TAIL_MS: 300,
 } as const;
 
 /** 16 §2i item 3: how long after the wrap-up line is asked for the page waits
