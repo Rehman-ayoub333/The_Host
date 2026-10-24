@@ -3,6 +3,7 @@ import base64
 import contextlib
 import json
 import logging
+import re
 import time
 from datetime import datetime
 from uuid import uuid4
@@ -40,6 +41,37 @@ AUDIO_SOCKET_EVENTS = frozenset(
 
 # 07 section 2 rule 2: while a draft is pending these never replace TAKING_ORDER.
 HELD_WHILE_ORDERING = frozenset({"THINKING", "SPEAKING", "GREETING", "RECOMMENDING"})
+
+# 16 section 2zb item 3, building the fallback documented in 09 section 5: the
+# words that count as the guest's own yes. In the 7i-b live test THE HOST asked
+# "Shall I confirm this, Ali?" and called confirm_order in the same turn, before
+# Ali had answered, so the confirmation is no longer left to the prompt alone.
+# "mhm" is here because it was a real, accepted confirmation in the 8 Oct voice
+# test. The list is exactly 2zb item 3(b)'s.
+AFFIRMATIVES = (
+    "yes", "yeah", "yep", "yup", "sure", "confirm", "confirmed", "okay", "ok",
+    "alright", "go ahead", "please do", "place it", "mhm", "mm-hmm", "uh-huh",
+    "haan", "han", "ji", "jee", "theek hai", "thik hai", "bilkul", "kar do",
+    "kardo", "ہاں", "جی", "ٹھیک ہے",
+)
+
+# Whole word, case-insensitive: "yes" in "yesterday" is not a yes, and the
+# hyphens in "mm-hmm" and "uh-huh" are not word characters, so the guards hold
+# at both ends. Urdu letters are word characters to `re`, so the same rule works
+# for ہاں, جی and ٹھیک ہے.
+_AFFIRMATIVE_RE = re.compile(
+    r"(?<!\w)(?:" + "|".join(re.escape(word) for word in AFFIRMATIVES) + r")(?!\w)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+# The refusal 2zb item 3 requires, word for word. It goes back to Gemini as the
+# tool's result, so THE HOST asks the guest again instead of placing an order.
+CONFIRM_REFUSAL = {"source": "order", "error": "Please confirm first."}
+
+
+def has_affirmative(line: str) -> bool:
+    """True when the guest's line contains one of AFFIRMATIVES as a whole word."""
+    return bool(_AFFIRMATIVE_RE.search(line or ""))
 
 # 16 section 2a item 3: the state each tool call announces before it runs.
 TOOL_STATES = {
@@ -357,6 +389,17 @@ class LiveSession:
         self.announcing_id = None
         # 09 section 17: the timer waiting for a picture we asked the page for.
         self.look_timer = None
+        # 16 section 2zb item 3: what the confirmation guard needs. The guest's
+        # latest line and when it arrived (a visitor transcription fragment or a
+        # text_input), when a draft was last built or changed in this session and
+        # which order that was, and when this session's opening turn ended --
+        # the reference point for a draft inherited from a cut-off conversation
+        # (2l item 4). The line is held in memory only and never logged.
+        self.last_guest_line = ""
+        self.last_guest_line_at = None
+        self.draft_built_at = None
+        self.draft_built_id = None
+        self.opening_turn_done_at = None
         self.transcripts = {"visitor": "", "agent": ""}
         self.last_state = None
         self.closed = False
@@ -456,6 +499,16 @@ class LiveSession:
         # guest actually heard, so a cut-off agent line is marked with an ellipsis.
         await self._flush_transcript("agent", " …" if interrupted else "")
 
+    def _note_guest_line(self, line: str) -> None:
+        """16 section 2zb item 3: the guest's latest line, for the confirm guard.
+
+        Kept in memory for the length of the session and never written anywhere:
+        the guard logs a reason, never a word of what was said.
+        """
+        if line:
+            self.last_guest_line = line
+            self.last_guest_line_at = _now()
+
     async def _on_transcript_fragment(self, role: str, fragment: str) -> None:
         """03 section 4: the other speaker's line is finalised first; text is the whole line."""
         other = "agent" if role == "visitor" else "visitor"
@@ -464,6 +517,8 @@ class LiveSession:
             self.transcripts[role] = join_fragments(self.transcripts[role], fragment)
         else:
             self.transcripts[role] += fragment
+            # The line so far, not just this fragment: a "yes" can arrive split.
+            self._note_guest_line(self.transcripts[role])
         await self._emit_transcript(role, self.transcripts[role], False)
 
     # --------------------------------------------------------------- lifecycle
@@ -932,6 +987,8 @@ class LiveSession:
                     # spoken line is never overwritten by the typed one.
                     await self._flush_transcript("agent")
                     await self._flush_transcript("visitor")
+                    # 16 section 2zb item 3: a typed line is a guest line too.
+                    self._note_guest_line(text)
                     await self._emit_transcript("visitor", text, True)
                     await self._to_live(self.session.send_realtime_input(text=text))
             elif message_type == "voice_activity":
@@ -1345,6 +1402,11 @@ class LiveSession:
         """16 section 2a item 6 and 07 section 2 rule 1."""
         # The opening greeting is over at the first turn_complete OR interrupted
         # (16 section 2a item 5), so a greeting talked over is not greeted again.
+        if not self.greeted:
+            # 16 section 2zb item 3: a draft inherited from a cut-off
+            # conversation (2l item 4) was offered in this turn, so a yes only
+            # counts if it arrives after the offer has been made.
+            self.opening_turn_done_at = _now()
         self.greeted = True
         spoken = self.transcripts["agent"]
         await self._flush_transcripts(interrupted=interrupted)
@@ -1666,6 +1728,35 @@ class LiveSession:
         while queue:
             summaries.emit_row(queue.pop(0), self.ctx["session_id"])
 
+    def _confirm_refusal(self, args) -> str | None:
+        """16 section 2zb item 3: why this confirm_order may not run, or None.
+
+        (a) a guest line must have arrived after this order's draft was last
+        built or changed in this session. For a draft inherited from a cut-off
+        conversation (2l item 4) there is no build in this session, so the
+        reference point is the end of this session's opening turn -- the offer
+        the guest is answering.
+        (b) that latest line must contain the guest's own yes.
+        """
+        try:
+            order_id = int(float(args.get("order_id")))
+        except (TypeError, ValueError):
+            # Not a number: let the tool itself answer, as 09 section 5 has it.
+            return None
+        if self.draft_built_id is not None and order_id == self.draft_built_id:
+            since = self.draft_built_at
+        else:
+            since = self.opening_turn_done_at
+        if (
+            since is None
+            or self.last_guest_line_at is None
+            or self.last_guest_line_at <= since
+        ):
+            return "no_new_line"
+        if not has_affirmative(self.last_guest_line):
+            return "no_affirmative"
+        return None
+
     async def _handle_tool_call(self, tool_call):
         # A tool call is model output: the turn is running and stays running
         # across the tool response below (16 section 2e item 1).
@@ -1680,6 +1771,28 @@ class LiveSession:
         for function_call in tool_call.function_calls:
             args = function_call.args or {}
             name = function_call.name
+            refusal = (
+                self._confirm_refusal(args) if name == "confirm_order" else None
+            )
+            if refusal is not None:
+                # 16 section 2zb item 3: the tool never runs, Gemini is told to
+                # ask the guest, and the activity feed gets no row -- nothing
+                # happened to an order. Only the reason is logged, never a word
+                # of what the guest said.
+                log.info(
+                    "confirm refused session %s order %s reason=%s",
+                    self.ctx["session_id"],
+                    args.get("order_id"),
+                    refusal,
+                )
+                function_responses.append(
+                    types.FunctionResponse(
+                        id=function_call.id,
+                        name=name,
+                        response=dict(CONFIRM_REFUSAL),
+                    )
+                )
+                continue
             if name == "signal_confirmation_request":
                 # A pure UI signal: no state message, no activity, no logging.
                 self.ctx["awaiting_confirmation"] = True
@@ -1699,6 +1812,10 @@ class LiveSession:
                 if "error" not in result:
                     if name == "build_order":
                         self.ctx["awaiting_confirmation"] = False
+                        # 16 section 2zb item 3: the draft changed, so the guest
+                        # has to speak again before it can be confirmed.
+                        self.draft_built_at = _now()
+                        self.draft_built_id = result.get("order_id")
                         await self._send_state("TAKING_ORDER")
                     elif name in ("confirm_order", "cancel_order", "report_feedback"):
                         self.ctx["awaiting_confirmation"] = False

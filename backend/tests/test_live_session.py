@@ -258,6 +258,8 @@ def test_an_order_turn_holds_taking_order_throughout():
     assert states(ws) == ["LISTENING", "THINKING", "TAKING_ORDER"]
     assert session.ctx["pending_order_id"] == order_id
 
+    # 16 section 2zb item 3: the guest answers the question before the confirm.
+    feed(session, [message(content(visitor="Yes."))])
     feed(session, [message(tool_call=call("confirm_order", {"order_id": order_id}))])
     assert session.ctx["pending_order_id"] is None
     assert session.ctx["awaiting_confirmation"] is False
@@ -876,6 +878,7 @@ def test_a_confirmed_order_survives_the_session_ending():
     session, ws = listening()
     feed(session, [message(tool_call=call("build_order", {"items": [BURGER]}))])
     order_id = session.ctx["pending_order_id"]
+    feed(session, [message(content(visitor="Yes."))])
     feed(session, [message(tool_call=call("confirm_order", {"order_id": order_id}))])
 
     asyncio.run(session.stop())
@@ -972,6 +975,7 @@ def test_a_tool_call_publishes_its_activity():
 
     feed(session, [message(tool_call=call("build_order", {"items": [BURGER]}))])
     order_id = session.ctx["pending_order_id"]
+    feed(session, [message(content(visitor="Yes."))])
     feed(session, [message(tool_call=call("confirm_order", {"order_id": order_id}))])
 
     activity = [

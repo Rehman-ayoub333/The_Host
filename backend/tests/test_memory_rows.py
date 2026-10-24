@@ -128,6 +128,9 @@ def test_live_session_publishes_each_queued_row_after_the_tool():
             )
         )
         order_id = session.ctx["pending_order_id"]
+        # 16 section 2zb item 3: the guard needs the guest's own yes after the
+        # draft was built before confirm_order may run.
+        await session._handle_message(doubles.message(doubles.content(visitor="Yes.")))
         await session._handle_message(
             doubles.message(
                 tool_call=doubles.call("confirm_order", {"order_id": order_id}, "call-confirm")
@@ -164,6 +167,10 @@ def test_the_queue_is_drained_even_when_the_tool_returned_an_error():
         session.ctx.setdefault("activity_queue", []).append(
             {"kind": "memory", "label": "Memory updated", "detail": "Ahmed: last order updated"}
         )
+        # 16 section 2zb item 3: the opening turn and a yes, so the guard lets
+        # the call through and the tool's own error is what the test sees.
+        await session._handle_message(doubles.message(doubles.content(turn_complete=True)))
+        await session._handle_message(doubles.message(doubles.content(visitor="Yes.")))
         await session._handle_message(
             doubles.message(tool_call=doubles.call("confirm_order", {"order_id": 999}, "call-x"))
         )
@@ -191,6 +198,7 @@ def test_the_system_events_history_keeps_the_memory_row():
                 )
             )
         )
+        await session._handle_message(doubles.message(doubles.content(visitor="Yes.")))
         await session._handle_message(
             doubles.message(
                 tool_call=doubles.call(
