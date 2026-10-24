@@ -134,7 +134,7 @@ def _load_json_list(path, label: str) -> list:
     return rows
 
 
-def init_db() -> None:
+def init_db() -> list[tuple[str, bool]]:
     with closing(_connect()) as conn:
         conn.execute(
             """CREATE TABLE IF NOT EXISTS menu_items (
@@ -243,32 +243,86 @@ def init_db() -> None:
         if "session_id" not in agent_log_columns:
             conn.execute("ALTER TABLE agent_log ADD COLUMN session_id TEXT")
 
-        if conn.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0] == 0:
-            rows = _load_json_list(config.MENU_JSON_PATH, "the menu")
-            for row_number, row in enumerate(rows, start=1):
-                try:
-                    name = str(row["name"]).strip()
-                    if not name:
-                        raise ValueError("empty name")
+        # 16 section 2zb item 8: the menu follows menu.json at every startup, as
+        # the stall information already does. Until this it was seeded once,
+        # whole-table (`COUNT(*) == 0`), so editing the file changed nothing on
+        # a laptop that already had a menu -- and Rehman's real menu is still to
+        # go in. Each item is inserted or updated **by name**; nothing anywhere
+        # references a menu row by id or by foreign key (the table's primary key
+        # IS the name, there is no id column and no REFERENCES in the schema;
+        # an order keeps its own copy of the item names and the prices they were
+        # bought at, in orders.items). The operator's sold-out toggle wins over
+        # the file: for an item already stored, `available` is left exactly as it
+        # is, so a restart mid-gala does not put a finished item back on sale.
+        # A new item starts with whatever the file says, available by default,
+        # and an item no longer in the file is removed.
+        menu_changes = []
+        stored = {
+            row["name"].lower(): row
+            for row in conn.execute(f"SELECT {_MENU_COLUMNS} FROM menu_items")
+        }
+        in_file = set()
+        rows = _load_json_list(config.MENU_JSON_PATH, "the menu")
+        for row_number, row in enumerate(rows, start=1):
+            try:
+                name = str(row["name"]).strip()
+                if not name:
+                    raise ValueError("empty name")
+                fields = (
+                    str(row.get("category", "")),
+                    str(row.get("price", "")),
+                    str(row.get("description", "")),
+                    str(row.get("image_url", "")),
+                    max(0, int(row.get("prep_seconds", 0))),
+                    *(
+                        _encode_menu_list(field, row.get(field), row_number)
+                        for field in MENU_OPTIONAL_FIELDS
+                    ),
+                )
+                current = stored.get(name.lower())
+                in_file.add(name.lower())
+                if current is None:
                     conn.execute(
-                        f"""INSERT OR IGNORE INTO menu_items ({_MENU_COLUMNS})
+                        f"""INSERT INTO menu_items ({_MENU_COLUMNS})
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             name,
-                            str(row.get("category", "")),
-                            str(row.get("price", "")),
-                            str(row.get("description", "")),
-                            str(row.get("image_url", "")),
+                            *fields[:4],
                             int(bool(row.get("available", True))),
-                            max(0, int(row.get("prep_seconds", 0))),
-                            *(
-                                _encode_menu_list(field, row.get(field), row_number)
-                                for field in MENU_OPTIONAL_FIELDS
-                            ),
+                            *fields[4:],
                         ),
                     )
-                except (AttributeError, KeyError, TypeError, ValueError) as exc:
-                    log.warning("skipped menu row %s: %s", row_number, exc)
+                    menu_changes.append((name, bool(row.get("available", True))))
+                    continue
+                was = (
+                    current["category"],
+                    current["price"],
+                    current["description"],
+                    current["image_url"],
+                    current["prep_seconds"],
+                    *(current[field] for field in MENU_OPTIONAL_FIELDS),
+                )
+                if was == fields and current["name"] == name:
+                    continue
+                conn.execute(
+                    """UPDATE menu_items SET name = ?, category = ?, price = ?,
+                       description = ?, image_url = ?, prep_seconds = ?,
+                       ingredients = ?, allergens = ?, tags = ?, add_ons = ?
+                       WHERE LOWER(name) = ?""",
+                    (name, *fields, name.lower()),
+                )
+                menu_changes.append((name, bool(current["available"])))
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                log.warning("skipped menu row %s: %s", row_number, exc)
+
+        for key, current in stored.items():
+            if key in in_file:
+                continue
+            conn.execute("DELETE FROM menu_items WHERE LOWER(name) = ?", (key,))
+            # Gone from the menu, so nothing can order it any more.
+            menu_changes.append((current["name"], False))
+        if menu_changes:
+            log.info("menu synced from the file: %s changed", len(menu_changes))
 
         # 16 section 2k item 7 added four topics to the seed file, and a booth
         # laptop already has a database with the first two in it. Seeding only
@@ -300,6 +354,11 @@ def init_db() -> None:
                 log.warning("skipped stall information row %s: %s", row_number, exc)
 
         conn.commit()
+    # 16 section 2zb item 8: what the menu sync changed, for the one
+    # `menu_updated` the caller publishes once the event loop exists. An empty
+    # list means the file and the database already agreed, and nothing is
+    # published.
+    return menu_changes
 
 
 def load_menu() -> int:

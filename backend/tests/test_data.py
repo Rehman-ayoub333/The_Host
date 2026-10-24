@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+import conftest
 import config
 import data
 import event_bus
@@ -47,12 +48,11 @@ def test_init_db_creates_every_table_and_keeps_agent_log():
     assert columns == {"id", "timestamp", "tool", "input_args", "result", "session_id"}
 
 
-def test_seeds_menu_and_business_info_only_when_empty():
-    """The menu keeps its seed-once behaviour; the topics now follow the JSON.
+def test_seeds_menu_and_business_info_and_keeps_the_sold_out_toggle():
+    """16 section 2zb item 8: the menu follows the JSON now, like the topics.
 
-    16 section 2za item 8 changed only the stall information: an operator's
-    menu availability still survives a restart, which is what the second half
-    of this test has always guarded.
+    The operator's sold-out toggle still survives a restart, which is what the
+    second half of this test has always guarded.
     """
     assert data.load_menu() == 5
     # 16 section 2k item 7 added the four identity topics to the seed file,
@@ -62,6 +62,134 @@ def test_seeds_menu_and_business_info_only_when_empty():
     data.set_menu_availability("Blue Lemonade", False)
     data.init_db()
     assert data.get_menu_item("Blue Lemonade")["available"] == 0
+
+
+# -------------------- 16 section 2zb item 8: the menu follows the JSON
+
+
+def menu_seed(**changes):
+    """The five real items, with one of them altered for the test."""
+    rows = [dict(row) for row in conftest.MENU_SEED]
+    for row in rows:
+        if row["name"] in changes:
+            row.update(changes[row["name"]])
+    return rows
+
+
+def write_menu(path, rows):
+    path.write_text(json.dumps(rows), encoding="utf-8")
+
+
+def test_a_changed_price_applies_at_the_next_startup(tmp_path, monkeypatch):
+    menu = tmp_path / "menu.json"
+    write_menu(menu, conftest.MENU_SEED)
+    monkeypatch.setattr(config, "MENU_JSON_PATH", menu)
+    data.init_db()
+    assert data.get_menu_item("Chicken Burger")["price"] == "Rs. 650"
+
+    write_menu(menu, menu_seed(**{"Chicken Burger": {"price": "Rs. 700"}}))
+    changes = data.init_db()
+
+    item = data.get_menu_item("Chicken Burger")
+    print("after the price change:", item)
+    assert item["price"] == "Rs. 700"
+    assert ("Chicken Burger", True) in changes
+    # Nothing else moved.
+    assert data.get_menu_item("Blue Lemonade")["price"] == "Rs. 250"
+
+
+def test_a_sold_out_item_stays_sold_out_across_a_restart(tmp_path, monkeypatch):
+    """The operator's toggle wins over the file, even when the file changes."""
+    menu = tmp_path / "menu.json"
+    write_menu(menu, conftest.MENU_SEED)
+    monkeypatch.setattr(config, "MENU_JSON_PATH", menu)
+    data.init_db()
+    data.set_menu_availability("Blue Lemonade", False)
+
+    write_menu(menu, menu_seed(**{"Blue Lemonade": {"description": "Now with mint."}}))
+    data.init_db()
+
+    item = data.get_menu_item("Blue Lemonade")
+    print("after the restart:", item)
+    assert item["available"] == 0
+    assert item["description"] == "Now with mint."
+
+
+def test_a_new_item_appears_and_starts_available(tmp_path, monkeypatch):
+    menu = tmp_path / "menu.json"
+    write_menu(menu, conftest.MENU_SEED)
+    monkeypatch.setattr(config, "MENU_JSON_PATH", menu)
+    data.init_db()
+
+    rows = [dict(row) for row in conftest.MENU_SEED]
+    rows.append({
+        "name": "Mint Margarita",
+        "category": "Drinks",
+        "price": "Rs. 300",
+        "description": "Fresh mint, blended cold.",
+        "image_url": "/menu/mint-margarita.jpg",
+        "prep_seconds": 90,
+    })
+    write_menu(menu, rows)
+    changes = data.init_db()
+
+    item = data.get_menu_item("Mint Margarita")
+    print("the new item:", item)
+    assert item["available"] == 1
+    assert item["price"] == "Rs. 300"
+    assert ("Mint Margarita", True) in changes
+    assert data.load_menu() == 6
+
+
+def test_an_item_no_longer_in_the_file_disappears(tmp_path, monkeypatch):
+    menu = tmp_path / "menu.json"
+    write_menu(menu, conftest.MENU_SEED)
+    monkeypatch.setattr(config, "MENU_JSON_PATH", menu)
+    data.init_db()
+
+    write_menu(menu, [row for row in conftest.MENU_SEED if row["name"] != "Patty Burger"])
+    changes = data.init_db()
+
+    print("menu after the removal:", [row["name"] for row in data.get_menu()])
+    assert data.get_menu_item("Patty Burger") is None
+    assert ("Patty Burger", False) in changes
+    assert data.load_menu() == 4
+
+
+def test_an_existing_order_keeps_the_price_it_was_bought_at(tmp_path, monkeypatch):
+    """Nothing references a menu row by id: an order carries its own copy."""
+    menu = tmp_path / "menu.json"
+    write_menu(menu, conftest.MENU_SEED)
+    monkeypatch.setattr(config, "MENU_JSON_PATH", menu)
+    data.init_db()
+    # The shape build_order stores: the item's name and the price it was bought
+    # at, copied into the order, never a reference to the menu row.
+    draft = data.create_order_draft(
+        [{"name": "Chicken Burger", "quantity": 1, "price": "Rs. 650"}], "Ali", "session-1"
+    )
+    order_id = draft["order_id"]
+
+    # The price doubles and the item the order names is removed entirely.
+    rows = menu_seed(**{"Chicken Burger": {"price": "Rs. 1,300"}})
+    write_menu(menu, [row for row in rows if row["name"] != "Club Sandwich"])
+    data.init_db()
+
+    order = data.get_order(order_id)
+    items = order["items"]
+    print("the order after the menu moved:", items)
+    assert items[0]["price"] == "Rs. 650"
+    assert data.compute_total(items) == "Rs. 650"
+
+
+def test_nothing_changed_means_nothing_to_announce(tmp_path, monkeypatch):
+    menu = tmp_path / "menu.json"
+    write_menu(menu, conftest.MENU_SEED)
+    monkeypatch.setattr(config, "MENU_JSON_PATH", menu)
+    first = data.init_db()
+    second = data.init_db()
+
+    print("first startup changed:", len(first), "second:", second)
+    assert second == []
 
 
 # ------------------ 16 section 2za item 8: the topics follow the JSON

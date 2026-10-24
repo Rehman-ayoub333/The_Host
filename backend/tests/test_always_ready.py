@@ -386,15 +386,27 @@ def test_an_older_database_gains_the_columns(monkeypatch, tmp_path):
                 prep_seconds INTEGER NOT NULL DEFAULT 0
             )"""
         )
+        # One row that the seed file still lists, and one it does not.
+        conn.execute(
+            "INSERT INTO menu_items (name, price) VALUES ('Chicken Burger', 'Rs. 10')"
+        )
         conn.execute(
             "INSERT INTO menu_items (name, price) VALUES ('Old Item', 'Rs. 10')"
         )
 
     data.init_db()
-    item = data.get_menu_item("Old Item")
-    assert item["price"] == "Rs. 10"
+
+    # The migration added the four optional columns, and the row kept its place.
+    item = data.get_menu_item("Chicken Burger")
+    print("the migrated row:", item)
     for field in data.MENU_OPTIONAL_FIELDS:
         assert field not in item
+    # 16 section 2zb item 8: the file is the source of truth now, so the stale
+    # price is corrected and a row the file no longer lists is removed. Before
+    # that item the menu was seeded only into an empty table, so both of these
+    # rows simply survived untouched.
+    assert item["price"] == "Rs. 650"
+    assert data.get_menu_item("Old Item") is None
 
 
 # ------------------------------------------------- 2i item 5: the prompt rules

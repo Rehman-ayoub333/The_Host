@@ -147,13 +147,30 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(
             "GEMINI_API_KEY is not set. Copy .env.example to .env and add your key."
         )
-    data.init_db()
+    menu_changes = data.init_db()
     menu_items = data.load_menu()
     app.state.menu_items = menu_items
     app.state.boot_id = secrets.token_hex(3)
     app.state.present = False
     app.state.person_id = None
     event_bus.set_loop(asyncio.get_running_loop())
+    # 16 section 2zb item 8: the menu followed menu.json at this startup, so
+    # anything it changed is announced once the bus has a loop to publish on.
+    # Nothing is connected this early -- the display and the dashboard both
+    # fetch /api/menu when they open -- so this is the audit trail of a menu
+    # that moved while the stall was shut, and the live signal if it ever
+    # happens with a client already listening.
+    for name, available in menu_changes:
+        event_bus.publish(
+            {
+                "type": "menu_updated",
+                "item": name,
+                "available": available,
+                "session_id": None,
+            }
+        )
+    if menu_changes:
+        log.info("menu_updated published for %s item(s)", len(menu_changes))
     if not config.OPERATOR_TOKEN:
         log.warning(
             "OPERATOR_TOKEN is not set: the dashboard role and every "
