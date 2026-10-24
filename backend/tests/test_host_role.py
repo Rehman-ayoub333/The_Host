@@ -79,11 +79,14 @@ def test_the_vice_chancellor_protocol_is_in_the_prompt():
     )
     assert "Never call remember_visitor with a title." in text
     assert "never ask for proof, never joke about it" in text
+    # 16 section 2za item 4: E5 handed a latency question to "the team" instead
+    # of naming Rehman Ayoub, so Part A now makes the line exact and forbids the
+    # substitute outright.
     assert (
-        "That's one our project lead, Rehman Ayoub, would be glad to answer -- he's "
-        "right here at the stall." in text
-        or "That's one our project lead, Rehman Ayoub, would be glad to answer — he's "
-        "right here at the stall." in text
+        "If he asks something your topics do not answer (for example latency, cost "
+        "or plans), always say exactly: \"That's one our project lead, Rehman Ayoub, "
+        "would be glad to answer — he's right here at the stall.\" Never say \"the "
+        "team\" instead, and never guess." in text
     )
 
 

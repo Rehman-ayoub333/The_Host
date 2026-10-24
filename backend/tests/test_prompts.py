@@ -2,6 +2,7 @@ from datetime import datetime
 
 import config
 import prompts
+import tools
 
 
 def test_system_instruction_names_the_host_and_the_stall_with_no_braces_left():
@@ -37,6 +38,11 @@ def test_the_system_instruction_covers_the_two_step_order_rule():
         "To change a confirmed order, offer to cancel it and build a new one." in text
     )
     assert "You do not recognise anyone by their face." in text
+    # Every tool the prompt asks for by name. 16 section 2za item 2 took
+    # signal_confirmation_request out of the order tool list and the ORDERS and
+    # FEEDBACK rules, so the prompt no longer names it: it stays declared in
+    # tools.py (thirteen tools) and is asserted absent here and in
+    # test_always_ready.test_the_order_and_feedback_rules_no_longer_ask_for_the_signal.
     for tool_name in (
         "check_item_availability",
         "recommend_item",
@@ -46,12 +52,15 @@ def test_the_system_instruction_covers_the_two_step_order_rule():
         "get_order_status",
         "report_feedback",
         "remember_visitor",
-        "signal_confirmation_request",
         "get_business_info",
         "request_operator_help",
         "web_search",
+        "look_at_camera",
     ):
         assert tool_name in text
+    assert "signal_confirmation_request" not in text
+    assert len(tools.TOOL_FUNCTIONS) == 13
+    assert "signal_confirmation_request" in tools.TOOL_FUNCTIONS
 
 
 def test_the_speak_first_rule_is_not_in_the_prompt():

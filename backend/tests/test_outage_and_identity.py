@@ -372,10 +372,16 @@ def test_the_prompt_carries_the_identity_rule():
 
 def test_the_prompt_carries_the_language_rule():
     built = prompts.build_system_instruction(datetime.now())
-    # 21 Part A: a mix of Urdu and English is answered in Urdu as well, and
-    # "aap" is now required outright.
+    # 16 section 2za item 3: the rule turns on the guest's LATEST message, in
+    # both directions, and "aap" is required outright.
+    assert "Reply in the language of the guest's latest message." in built
     assert (
-        "If the guest speaks Urdu, Punjabi or a mix of Urdu and English, reply in Urdu"
+        "If it is in English, reply in English, even if the guest's name or an "
+        "earlier line was Urdu." in built
+    )
+    assert (
+        "If it is in Urdu, Punjabi or Roman Urdu, even a short line mixed with "
+        'English words (for example "VC sahab ko ek Blue Lemonade"), reply in Urdu'
         in built
     )
     assert "never Hindi, never Punjabi, never Gurmukhi or Devanagari script" in built

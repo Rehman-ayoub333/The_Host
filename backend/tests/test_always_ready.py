@@ -408,9 +408,12 @@ RULES = [
     "customisation are answered only from the menu and business data.",
     "I don't have that detail — the team at the counter can tell you.",
     "Never invent garnishes, add-ons or methods.",
-    # Allergies: no guarantee.
+    # Allergies: no guarantee, and no disclaimer. 16 section 2za item 6: the
+    # disclaimer sentence was dropped from Part A by mistake in 7i and is back,
+    # because 2i item 5 still holds.
     "Allergy questions: never guarantee safety.",
     "should check with the team before ordering",
+    'Never add a "not medical advice" disclaimer.',
     # Categories are reasoned over, not refused.
     'Category questions ("something sweet", "spicy", "cold")',
     'say what fits instead of "we don\'t have any"',
@@ -420,16 +423,25 @@ RULES = [
     # One welcome per conversation.
     "Welcome a guest only once per conversation, even if later speech sounds "
     "like a greeting.",
-    # Language and length (reworded by 21 Part A: a mix of Urdu and English
-    # answers in Urdu too, and menu names stay in English).
-    "Reply in the language the guest uses. If the guest speaks Urdu, Punjabi or a mix of Urdu and English, reply in Urdu, with English words where they are natural (menu names stay in English): never Hindi, never Punjabi, never Gurmukhi or Devanagari script.",
+    # Language and length. 16 section 2za item 3 made the rule turn on the
+    # guest's LATEST message, after E3 answered a Roman-Urdu line in English
+    # and two E31 runs answered an English guest in Urdu.
+    "Reply in the language of the guest's latest message. If it is in English, reply in English, even if the guest's name or an earlier line was Urdu. If it is in Urdu, Punjabi or Roman Urdu, even a short line mixed with English words (for example \"VC sahab ko ek Blue Lemonade\"), reply in Urdu, with English words where they are natural (menu names stay in English): never Hindi, never Punjabi, never Gurmukhi or Devanagari script.",
 ]
 
-# Rules 16 section 2i item 5 asked for that 21 Part A deliberately dropped. The
-# sentences are kept here so nothing is lost from the record, and the test below
-# asserts they really are gone rather than quietly missing.
+# Instructions an earlier Part A carried that the current one deliberately
+# drops. They are kept here so nothing is lost from the record, and the test
+# below asserts they really are gone rather than quietly missing.
+#
+# 16 section 2za item 2: the model never called signal_confirmation_request in
+# any of the 7i runs. It is a pure UI signal (09 section 11), nothing depends on
+# it, and the spoken question plus the guest's yes is what makes an order safe,
+# so Part A no longer asks for it. The tool itself stays declared.
 RETIRED_RULES = [
-    'Never add a "not medical advice" disclaimer.',
+    "Then call signal_confirmation_request with a one-sentence summary, and ask "
+    "if you should confirm it.",
+    "Call signal_confirmation_request with a one-sentence summary, read back what "
+    "you understood, and only call report_feedback after a clear yes.",
 ]
 
 
@@ -454,27 +466,44 @@ def test_the_rules_are_recorded_in_the_spec():
 
 @pytest.mark.parametrize("rule", RETIRED_RULES)
 def test_a_retired_rule_is_no_longer_in_the_prompt(rule):
-    """21 Part A dropped the medical-disclaimer sentence (16 section 2x item 4a).
-
-    The sentence must be gone, not merely unasserted, so a future edit that
-    reinstates half of the old prompt fails here.
-    """
+    """The sentence must be gone, not merely unasserted, so a future edit that
+    reinstates half of an older prompt fails here."""
     built = prompts.build_system_instruction(datetime.now())
 
     assert rule not in built
 
 
-def test_no_robotic_medical_disclaimer_is_asked_for():
-    """2i item 5's intent, under 21 Part A's wording.
+def test_the_order_and_feedback_rules_no_longer_ask_for_the_signal():
+    """16 section 2za item 2: the instruction is gone, the safety is not.
 
-    The 5c live test heard "this is not medical advice". The old prompt banned
-    the phrase in so many words; 21 Part A drops that sentence and leaves the
-    allergy rule to do the work, so what is checked here is that the prompt
-    neither invites the disclaimer nor loses the rule behind it.
+    What makes an order safe is the spoken question and the guest's clear yes
+    before confirm_order, and both are still required in so many words.
     """
     built = prompts.build_system_instruction(datetime.now())
 
-    assert "not medical advice" not in built
+    assert "signal_confirmation_request" not in built
+    # ORDERS: the question stays, and confirm_order still waits for a yes.
+    assert "Then ask if you should confirm it." in built
+    assert (
+        'Only call confirm_order after a clear yes ("yes", "haan", "ji", "confirm", '
+        '"go ahead").' in built
+    )
+    # FEEDBACK: the read-back stays, and report_feedback still waits for a yes.
+    assert (
+        "Read back what you understood in one sentence, and only call "
+        "report_feedback after a clear yes. Thank them either way." in built
+    )
+
+
+def test_no_robotic_medical_disclaimer_is_asked_for():
+    """2i item 5, restored by 16 section 2za item 6.
+
+    The 5c live test heard "this is not medical advice". 7i dropped the
+    sentence that bans it by mistake; it is back, beside the allergy rule.
+    """
+    built = prompts.build_system_instruction(datetime.now())
+
+    assert 'Never add a "not medical advice" disclaimer.' in built
     assert (
         "Allergy questions: never guarantee safety. Say you do not have the full "
         "allergen list and the guest should check with the team before ordering." in built
