@@ -66,8 +66,7 @@ any script here.
 The TV is THE HOST: the camera, the handheld microphone and THE HOST's voice all belong to
 that page. The laptop is the operator's, and it holds the only screen with order controls
 and guest names on it. `http://127.0.0.1:8000/` is the backend, not a screen: it answers
-with one line saying where the display is. There is no second voice page any more — if
-`/display` will not start, see section 4.
+with one line saying where the display is. If `/display` will not start, see section 4.
 
 1. **Plug in the hardware first,** before any window is opened: the external camera, the
    handheld microphone, the speaker, and the HDMI cable to the TV.

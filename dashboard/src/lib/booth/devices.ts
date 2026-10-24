@@ -9,7 +9,7 @@
  * The choice is remembered in this browser only — the TV at the stall keeps the
  * external camera and the handheld microphone it was given, across a reload,
  * without anyone touching the screen again. An empty id means the system
- * default, which is what the voice page always used.
+ * default, which is what the old booth page always used.
  *
  * A browser hides device labels until it has been given permission once, so a
  * list read before then has placeholder names in it.

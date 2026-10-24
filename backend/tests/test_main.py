@@ -70,7 +70,7 @@ def test_the_example_env_ships_the_new_default():
 
 
 def test_the_root_page_says_where_the_display_is(monkeypatch):
-    """16 section 2v item 5: the old voice page is retired.
+    """16 section 2v item 5: THE HOST is the display screen now.
 
     Ported from test_the_voice_page_is_never_cached (2e item 2, a stale app.js).
     The backend serves no static files at all now, so there is nothing left to

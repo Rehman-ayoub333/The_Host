@@ -45,7 +45,7 @@ export function useHostSession() {
   useEffect(() => {
     if (!session) return;
     // The page being closed must take the microphone, the camera and the socket
-    // with it, exactly as the voice page's beforeunload did.
+    // with it, exactly as the old booth page's beforeunload did.
     const onUnload = () => session.destroy();
     window.addEventListener("beforeunload", onUnload);
     return () => {

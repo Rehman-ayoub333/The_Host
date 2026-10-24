@@ -200,10 +200,10 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       // The only event that writes to the feed.
       return n({ activity: logActivity(s, e.kind, e.label, e.detail, e.timestamp) });
     case "capture_request":
-      return s; // the voice page's business (20 §4 item 5)
+      return s; // the display screen's business (20 §4 item 5)
     case "interrupted":
       return s;
-    // 16 §2k item 3: the voice page holds its clocks on this; the dashboard
+    // 16 §2k item 3: the display screen holds its clocks on this; the dashboard
     // has no state of its own for it. The connection row it might look like it
     // belongs to is about THIS browser's /ws/events socket, not the backend's
     // Gemini link, so nothing here changes (16 §2s item 4a).

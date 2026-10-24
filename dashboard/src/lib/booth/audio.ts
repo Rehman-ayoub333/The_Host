@@ -1,12 +1,12 @@
 /**
- * 16 §2t item 3: the voice page's audio, ported.
+ * 16 §2t item 3: the old booth page's audio, ported.
  *
  * Capture runs on the audio thread through `public/mic-worklet.js` (§2r item 4),
  * at 16 kHz Int16 frames of 1600 samples. Playback is THE HOST's voice, played
  * in this page. The level meters feed the orb and the ?debug=mic readout.
  *
  * The device ids come from the Start screen's two drop-downs (§2t item 4);
- * `undefined` means the system default, which is what the voice page always had.
+ * `undefined` means the system default, which is what the old booth page always had.
  */
 import { C } from "./constants";
 

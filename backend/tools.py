@@ -489,7 +489,7 @@ def signal_confirmation_request(summary) -> dict:
 
 
 def look_at_camera(reason=None) -> dict:
-    """09 section 17: a pure signal. live_session asks the voice page for one picture."""
+    """09 section 17: a pure signal. live_session asks the display screen for one picture."""
     return {
         "source": "camera",
         "requested": True,

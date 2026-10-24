@@ -1,7 +1,7 @@
 /**
  * 16 §2t item 8: the ported logic, driven directly.
  *
- * The rules under test are the ones the voice page proved at the booth over
+ * The rules under test are the ones proved at the booth over
  * phases 5d to 7c: the wake rule (§2h item 2), the empty-room and idle timers
  * (§2h item 4, §2g item 2), the 8-minute wrap-up (§2i item 3), the quiet busy
  * retries (§2j item 3) and the reconnecting hold (§2k item 3). `HostSession`

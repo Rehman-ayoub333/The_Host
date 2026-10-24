@@ -784,9 +784,9 @@ async def websocket_session(websocket: WebSocket):
 
 # ------------------------------------------------------------- the root page
 
-# 16 section 2v item 5: the old voice page is retired. THE HOST is the display
-# screen now, and the backend serves no static files at all -- just this one
-# line, for anyone who opens the backend's own address by habit.
+# 16 section 2v item 5: THE HOST is the display screen now, and the backend
+# serves no static files at all -- just this one line, for anyone who opens the
+# backend's own address by habit.
 ROOT_PAGE = """<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>THE HOST</title></head>

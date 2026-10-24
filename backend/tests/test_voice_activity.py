@@ -1,4 +1,4 @@
-"""Phase 5b: voice activity from the voice page, the deferral it adds and the
+"""Phase 5b: voice activity from the display screen, the deferral it adds and the
 grace check (16 section 2f items 3, 4 and 5).
 
 The booth problem these cover: the backend learns the guest is talking only when

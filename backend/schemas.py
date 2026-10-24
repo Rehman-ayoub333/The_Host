@@ -63,7 +63,7 @@ class CaptureRequestEvent(EventEnvelope):
 class ReconnectingEvent(EventEnvelope):
     """16 section 2k item 3: the sixth audio-socket event (Phase 5f).
 
-    True when recovery starts, false when it ends either way, so the voice page
+    True when recovery starts, false when it ends either way, so the display screen
     can say "Reconnecting…" and hold its clocks instead of timing the guest out
     while the backend is rebuilding the connection.
     """

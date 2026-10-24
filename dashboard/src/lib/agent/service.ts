@@ -387,7 +387,7 @@ function open() {
     }
     if (!data || typeof data.type !== "string") return;
     if (data.type === "heartbeat") return;
-    // capture_request belongs to the voice page; ignored quietly (20 §4 item 5).
+    // capture_request belongs to the display screen; ignored quietly (20 §4 item 5).
     if (data.type === "capture_request") return;
     // event_id dedup; boot_id change resets the remembered id.
     if (data.type === "state_snapshot") {

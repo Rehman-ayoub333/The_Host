@@ -1,7 +1,7 @@
 """Phase 4: the voice-triggered look (09 section 17, 03 section 4, 16 section 2d).
 
 `look_at_camera` is the 13th tool. It takes no picture itself: live_session asks the
-voice page for one with `capture_request`, waits `LOOK_TIMEOUT_S`, and says so
+display screen for one with `capture_request`, waits `LOOK_TIMEOUT_S`, and says so
 honestly if nothing arrives. Both the button and this request send the snapshot to
 Gemini through the one function `_send_vision`, in either `VISION_SEND_MODE`.
 """
@@ -94,7 +94,7 @@ def test_the_happy_path_asks_for_a_picture_and_uses_the_one_that_arrives(monkeyp
         await look(session, {"reason": "this mug"})
         print("socket messages after the tool call:", ws.sent)
         assert session.look_timer is not None
-        # The voice page answers with a normal vision_frame.
+        # The display screen answers with a normal vision_frame.
         await session._uplink()
         print("timer after the frame arrived:", session.look_timer)
         assert session.look_timer is None

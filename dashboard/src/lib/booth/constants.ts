@@ -1,5 +1,5 @@
 /**
- * 16 §2t item 3: the voice page's constants, ported with the same values.
+ * 16 §2t item 3: the old booth page's constants, ported with the same values.
  *
  * Every number here was measured at the booth or decided in a spec section, and
  * the comments say which. Nothing is re-tuned by the port: /display is meant to

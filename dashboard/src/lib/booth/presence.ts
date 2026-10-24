@@ -1,5 +1,5 @@
 /**
- * 16 §2t item 3: the voice page's camera presence and face detection, ported.
+ * 16 §2t item 3: the old booth page's camera presence and face detection, ported.
  *
  * MediaPipe's vendored files live in `public/vendor/mediapipe/`, so the paths
  * below are the dashboard's own, served from its origin. The rules — arrival

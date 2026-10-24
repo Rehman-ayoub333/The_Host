@@ -328,7 +328,7 @@ class LiveSession:
         # response, so an announcement cannot be injected into the gap between a
         # tool result and the audio it produces (the order #12 sequence).
         self.turn_in_progress = False
-        # 16 section 2f item 3: what the voice page's mic meter reports. The
+        # 16 section 2f item 3: what the display screen's mic meter reports. The
         # backend's own evidence that the guest is talking (an input
         # transcription fragment) arrives a second or more after the first
         # syllable, which is too late to stop an announcement.
@@ -798,7 +798,7 @@ class LiveSession:
         self.look_timer = None
 
     async def _request_capture(self) -> None:
-        """09 section 17: ask the voice page for one picture, then wait for it."""
+        """09 section 17: ask the display screen for one picture, then wait for it."""
         self._cancel_look_timer()
         await self._send_control({"type": "capture_request"})
         summaries.emit_row(summaries.LOOKED_AT_CAMERA, self.ctx["session_id"])

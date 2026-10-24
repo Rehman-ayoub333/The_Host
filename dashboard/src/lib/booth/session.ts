@@ -1,5 +1,5 @@
 /**
- * 16 §2t item 3: the voice page's conversation logic, ported for /display.
+ * 16 §2t item 3: the old booth page's conversation logic, ported for /display.
  *
  * This is `booth/app.js` without its DOM: the same state machine, the same
  * timers, the same wake rule, the same busy retries and the same `/ws/session`
@@ -40,7 +40,7 @@ export const ACTIVE_STATES: ReadonlySet<LocalState> = new Set<LocalState>([
   "speaking",
 ]);
 
-/** The backend's states, as the voice page mapped them (`booth/app.js`). */
+/** The backend's states, as the old booth page mapped them (`booth/app.js`). */
 export const BACKEND_STATE_MAP: Record<string, LocalState> = {
   LISTENING: "listening",
   THINKING: "thinking",
