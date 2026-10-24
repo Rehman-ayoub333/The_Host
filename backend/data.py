@@ -274,9 +274,16 @@ def init_db() -> None:
         # laptop already has a database with the first two in it. Seeding only
         # an empty table left the identity topics unreachable: `get_business_info`
         # returned found=False and THE HOST answered from its own idea of itself,
-        # which is the 2k item 1(d) failure this phase exists to fix. Every seed
-        # topic is now made present, and one already in the table is left exactly
-        # as it is -- an operator may have edited it.
+        # which is the 2k item 1(d) failure that phase existed to fix.
+        #
+        # 16 section 2za item 8: the JSON is the source of truth, so a topic in
+        # it now overwrites the stored answer at every startup. Until this, the
+        # row was inserted only when absent, which is why 21 Part B's new
+        # complimentary_guests text never reached a database that already had
+        # that topic -- the stall would have gone on saying the chief guest is on
+        # the house. A stored topic that the JSON does not mention is left alone.
+        # Nothing else writes this table: the only other access is the read in
+        # `get_business_info`, and no endpoint or dashboard control edits it.
         rows = _load_json_list(config.BUSINESS_INFO_JSON_PATH, "the stall information")
         for row_number, row in enumerate(rows, start=1):
             try:
@@ -285,7 +292,8 @@ def init_db() -> None:
                 if not topic or not answer:
                     raise ValueError("empty topic or answer")
                 conn.execute(
-                    "INSERT OR IGNORE INTO business_info (topic, answer) VALUES (?, ?)",
+                    "INSERT INTO business_info (topic, answer) VALUES (?, ?) "
+                    "ON CONFLICT(topic) DO UPDATE SET answer = excluded.answer",
                     (topic, answer),
                 )
             except (AttributeError, KeyError, TypeError, ValueError) as exc:

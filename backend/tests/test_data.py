@@ -48,6 +48,12 @@ def test_init_db_creates_every_table_and_keeps_agent_log():
 
 
 def test_seeds_menu_and_business_info_only_when_empty():
+    """The menu keeps its seed-once behaviour; the topics now follow the JSON.
+
+    16 section 2za item 8 changed only the stall information: an operator's
+    menu availability still survives a restart, which is what the second half
+    of this test has always guarded.
+    """
     assert data.load_menu() == 5
     # 16 section 2k item 7 added the four identity topics to the seed file,
     # 2m item 5 the guest-of-honour one, and 21 Part B privacy, technical,
@@ -56,6 +62,63 @@ def test_seeds_menu_and_business_info_only_when_empty():
     data.set_menu_availability("Blue Lemonade", False)
     data.init_db()
     assert data.get_menu_item("Blue Lemonade")["available"] == 0
+
+
+# ------------------ 16 section 2za item 8: the topics follow the JSON
+
+
+def test_a_changed_topic_text_replaces_the_stored_answer_on_startup(tmp_path, monkeypatch):
+    """The JSON is the source of truth for every topic it carries.
+
+    Until this, the row was inserted only when absent, so 21 Part B's new
+    complimentary_guests text never reached a database that already had that
+    topic: the stall would have gone on telling guests the chief guest is on
+    the house.
+    """
+    seed = tmp_path / "business_info.json"
+    seed.write_text(
+        json.dumps([{"topic": "hours", "answer": "The old hours."}]), encoding="utf-8"
+    )
+    monkeypatch.setattr(config, "BUSINESS_INFO_JSON_PATH", seed)
+    data.init_db()
+    assert data.get_business_info("hours")[0]["answer"] == "The old hours."
+
+    seed.write_text(
+        json.dumps([{"topic": "hours", "answer": "The new hours."}]), encoding="utf-8"
+    )
+    data.init_db()
+
+    rows = data.get_business_info("hours")
+    print("after the second startup:", rows)
+    assert len(rows) == 1
+    assert rows[0]["answer"] == "The new hours."
+
+
+def test_a_stored_topic_missing_from_the_json_is_left_alone(tmp_path, monkeypatch):
+    """An operator's own topic is not deleted by a seed file that omits it."""
+    seed = tmp_path / "business_info.json"
+    seed.write_text(
+        json.dumps(
+            [
+                {"topic": "hours", "answer": "The gala hours."},
+                {"topic": "parking", "answer": "Behind the hall."},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "BUSINESS_INFO_JSON_PATH", seed)
+    data.init_db()
+    assert data.get_business_info("parking")[0]["answer"] == "Behind the hall."
+
+    seed.write_text(
+        json.dumps([{"topic": "hours", "answer": "The gala hours."}]), encoding="utf-8"
+    )
+    data.init_db()
+
+    topics = {row["topic"]: row["answer"] for row in data.get_business_info()}
+    print("topics after the seed file dropped one:", sorted(topics))
+    assert topics["parking"] == "Behind the hall."
+    assert topics["hours"] == "The gala hours."
 
 
 def test_init_db_skips_invalid_rows_and_rejects_bad_json(tmp_path, monkeypatch):
