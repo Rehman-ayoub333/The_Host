@@ -78,7 +78,11 @@ def test_the_connect_config_shortens_the_silence_before_a_reply():
 
 
 def test_the_stall_and_goaway_limits_are_the_ones_the_spec_sets():
-    assert config.STALL_S == 8
+    # 16 section 2zb item 5 raised the stall watchdog from 8 s to 15 s: at 8 s
+    # it cut off healthy turns that Gemini was simply slow to start (the 7i-b
+    # E22 diagnosis measured 7.7 s after a tool response and 17.7 s before a
+    # tool call, with the backend answering in 15-24 ms).
+    assert config.STALL_S == 15
     assert config.GOAWAY_TURN_GRACE_S == 5
 
 

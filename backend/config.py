@@ -73,7 +73,16 @@ PREFIX_PADDING_MS = 300
 # 16 section 2j item 5: Gemini has heard the guest, or has been given a tool
 # result, and nothing has come back for this long. The conversation is not over,
 # so the connection is rebuilt rather than the session ended.
-STALL_S = 8
+#
+# 16 section 2zb item 5 raises it from 8 to 15. The 7i-b diagnosis timed eight
+# safety turns: the backend answered every tool in 15-24 ms, and Gemini's own
+# time before speaking ran to 7.7 s after the tool response and to 17.7 s before
+# the tool call. At 8 s the watchdog turned a slow but healthy turn into a
+# reconnect, a lost context and "Sorry, I missed that" -- twice, on the one
+# scenario where speed matters most ("Someone fainted here!"). A real hang is
+# still caught; it now takes 15 s, and the display's "One moment…" at 3 s
+# already covers the wait.
+STALL_S = 15
 # 16 section 2j item 4: a GoAway with more time left than this waits for the
 # current turn to finish before the connection is rebuilt.
 GOAWAY_TURN_GRACE_S = 5
