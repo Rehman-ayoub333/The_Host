@@ -509,9 +509,11 @@ def get_business_info(topic=None) -> dict:
                 "source": "menu",
                 "found": bool(rows),
                 # 16 section 2k item 7 brought the topic count to six, so the
-                # cap no longer silently drops one from a listing call.
+                # cap no longer silently drops one from a listing call. 21 Part B
+                # adds privacy, technical, payment and halal, which makes eleven,
+                # so 16 section 2y item 2 raises the cap to twelve.
                 "answers": [
-                    {"topic": row["topic"], "answer": row["answer"]} for row in rows[:8]
+                    {"topic": row["topic"], "answer": row["answer"]} for row in rows[:12]
                 ],
             },
         )

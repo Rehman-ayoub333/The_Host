@@ -7,7 +7,10 @@ import prompts
 def test_system_instruction_names_the_host_and_the_stall_with_no_braces_left():
     text = prompts.build_system_instruction(datetime(2026, 10, 10, 18, 42))
 
-    assert text.startswith("You are THE HOST, the AI host for Bite & Pour, a food and drink stall.")
+    assert text.startswith(
+        "You are THE HOST, the AI host of Bite & Pour, a food and drink stall at "
+        "the GCUF Business Gala."
+    )
     assert "Current date and time at the stall: Saturday 10 October 2026, 18:42." in text
     assert "{" not in text and "}" not in text
     assert config.AGENT_NAME == "THE HOST"
@@ -18,17 +21,20 @@ def test_the_system_instruction_covers_the_two_step_order_rule():
     text = prompts.build_system_instruction(datetime(2026, 10, 10, 18, 42))
 
     assert "ORDERS: TWO STEPS" in text
-    assert "Only call confirm_order after a clear yes." in text
-    # A confirmed order is final: a later request is a new, separate order (09 section 15).
+    # 21 Part A spells out what a clear yes sounds like, in both languages.
     assert (
-        "Once an order is confirmed it is final: anything the guest asks for after "
-        'that is a new, separate order (call it a new order, never "adding to" the '
-        "confirmed one), so call build_order with only the new items, never items "
-        "from an order that is already confirmed." in text
+        'Only call confirm_order after a clear yes ("yes", "haan", "ji", "confirm", '
+        '"go ahead").' in text
+    )
+    # A confirmed order is final: a later request is a new, separate order
+    # (09 section 15, reworded by 21 Part A).
+    assert (
+        "Once confirmed, an order is final. Anything more is a new, separate order "
+        'with only the new items; call it "a new order", never "adding to" the '
+        "confirmed one." in text
     )
     assert (
-        "If they want to change a confirmed order, offer to cancel it (cancel_order) "
-        "and put together a new one." in text
+        "To change a confirmed order, offer to cancel it and build a new one." in text
     )
     assert "You do not recognise anyone by their face." in text
     for tool_name in (

@@ -402,14 +402,15 @@ def test_an_older_database_gains_the_columns(monkeypatch, tmp_path):
 
 RULES = [
     # Answered only from the data, with the exact words for a missing detail.
-    "Ingredients, preparation, allergens, portion and customisation questions "
-    "are answered only from the menu and business data.",
+    # 21 Part A rewords this one: halal status and spice level join the list,
+    # and allergens move to the allergy rule below.
+    "Ingredients, preparation, portion, halal status, spice level and "
+    "customisation are answered only from the menu and business data.",
     "I don't have that detail — the team at the counter can tell you.",
     "Never invent garnishes, add-ons or methods.",
-    # Allergies: no guarantee, no disclaimer.
+    # Allergies: no guarantee.
     "Allergy questions: never guarantee safety.",
     "should check with the team before ordering",
-    'Never add a "not medical advice" disclaimer.',
     # Categories are reasoned over, not refused.
     'Category questions ("something sweet", "spicy", "cold")',
     'say what fits instead of "we don\'t have any"',
@@ -419,8 +420,16 @@ RULES = [
     # One welcome per conversation.
     "Welcome a guest only once per conversation, even if later speech sounds "
     "like a greeting.",
-    # Language and length.
-    "Reply in the language the guest uses. If the guest speaks Urdu or Punjabi, reply in Urdu: never Hindi, never Punjabi, never Gurmukhi or Devanagari script.",
+    # Language and length (reworded by 21 Part A: a mix of Urdu and English
+    # answers in Urdu too, and menu names stay in English).
+    "Reply in the language the guest uses. If the guest speaks Urdu, Punjabi or a mix of Urdu and English, reply in Urdu, with English words where they are natural (menu names stay in English): never Hindi, never Punjabi, never Gurmukhi or Devanagari script.",
+]
+
+# Rules 16 section 2i item 5 asked for that 21 Part A deliberately dropped. The
+# sentences are kept here so nothing is lost from the record, and the test below
+# asserts they really are gone rather than quietly missing.
+RETIRED_RULES = [
+    'Never add a "not medical advice" disclaimer.',
 ]
 
 
@@ -430,21 +439,46 @@ def test_the_system_prompt_carries_each_rule(rule):
 
 
 def test_the_rules_are_recorded_in_the_spec():
-    # 2i item 5: 09 section 15 is where the prompt is written down. That folder
-    # is git-ignored, so a fresh clone has no copy to check against.
-    spec_file = config.BASE_DIR.parent / "host-spec" / "09-TOOL-ARCHITECTURE.md"
+    # 2i item 5 recorded the prompt in 09 section 15. 16 section 2x item 4(a)
+    # moved it: `21` Part A is now the system instruction word for word, and the
+    # agent copies that text into prompts.py. So the record to check against is
+    # `21`, and 09 section 15 holds the older wording. That folder is
+    # git-ignored, so a fresh clone has no copy to check against.
+    spec_file = config.BASE_DIR.parent / "host-spec" / "21-THE-HOST-ROLE.md"
     if not spec_file.is_file():
         pytest.skip("the host-spec folder is not in this checkout")
     spec = spec_file.read_text(encoding="utf-8")
     for rule in RULES:
-        assert rule in spec, f"09 section 15 does not record: {rule[:40]}"
+        assert rule in spec, f"21 Part A does not record: {rule[:40]}"
+
+
+@pytest.mark.parametrize("rule", RETIRED_RULES)
+def test_a_retired_rule_is_no_longer_in_the_prompt(rule):
+    """21 Part A dropped the medical-disclaimer sentence (16 section 2x item 4a).
+
+    The sentence must be gone, not merely unasserted, so a future edit that
+    reinstates half of the old prompt fails here.
+    """
+    built = prompts.build_system_instruction(datetime.now())
+
+    assert rule not in built
 
 
 def test_no_robotic_medical_disclaimer_is_asked_for():
+    """2i item 5's intent, under 21 Part A's wording.
+
+    The 5c live test heard "this is not medical advice". The old prompt banned
+    the phrase in so many words; 21 Part A drops that sentence and leaves the
+    allergy rule to do the work, so what is checked here is that the prompt
+    neither invites the disclaimer nor loses the rule behind it.
+    """
     built = prompts.build_system_instruction(datetime.now())
-    # The 5c test heard one; the rule forbids it rather than inviting it.
-    assert "not medical advice" in built
-    assert "Never add a" in built
+
+    assert "not medical advice" not in built
+    assert (
+        "Allergy questions: never guarantee safety. Say you do not have the full "
+        "allergen list and the guest should check with the team before ordering." in built
+    )
 
 
 def test_the_agent_is_never_called_anything_but_the_host():
@@ -453,8 +487,23 @@ def test_the_agent_is_never_called_anything_but_the_host():
     # No other working name for the agent. "Gemini" is not one of those: 16
     # section 2k item 7 requires the prompt to name the model THE HOST runs on,
     # and to neither credit Google with building it nor deny using Gemini.
-    for other in ("assistant",):
-        assert other not in built
+    #
+    # 21 Part A names the banned self-labels in order to ban them, so the word
+    # "assistant" is in the prompt four times -- in the opening line and in the
+    # banned-labels rule, both of which forbid it. Every occurrence must sit in
+    # one of those two sentences: THE HOST is never described as one.
+    for sentence in (
+        "You are not a chatbot and not an assistant: you are the host.",
+        "Never call yourself an assistant, an AI assistant, a virtual assistant, "
+        "a chatbot, a bot, a language model or a program, in any language.",
+    ):
+        assert sentence in built
+    assert built.count("assistant") == 4
+    assert (
+        built.count("not an assistant")
+        + built.count("an assistant, an AI assistant, a virtual assistant")
+        == 2
+    )
     # The retired project name and the dashboard's retired working name must not
     # reach the prompt either. 16 section 2n item 3f requires both to appear in
     # no tracked file, so they are spelled from parts here: the grep over
@@ -464,4 +513,5 @@ def test_the_agent_is_never_called_anything_but_the_host():
     for retired in ("Campus" + "AI", "Campus " + "AI", "Campus" + "_AI", "NE" + "XA"):
         assert retired.lower() not in lowered
     assert "Gemini" in built
-    assert "never say Google built you" in built
+    # 21 Part A gives the rule its own bullet, so it starts with a capital.
+    assert "Never say Google built you" in built

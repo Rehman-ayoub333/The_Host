@@ -362,7 +362,8 @@ def test_the_prompt_carries_the_identity_rule():
     built = prompts.build_system_instruction(datetime.now())
     for topic in IDENTITY_TOPICS:
         assert topic in built
-    assert "never say Google built you, and never deny using Gemini" in built
+    # 21 Part A gives the rule its own bullet, so the sentence starts a line.
+    assert "Never say Google built you, and never deny using Gemini." in built
     assert "Vice Chancellor" in built
 
 
@@ -371,8 +372,14 @@ def test_the_prompt_carries_the_identity_rule():
 
 def test_the_prompt_carries_the_language_rule():
     built = prompts.build_system_instruction(datetime.now())
-    assert "If the guest speaks Urdu or Punjabi, reply in Urdu" in built
+    # 21 Part A: a mix of Urdu and English is answered in Urdu as well, and
+    # "aap" is now required outright.
+    assert (
+        "If the guest speaks Urdu, Punjabi or a mix of Urdu and English, reply in Urdu"
+        in built
+    )
     assert "never Hindi, never Punjabi, never Gurmukhi or Devanagari script" in built
+    assert 'In Urdu, always use "aap", never "tum".' in built
     assert "A change of language is never a reason to call a team member" in built
 
 
@@ -473,7 +480,13 @@ def test_the_prompt_asks_for_a_name_once_before_confirming():
     built = prompts.build_system_instruction(datetime.now())
     assert "Can I get a first name for the order?" in built
     assert "before the confirmation question" in built
-    assert "place the order without one and do not ask again" in built
+    # 21 Part A: the same rule, shorter, and it also forbids a surname or a phone
+    # number being asked for.
+    assert "If they would rather not say, go ahead without one and do not ask again." in built
+    assert (
+        "A first name only: never ask for a phone number or a surname, and never "
+        "store one." in built
+    )
 
 
 def test_the_announcement_uses_the_name_when_there_is_one():
@@ -682,9 +695,10 @@ def test_get_order_status_by_an_unknown_name_finds_nothing(ctx):
 
 def test_the_prompt_sends_every_order_question_to_the_tool():
     built = prompts.build_system_instruction(datetime.now())
+    # 21 Part A keeps the rule and writes the aside in brackets.
     assert (
-        "For any question about an order -- its status, whether it was placed, or what is "
-        "in it -- call get_order_status and answer from the result, never from memory."
+        "For any question about an order (its status, whether it was placed, what is "
+        "in it), call get_order_status and answer from the result, never from memory."
     ) in built
 
 
@@ -809,7 +823,12 @@ def test_the_prompt_makes_the_short_answer_name_all_three():
 
 def test_the_roles_are_held_back_for_a_follow_up():
     built = prompts.build_system_instruction(datetime.now())
-    assert "only if the guest asks again or asks about their roles" in built
+    # 21 Part A: "only when asked", and the full role is still required.
+    assert (
+        "Give their roles only when asked; then give each member's full role from "
+        "the team topic in one natural sentence each, and stop." in built
+    )
+    assert "Never shorten a role." in built
 
 
 def test_the_team_topic_still_carries_every_role(ctx):
@@ -891,7 +910,9 @@ def test_the_accepted_decisions_from_the_5f_report_still_hold(ctx):
     )
     # The identity rule tells the model where the topics come from.
     built = prompts.build_system_instruction(datetime.now())
-    assert "Those topics live in get_business_info" in built
-    # The listing cap is 8, so all seven topics come back (six after 2k item 7,
-    # seven once 2m item 5 added complimentary_guests).
-    assert len(tools.get_business_info()["answers"]) == 7
+    # 21 Part A says it in one line, and names the stall's own topics too.
+    assert "all come from get_business_info" in built
+    # The listing cap is 12 (16 section 2y item 2), so all eleven topics come
+    # back (six after 2k item 7, seven once 2m item 5 added
+    # complimentary_guests, eleven with 21 Part B's four).
+    assert len(tools.get_business_info()["answers"]) == 11

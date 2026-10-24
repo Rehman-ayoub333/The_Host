@@ -127,41 +127,63 @@ def test_the_style_section_is_in_the_prompt():
     text = built()
 
     assert "\nSTYLE\n" in text
+    # 21 Part A keeps every 2m item 3 rule. Two of them moved into the opening
+    # paragraph (the voice itself, and the one-or-two-sentence limit), the joke
+    # rule widened, and no slang and no emojis were added.
     for rule in (
-        "You are a polished, confident host with quiet wit: warm, crisp, never robotic.",
-        "Reply in one or two short sentences unless the guest asks for detail.",
+        "You are warm, polished and confident, with quiet wit, like the best host at "
+        "a good restaurant who happens to be an AI.",
+        "keep every reply to one or two short sentences unless the guest asks for detail.",
+        "Polished, confident, crisp, never robotic. One or two short sentences.",
         "Never use filler such as 'Great question', 'Absolutely!', 'I can definitely help "
         "with that', 'How can I assist you today?', 'As an AI' or 'I'm just an AI'.",
-        "At most one light, tasteful joke per conversation, never at the guest's expense "
-        "and never about religion, politics or people. No jokes with guests of honour, "
-        "teachers or elders.",
+        "At most one light, tasteful joke per conversation, never at the guest's expense, "
+        "and never about religion, politics, the university, teachers or any real person. "
+        "No jokes at all with guests of honour, judges, teachers or elders.",
         "Confirm decisively, for example 'Done — one Chicken Burger for Rehman.' or "
         "'Consider it done.'",
         "Use the guest's name once or twice, not in every sentence.",
+        'No slang such as "bro", "dude" or "yaar". No emojis or symbols read aloud.',
         "End a conversation warmly and briefly, thanking them for visiting Bite & Pour.",
     ):
         assert rule in text, rule
 
 
 def test_the_guest_of_honour_rule_is_in_the_prompt_in_full():
+    """2m item 6's rule, as 21 Part A rewrites it: a section of its own.
+
+    The chief guest is no longer inside the same sentence (16 §2y item 4 split
+    them: only the Vice Chancellor is on the house), so each half is asserted
+    against its own section. The full chief-guest rules live in
+    test_host_role.py with the rest of 21's protocol.
+    """
+    text = built()
+
+    assert "\nGUESTS OF HONOUR: THE VICE CHANCELLOR\n" in text
+    for rule in (
+        "The Vice Chancellor of GCUF is Dr. Rauf-i-Azam.",
+        'Address him as "Sir"; in Urdu use "aap" and "Sir" or "Janab".',
+        "In one or two sentences: welcome him, thank him on behalf of the Bite & Pour "
+        "team for visiting, and say that anything he would like to eat or drink is on "
+        "the house, with the team's compliments. Then ask what he would like.",
+        "Formal, short, calm sentences. No jokes, no slang, no small talk, no playful lines.",
+    ):
+        assert rule in text, rule
+
+    # Faculty: formal, and the prices are the normal ones.
     assert (
-        "If a guest says they are the Vice Chancellor or the chief guest, address them "
-        "respectfully as 'Sir' or 'Ma'am' (if you are unsure which, use their title "
-        "instead), thank them warmly on behalf of the Bite & Pour team for visiting the "
-        "stall, and tell them that anything they would like to eat or drink is on the "
-        "house, with the team's compliments. Then ask what they would like, and offer a "
-        "short introduction of THE HOST and the project. Never mention a price to them. "
-        "Teachers, judges, deans and other faculty: address them as 'Sir' or 'Ma'am', be "
-        "formal, and thank them for visiting; normal prices apply unless they are listed "
-        "in complimentary_guests."
-    ) in built()
+        "When a guest says they are a teacher, dean, director, judge or other faculty, "
+        'address them as "Sir" or "Ma\'am" on the same rule as above, be formal, thank '
+        "them for visiting, and use no jokes." in text
+    )
+    assert "Normal prices apply. Only the Vice Chancellor is on the house." in text
 
 
 def test_the_full_roles_rule_is_in_the_prompt():
+    # 21 Part A shortens the same rule; the full role and the stop both stay.
     assert (
-        "When asked what each team member did, or about their roles, give each member's "
-        "full role from the team topic in one natural sentence each (all areas listed for "
-        "them), then stop. Never shorten a role to a few words."
+        "Give their roles only when asked; then give each member's full role from the "
+        "team topic in one natural sentence each, and stop. Never shorten a role."
     ) in built()
 
 
@@ -169,11 +191,12 @@ def test_the_complimentary_guests_topic_is_stored_with_the_exact_text():
     rows = data.get_business_info("complimentary_guests")
 
     assert len(rows) == 1
+    # 16 §2y item 4: Rehman's ruling. Only the Vice Chancellor is on the house.
     assert rows[0]["answer"] == (
-        "The Vice Chancellor and the chief guest of the gala are guests of the Bite & Pour "
-        "team: anything they would like to eat or drink is on the house."
+        "The Vice Chancellor is a guest of the Bite & Pour team: anything he would "
+        "like to eat or drink is on the house."
     )
-    # It is served by the existing tool, inside the 2l item 7d cap of 8.
+    # It is served by the existing tool, inside the 2y item 2 cap of 12.
     answers = {row["topic"]: row["answer"] for row in tools.get_business_info()["answers"]}
     assert answers["complimentary_guests"] == rows[0]["answer"]
 
