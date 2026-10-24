@@ -75,6 +75,9 @@ with one line saying where the display is. If `/display` will not start, see sec
    cd F:\PIAIC_6_PROJECTS\THE_HOST
    .\scripts\start-all.ps1
    ```
+   It prints the three addresses and, last, `To stop both: scripts\stop-all.ps1` — the one
+   way to stop them, because closing the windows leaves both servers running (section 6).
+
    **The gala uses the dashboard exactly as this starts it** — the production build, which
    is the default. The dashboard window should say
    `Dashboard on http://localhost:8080/ (production)`. If it instead says
@@ -121,14 +124,18 @@ with one line saying where the display is. If `/display` will not start, see sec
 
 ## 3. Roles
 
+THE HOST never replaces the team; it hands work to them. There are two screens: the TV on
+top of the stall is THE HOST, and the laptop on the front table is the operator's.
+
 | Who | Looks after |
 |---|---|
-| **Rehman** | THE HOST on the TV — that the window is focused, hearing, and talking to guests |
-| **Saad** | The dashboard — moves every order PREPARING → READY → COLLECTED |
-| **Umair** | The TV's announcements, and the backup checks in section 5 |
+| **Rehman** | **Operator and project lead.** The dashboard: the Live conversation panel and AI Activity; answers "Operator help requested" at once; uses Pause, Take over, End conversation, Retry connection and Announce again; switches to the phone hotspot if the venue internet fails; last resort Settings → Demo Mode, said out loud to be a demonstration. Speaks to the Vice Chancellor, the chief guest and the judges about the technology when THE HOST hands over |
+| **Saad** | **Kitchen and orders.** Watches the orders panel and marks PREPARING → READY → COLLECTED, hands food over by order number and name, takes payment, and handles the late, wrong or missing orders THE HOST flags |
+| **Umair** | **Guests, display and backup.** Stands at the front: hands the microphone to each guest and says "Just talk to it", keeps one guest at a time at the microphone, keeps the TV and the camera clear, runs the backup laptop (section 5), and calls Rehman when anything looks wrong on the TV |
 
-One person to a job. If something looks wrong, say so out loud rather than reaching across
-to someone else's laptop.
+Saad and Rehman share the one laptop for the order statuses; Saad calls out when an order is
+ready if Rehman is busy. One person to a job otherwise. If something looks wrong, say so out
+loud rather than reaching across to someone else's laptop.
 
 ---
 
@@ -178,6 +185,33 @@ back to work.
   Every screen carries a `DEMO DATA` badge while it runs. **Say out loud that this is a
   demonstration, not a live order.** Press **Exit demo** to go back to the live system.
 
+### When the Vice Chancellor comes
+
+This is the most important visit of the day. THE HOST knows the protocol; these are the
+people's steps.
+
+1. Whoever sees him coming says **"VC"** quietly to the team. Rehman stays at the dashboard,
+   Umair stands beside the microphone, Saad gets the kitchen ready.
+2. Umair holds the microphone toward him — or toward whoever introduces him — and says only:
+   **"Sir, please speak to THE HOST."** Nobody talks over THE HOST after that.
+3. THE HOST welcomes him, says the order is on the house, and takes it without asking for a
+   name or saying a price. Rehman watches the Live conversation panel; the order appears
+   marked **on the house**. Saad makes it first, ahead of the queue, and hands it over by
+   hand. THE HOST announcing it on the TV is expected and fine.
+4. When THE HOST says **"Rehman Ayoub would be glad to answer"**, Rehman steps forward. All
+   three introduce themselves briefly, and Ma'am Marva is named.
+5. If anything goes wrong — silence, a strange answer, *"Reconnecting…"* — Rehman presses
+   **Take over** or **Pause** at once and speaks himself. Never argue with THE HOST in front
+   of a guest.
+6. **Pranks.** If someone who is clearly not the Vice Chancellor is given an "on the house"
+   order, Rehman cancels it quietly on the dashboard and Saad speaks to the guest in person.
+   THE HOST is never asked to judge who someone is — that is the team's job.
+7. THE HOST has the Vice Chancellor's name and may say it once in its welcome, then "Sir".
+   Rehman has confirmed the name and how he is addressed; nobody needs to tell THE HOST.
+8. **The chief guest is not on the house.** THE HOST treats them with the same respect and
+   formality, and never mentions price or payment to them either way. Whether to charge is
+   the operator's call at the counter.
+
 ---
 
 ## 5. The backup laptop
@@ -209,7 +243,14 @@ the USB stick afterwards.
 
 ## 6. After the gala
 
-1. Stop both servers: press `Ctrl + C` in each window, or close them.
+1. **Stop both servers:**
+   ```powershell
+   .\scripts\stop-all.ps1
+   ```
+   It prints one line per port — `stopped python (pid 1234) on 8000` and
+   `stopped node (pid 5678) on 8080` — or `nothing listening on 8000` if that half is
+   already down. **Closing the two windows is not enough:** the servers they started keep
+   running and keep the ports open, so the next start finds the old one still answering.
 2. **Leave the database alone.** `backend\data\the_host.db` holds the evening's real orders
    and visitors, and the report needs them. `reset-for-gala.ps1` keeps every earlier
    database in `backend\data\backups\` as well.

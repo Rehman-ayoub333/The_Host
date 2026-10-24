@@ -15,6 +15,8 @@ import config
 
 REPO_ROOT = config.BASE_DIR.parent
 SCRIPT = REPO_ROOT / "scripts" / "start-dashboard.ps1"
+START_ALL = REPO_ROOT / "scripts" / "start-all.ps1"
+STOP_ALL = REPO_ROOT / "scripts" / "stop-all.ps1"
 RUNBOOK = REPO_ROOT / "docs" / "GALA-RUNBOOK.md"
 
 
@@ -92,3 +94,72 @@ def test_the_script_reads_no_configuration_and_names_no_secret():
         assert forbidden not in text.replace(
             "never prints or echoes any .env file", ""
         ), forbidden
+
+
+# ------------------- 16 section 2x item 4(d): stopping both halves
+
+
+def test_the_stop_script_exists_and_stops_both_ports():
+    """Closing the two windows start-all.ps1 opens leaves both servers running.
+
+    The 7h check found python still listening on 8000 and node on 8080 after
+    both windows had been stopped, so this script exists to stop the processes
+    themselves. It is read as text; nothing here stops anything.
+    """
+    assert STOP_ALL.is_file()
+    text = STOP_ALL.read_text(encoding="utf-8")
+
+    assert "Get-NetTCPConnection" in text
+    assert "-State Listen" in text
+    assert "Stop-Process" in text
+    assert "OwningProcess" in text
+    # Both ports, and a line for each outcome.
+    assert "8000, 8080" in text or "8000,8080" in text
+    assert "stopped $name (pid $id) on $port" in text
+    assert 'nothing listening on $port' in text
+
+
+def test_the_stop_script_reads_no_configuration_and_names_no_secret():
+    text = STOP_ALL.read_text(encoding="utf-8")
+    for forbidden in ("AIza", "OPERATOR_TOKEN", "GEMINI_API_KEY"):
+        assert forbidden not in text, forbidden
+    # The only mention of .env is the comment promising never to open it.
+    assert text.count(".env") == 1
+    assert "backend/.env is never opened" in text
+
+
+def test_start_all_points_at_the_stop_script():
+    lines = [
+        line.strip() for line in START_ALL.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert 'Write-Host "To stop both: scripts\\stop-all.ps1"' in lines[-1]
+    assert "Close either window to stop that half." not in START_ALL.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_the_runbook_says_how_to_stop_and_carries_the_visit_protocol():
+    """16 section 2x item 4(d): the stop script, 21 Part D and 21 Part E.
+
+    The Vice Chancellor's name is deliberately not in the runbook: THE HOST
+    carries it in its own instruction (21 Part E item 7).
+    """
+    text = RUNBOOK.read_text(encoding="utf-8")
+
+    assert ".\\scripts\\stop-all.ps1" in text
+    assert "Closing the two windows is not enough" in text
+    # Part D, the confirmed roles.
+    assert "Operator and project lead" in text
+    assert "Kitchen and orders" in text
+    assert "Guests, display and backup" in text
+    assert "share the one laptop for the order statuses" in text
+    # Part E, the visit.
+    assert "When the Vice Chancellor comes" in text
+    assert "Sir, please speak to THE HOST." in text
+    assert "on the house" in text
+    assert "Rehman Ayoub would be glad to answer" in text
+    assert "THE HOST is never asked to judge who someone is" in text
+    assert "The chief guest is not on the house." in text
+    # Item 7 without the name itself.
+    assert "Rauf" not in text
