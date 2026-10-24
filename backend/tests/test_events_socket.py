@@ -287,16 +287,39 @@ def test_a_restart_gives_a_different_boot_id(monkeypatch):
 
 
 def test_heartbeat_has_a_timestamp_but_no_event_id(monkeypatch):
+    """16 section 2zb item 9: read frames until each one has been seen.
+
+    The heartbeat interval is shortened to 50 ms here, which is short enough
+    that a beat can win the race to the socket and arrive before the snapshot.
+    Assuming the first frame is the snapshot made this test fail once in 7i-c
+    with `assert 'heartbeat' == 'state_snapshot'`, so neither frame's order is
+    assumed any more: both must simply turn up.
+    """
     monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
     monkeypatch.setattr(config, "OPERATOR_TOKEN", TOKEN)
     monkeypatch.setattr(config, "HEARTBEAT_INTERVAL_S", 0.05)
 
+    seen = []
+    beat = None
+    snapshot = None
     with TestClient(main.app) as client:
         with client.websocket_connect("/ws/events?role=smd") as smd:
-            assert smd.receive_json()["type"] == "state_snapshot"
-            beat = smd.receive_json()
+            # Ten frames is far more than the two this needs, and it ends as
+            # soon as both have arrived.
+            for _ in range(10):
+                frame = smd.receive_json()
+                seen.append(frame["type"])
+                if frame["type"] == "heartbeat" and beat is None:
+                    beat = frame
+                elif frame["type"] == "state_snapshot" and snapshot is None:
+                    snapshot = frame
+                if beat is not None and snapshot is not None:
+                    break
 
+    print("frames in the order they arrived:", seen)
     print("HEARTBEAT:", beat)
+    assert snapshot is not None, seen
+    assert beat is not None, seen
     assert beat["type"] == "heartbeat"
     assert "event_id" not in beat
     assert beat["timestamp"]
