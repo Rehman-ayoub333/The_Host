@@ -1,5 +1,5 @@
-# Starts THE HOST's backend: the FastAPI app, the Gemini Live agent and the
-# voice page it serves at /.
+# Starts THE HOST's backend: the FastAPI app and the Gemini Live agent, on
+# http://127.0.0.1:8000 (GET / is a one-line status page; THE HOST runs on /display).
 #
 # Reads no configuration itself. The backend loads backend/.env on its own, and
 # nothing here ever prints or echoes it.

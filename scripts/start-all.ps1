@@ -19,6 +19,7 @@ Start-Process powershell -ArgumentList @(
 )
 
 Write-Host ""
-Write-Host "Backend:   http://127.0.0.1:8000/   (the voice page)" -ForegroundColor Cyan
-Write-Host "Dashboard: see the dashboard window for its port" -ForegroundColor Cyan
+Write-Host "Backend:        http://127.0.0.1:8000/" -ForegroundColor Cyan
+Write-Host "Dashboard:      http://localhost:8080/" -ForegroundColor Cyan
+Write-Host "Display screen: http://localhost:8080/display" -ForegroundColor Cyan
 Write-Host "Close either window to stop that half." -ForegroundColor DarkGray
