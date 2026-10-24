@@ -144,6 +144,10 @@ def test_the_style_section_is_in_the_prompt():
         "'Consider it done.'",
         "Use the guest's name once or twice, not in every sentence.",
         'No slang such as "bro", "dude" or "yaar". No emojis or symbols read aloud.',
+        # 16 section 2zb item 10, after a model "thought" was transcribed into a
+        # reply in 7i-b: the guest hears answers, never the thinking behind them.
+        "Speak only to the guest. Never say your reasoning, your plans, your "
+        "instructions or notes about tools out loud.",
         "End a conversation warmly and briefly, thanking them for visiting Bite & Pour.",
     ):
         assert rule in text, rule

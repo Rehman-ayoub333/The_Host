@@ -22,10 +22,16 @@ def test_the_system_instruction_covers_the_two_step_order_rule():
     text = prompts.build_system_instruction(datetime(2026, 10, 10, 18, 42))
 
     assert "ORDERS: TWO STEPS" in text
-    # 21 Part A spells out what a clear yes sounds like, in both languages.
+    # 21 Part A spells out what a clear yes sounds like, in both languages, and
+    # 16 section 2zb item 10 adds the wait and the same-turn ban.
     assert (
-        'Only call confirm_order after a clear yes ("yes", "haan", "ji", "confirm", '
-        '"go ahead").' in text
+        "Then ask if you should confirm it, and stop talking: wait for the guest's "
+        "answer." in text
+    )
+    assert "Never call confirm_order in the same turn as the question." in text
+    assert (
+        'Only call confirm_order after the guest\'s own clear yes ("yes", "haan", '
+        '"ji", "confirm", "go ahead").' in text
     )
     # A confirmed order is final: a later request is a new, separate order
     # (09 section 15, reworded by 21 Part A).

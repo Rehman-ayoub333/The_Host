@@ -483,10 +483,14 @@ def test_the_order_and_feedback_rules_no_longer_ask_for_the_signal():
 
     assert "signal_confirmation_request" not in built
     # ORDERS: the question stays, and confirm_order still waits for a yes.
-    assert "Then ask if you should confirm it." in built
+    # 16 section 2zb item 10 adds the wait, the same-turn ban and what to do
+    # when the guard refuses, after E19 confirmed an order without a yes.
     assert (
-        'Only call confirm_order after a clear yes ("yes", "haan", "ji", "confirm", '
-        '"go ahead").' in built
+        "Then ask if you should confirm it, and stop talking: wait for the guest's "
+        "answer. Never call confirm_order in the same turn as the question. Only "
+        'call confirm_order after the guest\'s own clear yes ("yes", "haan", "ji", '
+        '"confirm", "go ahead"). Anything unclear: ask once more. If confirm_order '
+        'answers "Please confirm first.", ask the guest to confirm and wait.' in built
     )
     # FEEDBACK: the read-back stays, and report_feedback still waits for a yes.
     assert (
