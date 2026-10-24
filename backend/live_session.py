@@ -1338,6 +1338,19 @@ class LiveSession:
 
             if server_content.model_turn:
                 for part in server_content.model_turn.parts or []:
+                    # 16 section 2zb item 4b: a thinking model can mark a part
+                    # as its reasoning. That part is never forwarded,
+                    # transcribed, captioned, logged or stored -- the guest
+                    # hears answers, never the thinking behind them. A model
+                    # turn's TEXT parts are ignored here in any case: THE HOST's
+                    # words reach the page only through output_transcription
+                    # below, which is the transcript of the audio it really
+                    # spoke.
+                    if getattr(part, "thought", None):
+                        log.info(
+                            "thought part dropped session %s", self.ctx["session_id"]
+                        )
+                        continue
                     if part.inline_data and part.inline_data.data:
                         self.turn_in_progress = True
                         self._model_output()

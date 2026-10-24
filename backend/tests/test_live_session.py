@@ -451,6 +451,93 @@ def test_only_some_states_may_interrupt_a_pending_order():
 # ------------------------------------------------------------ (f) transcripts
 
 
+def thinking_part(text="I will address the VC as Sir and keep a formal tone."):
+    """A model_turn part the model marked as its own reasoning."""
+    return SimpleNamespace(
+        inline_data=SimpleNamespace(data=b"\x07\x07"), text=text, thought=True
+    )
+
+
+def model_turn(*parts):
+    return SimpleNamespace(
+        interrupted=False,
+        model_turn=SimpleNamespace(parts=list(parts)),
+        input_transcription=None,
+        output_transcription=None,
+        turn_complete=False,
+        generation_complete=False,
+    )
+
+
+def test_a_thought_part_is_dropped_everywhere(caplog):
+    """16 section 2zb item 4b, after the 7i-b leak.
+
+    In 7i-b a reply to the Vice Chancellor began "thought / The confirmation
+    request summary has been processed by the system. / Now I will inform the
+    user…". A part the model marks as reasoning is never forwarded as audio,
+    never captioned, never transcribed and never stored.
+    """
+    session, ws = listening()
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        feed(session, [message(model_turn(thinking_part()))])
+
+    assert ws.binary == []
+    assert transcripts(ws) == []
+    assert session.transcripts == {"visitor": "", "agent": ""}
+    # The drop is recorded, by session, with none of the text in it.
+    logged = [record.getMessage() for record in caplog.records]
+    print("log lines:", logged)
+    assert f"thought part dropped session {session.ctx['session_id']}" in logged
+    for line in logged:
+        assert "Sir" not in line and "formal" not in line
+    validate(ws)
+
+
+def test_a_model_turn_text_part_is_never_captioned_or_transcribed():
+    """THE HOST's words reach the page only through output_transcription."""
+    session, ws = listening()
+
+    feed(
+        session,
+        [
+            message(model_turn(SimpleNamespace(inline_data=None, text="Let me think…"))),
+            message(content(audio=b"\x01", agent="One Chicken Burger, then.")),
+            message(content(turn_complete=True)),
+        ],
+    )
+
+    assert [sent["text"] for sent in ws.sent if sent["type"] == "speech_transcript"] == [
+        "One Chicken Burger, then.",
+        "One Chicken Burger, then.",
+    ]
+    assert "Let me think…" not in json.dumps(ws.sent)
+    validate(ws)
+
+
+def test_a_normal_audio_turn_and_its_transcription_are_unchanged():
+    """The fix must not cost the guest a single chunk of real speech."""
+    session, ws = listening()
+
+    feed(
+        session,
+        [
+            message(content(audio=b"\x01", agent="One ")),
+            message(content(audio=b"\x02")),
+            message(content(agent="Chicken Burger.")),
+            message(content(turn_complete=True)),
+        ],
+    )
+
+    assert ws.binary == [b"\x01", b"\x02"]
+    assert transcripts(ws)[-1] == {
+        "role": "agent",
+        "text": "One Chicken Burger.",
+        "final": True,
+    }
+    validate(ws)
+
+
 def test_transcript_fragments_grow_in_place_and_finalise():
     session, ws = listening()
 
