@@ -8,6 +8,7 @@ import {
   CameraOff,
   ChartNoAxesColumn,
   ChefHat,
+  Coins,
   Cpu,
   Database,
   Eye,
@@ -16,6 +17,7 @@ import {
   MoreHorizontal,
   Radio,
   ScanFace,
+  Download,
   Search,
   ShoppingBag,
   Sparkles,
@@ -26,9 +28,10 @@ import {
 } from "lucide-react";
 import { agentStore, useAgent } from "@/lib/agent/store";
 import { STATE_META, fmtAgo, fmtClock, fmtCountdown, toMs, useNow } from "@/lib/agent/ui";
-import type { ActivityKind, AgentStateName, ComponentStatus, Order, OrderStatus, SystemComponent, Visitor } from "@/lib/agent/types";
+import type { ActivityKind, AgentStateName, ComponentStatus, Earnings, Order, OrderStatus, PaymentMethod, SystemComponent, Visitor } from "@/lib/agent/types";
 import {
   announceAgain,
+  downloadEarningsCsv,
   endSession,
   endTakeover,
   forgetVisitor,
@@ -269,9 +272,9 @@ function OrderActions({ order }: { order: Order }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const act = async (status: OrderStatus, r?: string) => {
+  const act = async (status: OrderStatus, r?: string, payment?: PaymentMethod) => {
     setBusy(true);
-    await setOrderStatus(order.id, status, r);
+    await setOrderStatus(order.id, status, r, payment);
     setBusy(false);
     setMenuOpen(false);
     setConfirmFail(false);
@@ -315,9 +318,18 @@ function OrderActions({ order }: { order: Order }) {
       {(order.status === "PREPARING" || order.status === "REQUIRES_ATTENTION") && (
         <button disabled={busy} onClick={() => void act("READY")} className={btn}>Ready</button>
       )}
-      {(order.status === "READY" || order.status === "REQUIRES_ATTENTION") && (
-        <button disabled={busy} onClick={() => void act("COLLECTED")} className={btn}>Collected</button>
-      )}
+      {/* 16 §2z item 3: how the guest paid is recorded at the moment of
+          collection, because that is the only moment anyone knows it. An order
+          on the house has nothing to record, so it keeps one button. */}
+      {(order.status === "READY" || order.status === "REQUIRES_ATTENTION") &&
+        (order.complimentary ? (
+          <button disabled={busy} onClick={() => void act("COLLECTED")} className={btn}>Collected</button>
+        ) : (
+          <>
+            <button disabled={busy} onClick={() => void act("COLLECTED", undefined, "CASH")} className={btn}>Collected · Cash</button>
+            <button disabled={busy} onClick={() => void act("COLLECTED", undefined, "QR")} className={btn}>Collected · QR</button>
+          </>
+        ))}
       {/* A deliberate repeat of the announcement (20 §4 item 4). */}
       {order.status === "READY" && (
         <button
@@ -389,6 +401,13 @@ export function OrderCard({ order, now }: { order: Order; now: number }) {
         )}
         {order.complimentary && (
           <span className="rounded-sm border border-gold/40 px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider text-gold">On the house</span>
+        )}
+        {/* 16 §2z item 3: a collected order says how it was paid. An old row
+            has no payment type, and says exactly that instead of guessing. */}
+        {order.status === "COLLECTED" && !order.complimentary && (
+          <span className="rounded-sm border border-line px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider text-muted-foreground">
+            {order.payment_method === "CASH" ? "Paid · Cash" : order.payment_method === "QR" ? "Paid · QR" : "Paid · not recorded"}
+          </span>
         )}
       </div>
       {!done && (
@@ -890,6 +909,139 @@ export function AnalyticsPanel({ className }: { className?: string }) {
                 </li>
               ))}
             </ul>
+          )}
+        </>
+      )}
+    </Panel>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Earnings — 16 §2z. Operator only: never on /display.                */
+/* ------------------------------------------------------------------ */
+
+/** Rupees as the gala reads them: "Rs. 12,450", never a bare number. */
+export const fmtRs = (amount: number) => `Rs. ${Math.round(amount).toLocaleString("en-US")}`;
+
+/**
+ * Demo Mode's own figures (16 §2z item 5). They are invented on purpose and
+ * carry the DEMO DATA tag, so a demonstration never shows the real takings
+ * and never hides them either.
+ */
+const DEMO_EARNINGS: Earnings = {
+  date: "demo",
+  earned: 12450,
+  earned_cash: 7200,
+  earned_qr: 5250,
+  earned_unrecorded: 0,
+  to_collect: 1850,
+  on_the_house: 600,
+  on_the_house_orders: 2,
+  paid_orders: 24,
+  cancelled_orders: 1,
+  by_item: [
+    { name: "Chicken Burger", quantity: 9, amount: 5850 },
+    { name: "Club Sandwich", quantity: 6, amount: 3300 },
+    { name: "Mixed Fruit Shake", quantity: 5, amount: 1750 },
+    { name: "Blue Lemonade", quantity: 6, amount: 1500 },
+  ],
+  unpriced_orders: 0,
+};
+
+function Figure({ label, value, tone }: { label: string; value: string; tone?: "gold" | "plain" }) {
+  return (
+    <div className="rounded-md border border-line bg-background/40 p-2.5">
+      <p className="label-caps !text-[0.56rem]">{label}</p>
+      <p className={cn("mt-1 font-mono text-2xl", tone === "gold" ? "text-gold" : "text-foreground")}>{value}</p>
+    </div>
+  );
+}
+
+export function EarningsPanel({ className }: { className?: string }) {
+  const live = useAgent((s) => s.earnings);
+  const isDemo = useIsDemo();
+  const [busy, setBusy] = useState(false);
+  const earnings = isDemo ? DEMO_EARNINGS : live;
+
+  return (
+    <Panel
+      title="Earnings"
+      icon={<Coins className="h-4 w-4" />}
+      className={className}
+      action={
+        <div className="flex items-center gap-3">
+          <TagFor demo={isDemo} />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy || isDemo}
+            onClick={() => {
+              setBusy(true);
+              void downloadEarningsCsv().finally(() => setBusy(false));
+            }}
+            className="h-7 rounded-sm border-line px-2 text-[0.65rem] font-semibold uppercase text-gold transition-colors hover:border-gold hover:bg-gold/10"
+          >
+            <Download className="mr-1 h-3 w-3" /> Download today's sales (CSV)
+          </Button>
+        </div>
+      }
+    >
+      {!earnings ? (
+        <EmptyState icon={<Coins className="h-6 w-6" />} title="No figures yet" hint="The takings arrive from the backend on connect and every 30 seconds." />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <Figure label="Earned today" value={fmtRs(earnings.earned)} tone="gold" />
+            <Figure label="Cash" value={fmtRs(earnings.earned_cash)} />
+            <Figure label="QR" value={fmtRs(earnings.earned_qr)} />
+            <Figure label="Still to collect" value={fmtRs(earnings.to_collect)} />
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
+            <span>
+              On the house <span className="font-mono text-foreground/90">{fmtRs(earnings.on_the_house)}</span> ({earnings.on_the_house_orders})
+            </span>
+            <span>
+              Paid orders <span className="font-mono text-foreground/90">{earnings.paid_orders}</span>
+            </span>
+            <span>
+              Cancelled <span className="font-mono text-foreground/90">{earnings.cancelled_orders}</span>
+            </span>
+          </div>
+
+          {/* 16 §2z item 5: both warnings, in plain words, only when they apply. */}
+          {earnings.earned_unrecorded > 0 && (
+            <p className="mt-2 text-xs text-warning">{fmtRs(earnings.earned_unrecorded)} collected without a payment type</p>
+          )}
+          {earnings.unpriced_orders > 0 && (
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-destructive">
+              <TriangleAlert className="h-3.5 w-3.5" />
+              {earnings.unpriced_orders} order{earnings.unpriced_orders === 1 ? "" : "s"} had no price and are in none of these figures
+            </p>
+          )}
+
+          <p className="label-caps mb-2 mt-4">By item</p>
+          {earnings.by_item.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nothing collected yet</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground">
+                  <th className="pb-1 text-left font-normal">Item</th>
+                  <th className="pb-1 text-right font-normal">Sold</th>
+                  <th className="pb-1 text-right font-normal">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {earnings.by_item.map((row) => (
+                  <tr key={row.name} className="border-t border-line/60">
+                    <td className="py-1 text-foreground/90">{row.name}</td>
+                    <td className="py-1 text-right font-mono text-muted-foreground">{row.quantity}</td>
+                    <td className="py-1 text-right font-mono text-gold">{fmtRs(row.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </>
       )}

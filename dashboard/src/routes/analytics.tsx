@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/host/AppShell";
 import { PanelBoundary } from "@/components/host/PanelBoundary";
-import { AnalyticsPanel, OrdersPanel, VisitorsPanel } from "@/components/host/panels";
+import { AnalyticsPanel, EarningsPanel, OrdersPanel, VisitorsPanel } from "@/components/host/panels";
 
 export const Route = createFileRoute("/analytics")({
   head: () => ({
@@ -17,6 +17,10 @@ export const Route = createFileRoute("/analytics")({
   component: () => (
     <AppShell title="Analytics" subtitle="Calculated only from orders and visitors the agent has reported.">
       <div className="grid gap-4 xl:grid-cols-12">
+        {/* 16 §2z item 5: the money first on this page. */}
+        <PanelBoundary name="Earnings" className="xl:col-span-12">
+          <EarningsPanel />
+        </PanelBoundary>
         <PanelBoundary name="Analytics" className="xl:col-span-5">
           <AnalyticsPanel />
         </PanelBoundary>

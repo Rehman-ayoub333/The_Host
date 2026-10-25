@@ -8,7 +8,7 @@
  */
 import { toast } from "sonner";
 import { agentStore } from "./store";
-import type { Activity, AgentEvent, Analytics, BoothTime, Health, MenuItem, Metrics, OperationalMode, Order, OrderStatus, Visitor } from "./types";
+import type { Activity, AgentEvent, Analytics, BoothTime, Earnings, Health, MenuItem, Metrics, OperationalMode, Order, OrderStatus, PaymentMethod, Visitor } from "./types";
 
 const LS_KEY = "thehost.agent.config";
 const DEFAULT_AGENT_URL = "http://localhost:8000";
@@ -96,14 +96,18 @@ export const getVisitors = () => request<{ visitors: Visitor[] }>("/api/visitors
 export const getActivity = () => request<{ activity: { kind: Activity["kind"]; label: string; detail?: string; timestamp: BoothTime }[] }>("/api/activity?limit=30");
 export const getAnalytics = () => request<Analytics>("/api/analytics");
 export const getMetrics = () => request<Metrics>("/api/metrics");
+// 16 §2z item 4: operator only, like the metrics.
+export const getEarnings = () => request<Earnings>("/api/earnings");
 
 /** Order ids are integers (20 §4 item 1). */
-export async function setOrderStatus(id: number, status: OrderStatus, reason?: string): Promise<boolean> {
+export async function setOrderStatus(id: number, status: OrderStatus, reason?: string, paymentMethod?: PaymentMethod): Promise<boolean> {
   try {
-    await request(`/api/orders/${id}/status`, {
-      method: "POST",
-      body: JSON.stringify(reason ? { status, reason } : { status }),
-    });
+    // 16 §2z item 2: payment_method travels only with COLLECTED, and the
+    // backend refuses it anywhere else, so it is sent only when given.
+    const body: { status: OrderStatus; reason?: string; payment_method?: PaymentMethod } = { status };
+    if (reason) body.reason = reason;
+    if (paymentMethod) body.payment_method = paymentMethod;
+    await request(`/api/orders/${id}/status`, { method: "POST", body: JSON.stringify(body) });
     return true;
   } catch (err) {
     report(err);
@@ -241,12 +245,70 @@ export async function loadDashboardData() {
   } catch (err) {
     report(err);
   }
+  // 16 §2z item 5: the money is loaded on mount and on every reconnect.
+  await loadEarnings();
 }
 
 /**
- * Dashboard-only polling: analytics and metrics every 30 s (20 §4 item 4).
- * Both endpoints need the operator token, so the public display never calls
- * this — see `connectAgent`.
+ * 16 §2z item 5 — the Earnings summary. It is a summary, never the order
+ * store: this can refetch freely after an order event without any risk to
+ * §2o item 10(a), which is about `orders` being event-driven.
+ */
+export async function loadEarnings() {
+  if (agentStore.get().mode === "demo") return;
+  try {
+    const earnings = await getEarnings();
+    agentStore.dispatch({ type: "@earnings", earnings });
+  } catch {
+    /* the panel keeps the last figures and the toast is left to the caller */
+  }
+}
+
+let earningsDebounce: ReturnType<typeof setTimeout> | null = null;
+
+/** One refetch 1 s after a burst of order events, not one per event. */
+export function scheduleEarningsRefresh() {
+  if (earningsDebounce) clearTimeout(earningsDebounce);
+  earningsDebounce = setTimeout(() => {
+    earningsDebounce = null;
+    void loadEarnings();
+  }, 1_000);
+}
+
+/**
+ * 16 §2z item 6 — the end-of-day sheet. The token cannot travel on a plain
+ * link, so the CSV is fetched with the header and saved from the blob.
+ */
+export async function downloadEarningsCsv(): Promise<boolean> {
+  const { agentUrl, token } = getAgentConfig();
+  try {
+    const res = await fetch(`${agentUrl.replace(/\/$/, "")}/api/earnings.csv`, {
+      headers: { "X-Operator-Token": token },
+    });
+    if (res.status === 401) throw new ApiError("Operator token missing or wrong", 401);
+    if (!res.ok) throw new ApiError(`Request failed (${res.status})`, res.status);
+    const text = await res.text();
+    const date = agentStore.get().earnings?.date ?? new Date().toISOString().slice(0, 10);
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `bite-and-pour-sales-${date}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (err) {
+    report(err instanceof ApiError ? err : new ApiError("Backend unavailable", 0));
+    return false;
+  }
+}
+
+/**
+ * Dashboard-only polling: analytics and metrics every 30 s (20 §4 item 4),
+ * and the earnings on the same tick (16 §2z item 5).
+ * All three endpoints need the operator token, so the public display never
+ * calls this — see `connectAgent`.
  */
 export function startAnalyticsPolling() {
   stopAnalyticsPolling();
@@ -258,6 +320,7 @@ export function startAnalyticsPolling() {
     getMetrics()
       .then((metrics) => agentStore.dispatch({ type: "@metrics", metrics }))
       .catch(() => undefined);
+    void loadEarnings();
   };
   tick();
   analyticsTimer = setInterval(tick, 30_000);
@@ -404,6 +467,9 @@ function open() {
     // is NOT called here: a reload started by one event could resolve after a
     // newer event and overwrite it with staler data.
     agentStore.dispatch(data);
+    // 16 §2z item 5: the Earnings summary follows the orders, debounced by 1 s.
+    // It never writes to the order store, so §2o item 10(a) still holds.
+    if (data.type === "order_created" || data.type === "order_updated") scheduleEarningsRefresh();
     if (data.type === "error") toast.error(data.message);
   };
   ws.onclose = (ev) => {

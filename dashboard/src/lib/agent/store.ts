@@ -22,6 +22,7 @@ export const initialSnapshot: AgentSnapshot = {
   activity: [],
   analytics: null,
   metrics: null,
+  earnings: null,
   menu: [],
   menuFailed: false,
   recommendation: null,
@@ -110,6 +111,8 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       return n({ analytics: e.analytics });
     case "@metrics":
       return n({ metrics: e.metrics });
+    case "@earnings":
+      return n({ earnings: e.earnings });
     case "@token_error":
       return n({ tokenError: e.message });
     case "@ready_done":

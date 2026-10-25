@@ -85,6 +85,32 @@ export interface Order {
   ready_at?: BoothTime | null | undefined;
   /** 16 §2m item 5. Missing means false. */
   complimentary?: boolean | undefined;
+  /**
+   * 16 §2z item 2 — how the guest paid, recorded by the operator at
+   * collection. null or missing on anything not collected, and on the rows
+   * that existed before the Earnings panel: the card says "not recorded"
+   * rather than inventing a method.
+   */
+  payment_method?: PaymentMethod | null | undefined;
+}
+
+/** 16 §2z item 2. */
+export type PaymentMethod = "CASH" | "QR";
+
+/** 16 §2z item 4 — today's money, in whole rupees. */
+export interface Earnings {
+  date: string;
+  earned: number;
+  earned_cash: number;
+  earned_qr: number;
+  earned_unrecorded: number;
+  to_collect: number;
+  on_the_house: number;
+  on_the_house_orders: number;
+  paid_orders: number;
+  cancelled_orders: number;
+  by_item: { name: string; quantity: number; amount: number }[];
+  unpriced_orders: number;
 }
 
 export interface Visitor {
@@ -225,6 +251,8 @@ export type LocalAction =
   | { type: "@menu"; menu: MenuItem[] }
   | { type: "@menu_error"; failed: boolean }
   | { type: "@analytics"; analytics: Analytics | null }
+  // 16 §2z item 5: the Earnings summary, fetched on its own schedule.
+  | { type: "@earnings"; earnings: Earnings | null }
   | { type: "@metrics"; metrics: Metrics | null }
   | { type: "@token_error"; message: string | null }
   | { type: "@ready_done" }
@@ -253,6 +281,8 @@ export interface AgentSnapshot {
   activity: Activity[];
   analytics: Analytics | null;
   metrics: Metrics | null;
+  /** 16 §2z item 5 — operator only; the display never loads it. */
+  earnings: Earnings | null;
   menu: MenuItem[];
   /** True while GET /api/menu is failing, so the display shows "Menu loading…". */
   menuFailed: boolean;

@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/host/AppShell";
 import { LivePanel } from "@/components/host/LivePanel";
 import { PanelBoundary } from "@/components/host/PanelBoundary";
-import { ActivityPanel, AnalyticsPanel, CorePanel, OrdersPanel, StateStrip, SystemPanel, VisionPanel, VisitorsPanel } from "@/components/host/panels";
+import { ActivityPanel, AnalyticsPanel, CorePanel, EarningsPanel, OrdersPanel, StateStrip, SystemPanel, VisionPanel, VisitorsPanel } from "@/components/host/panels";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -55,6 +55,10 @@ function CommandCenter() {
         </PanelBoundary>
         <PanelBoundary name="System" className="xl:col-span-3">
           <SystemPanel />
+        </PanelBoundary>
+        {/* 16 §2z item 5: the money, full width, as the last row. */}
+        <PanelBoundary name="Earnings" className="xl:col-span-12">
+          <EarningsPanel />
         </PanelBoundary>
       </div>
     </AppShell>
