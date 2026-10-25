@@ -294,7 +294,23 @@ def cancel_order(order_id, reason=None) -> dict:
                 args,
                 {"source": "order", "error": "I couldn't find that order."},
             )
-        if order["status"] not in ("PENDING_CONFIRMATION", "CONFIRMED", "PREPARING"):
+        # 16 section 2zc item 2(a), amending 09 section 6: a voice cancel is
+        # allowed only while the kitchen has not started. PREPARING used to be
+        # cancellable here, which meant a misheard line could throw away food
+        # already being made. The operator's own cancel
+        # (POST /api/orders/{id}/status) is unchanged and still reaches
+        # PREPARING -- the team can see the pan.
+        if order["status"] == "PREPARING":
+            return _finish(
+                "cancel_order",
+                args,
+                {
+                    "source": "order",
+                    "error": "The kitchen has already started on that order "
+                             "— the team can help.",
+                },
+            )
+        if order["status"] not in ("PENDING_CONFIRMATION", "CONFIRMED"):
             return _finish(
                 "cancel_order",
                 args,

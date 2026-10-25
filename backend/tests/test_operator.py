@@ -223,6 +223,23 @@ def test_cancelled_and_flagged_statuses_go_through_the_same_endpoint(served):
     assert order_row(flagged)["status"] == "REQUIRES_ATTENTION"
 
 
+def test_the_operator_can_still_cancel_a_preparing_order(served):
+    """16 section 2zc item 2(a): only the voice path lost PREPARING.
+
+    THE HOST must not throw away food the kitchen has started, but the operator
+    is standing next to the pan and can see it, so this endpoint is unchanged.
+    """
+    order_id = confirmed()
+    advance(served, order_id, "PREPARING")
+
+    response = advance(served, order_id, "CANCELLED", reason="the guest left")
+
+    print("operator cancel of PREPARING:", response.status_code, response.json())
+    assert response.status_code == 200
+    assert order_row(order_id)["status"] == "CANCELLED"
+    assert order_row(order_id)["cancel_reason"] == "the guest left"
+
+
 # ------------------------------------------------------------------------- (b)
 
 

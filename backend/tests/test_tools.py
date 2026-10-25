@@ -312,6 +312,41 @@ def test_cancel_order_without_a_reason_stores_null(ctx):
     assert data.get_order(given)["cancel_reason"] == "changed mind"
 
 
+def test_a_voice_cancel_of_a_preparing_order_is_refused(ctx):
+    """16 section 2zc item 2(a), amending 09 section 6.
+
+    Until this, cancel_order reached PREPARING, so one misheard line could
+    throw away food the kitchen was already making. The guest is told who can
+    help, and the order is left exactly as it was.
+    """
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    tools.confirm_order(order_id)
+    data.update_order_status(order_id, "PREPARING")
+
+    result = tools.cancel_order(order_id)
+
+    print("the refusal:", result)
+    assert result == {
+        "source": "order",
+        "error": "The kitchen has already started on that order — the team can help.",
+    }
+    assert data.get_order(order_id)["status"] == "PREPARING"
+    assert data.get_order(order_id)["cancel_reason"] is None
+
+
+def test_a_voice_cancel_still_works_while_the_order_is_only_confirmed(ctx):
+    """The other half of the same rule: queued means still the guest's to change."""
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    tools.confirm_order(order_id)
+
+    assert tools.cancel_order(order_id, reason="guest changed their mind") == {
+        "source": "order",
+        "order_id": order_id,
+        "status": "CANCELLED",
+    }
+    assert data.get_order(order_id)["status"] == "CANCELLED"
+
+
 def test_get_order_status_with_an_id_is_scoped_to_the_owner(ctx):
     order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
     tools.confirm_order(order_id)
