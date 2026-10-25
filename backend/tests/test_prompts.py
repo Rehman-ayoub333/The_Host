@@ -33,15 +33,33 @@ def test_the_system_instruction_covers_the_two_step_order_rule():
         'Only call confirm_order after the guest\'s own clear yes ("yes", "haan", '
         '"ji", "confirm", "go ahead").' in text
     )
-    # A confirmed order is final: a later request is a new, separate order
-    # (09 section 15, reworded by 21 Part A).
+    # A confirmed order is final: adding is a new, separate order
+    # (09 section 15, reworded again by 16 section 2zc item 2(d)).
     assert (
-        "Once confirmed, an order is final. Anything more is a new, separate order "
-        'with only the new items; call it "a new order", never "adding to" the '
-        "confirmed one." in text
+        "Once confirmed, an order is final. To add something, take a new, separate "
+        'order with only the new items; call it "a new order", never "adding to" '
+        "the confirmed one." in text
+    )
+    # 16 section 2zc: removing, changing or cancelling is allowed by voice only
+    # while the kitchen has not started, the guest's yes comes first, and a
+    # change is new-first so the guest is never left with nothing.
+    assert (
+        "To remove an item from a confirmed order, change it, or cancel it: first "
+        "call get_order_status for that order. You may change or cancel it only "
+        "while it is confirmed and queued (the kitchen has not started)." in text
     )
     assert (
-        "To change a confirmed order, offer to cancel it and build a new one." in text
+        'To cancel it: ask "Shall I cancel order number" and the number, then wait '
+        "for the guest's yes, and only then call cancel_order." in text
+    )
+    assert (
+        "After the guest's yes, call confirm_order for the new order first, then "
+        "cancel_order for the old one, and give the new order number." in text
+    )
+    assert (
+        "If the order is being prepared, is ready or has been collected, do not "
+        "cancel or change it: say the kitchen has already started on it, and call "
+        "request_operator_help with the order number and what the guest wants." in text
     )
     assert "You do not recognise anyone by their face." in text
     # Every tool the prompt asks for by name. 16 section 2za item 2 took
