@@ -157,6 +157,9 @@ def test_each_forward_transition_through_the_status_endpoint(served):
         "action": "order_status",
         "order_id": order_id,
         "status": "PREPARING",
+        # 16 section 2z item 2: the audit row names the payment type, null when
+        # the operator did not record one (this transition never takes one).
+        "payment_method": None,
     }
 
 

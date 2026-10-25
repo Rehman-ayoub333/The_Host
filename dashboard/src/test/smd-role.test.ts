@@ -5,7 +5,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const TOKEN_PROTECTED = ["/api/orders", "/api/visitors", "/api/activity", "/api/analytics", "/api/metrics", "/api/operator"];
+// 16 §2z item 7 adds the two earnings endpoints: the money is the operator's,
+// never the public display's.
+const TOKEN_PROTECTED = ["/api/orders", "/api/visitors", "/api/activity", "/api/analytics", "/api/metrics", "/api/operator", "/api/earnings", "/api/earnings.csv"];
 
 type Call = { url: string; hasToken: boolean };
 
@@ -105,6 +107,9 @@ describe("role=smd (the public display)", () => {
 
       expect(calls.filter((c) => c.url.includes("/api/analytics"))).toHaveLength(0);
       expect(calls.filter((c) => c.url.includes("/api/metrics"))).toHaveLength(0);
+      // 16 §2z item 5: the Earnings panel refetches every 30 s, so a minute of
+      // smd time would have caught it twice if the display ever loaded it.
+      expect(calls.filter((c) => c.url.includes("/api/earnings"))).toHaveLength(0);
       service.disconnectAgent();
     } finally {
       vi.useRealTimers();

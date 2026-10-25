@@ -46,8 +46,13 @@ MENU_OPTIONAL_FIELDS = ("ingredients", "allergens", "tags", "add_ons")
 MENU_TAGS = ("spicy", "sweet", "vegetarian", "cold", "hot")
 _ORDER_COLUMNS = (
     "id, timestamp, guest_name, items, status, announced, session_id, "
-    "cancel_reason, estimated_ready_at, ready_at, orphaned_at, complimentary"
+    "cancel_reason, estimated_ready_at, ready_at, orphaned_at, complimentary, "
+    "payment_method"
 )
+
+# 16 section 2z item 2: how the guest paid, recorded by the operator at
+# collection. NULL until then, and for every order from before this phase.
+PAYMENT_METHODS = ("CASH", "QR")
 
 # 16 section 2l item 5: how each status is described to a guest. A draft is not
 # a placed order, and THE HOST must never let one sound like one.
@@ -172,7 +177,8 @@ def init_db() -> list[tuple[str, bool]]:
                 estimated_ready_at TEXT,
                 ready_at TEXT,
                 orphaned_at TEXT,
-                complimentary INTEGER NOT NULL DEFAULT 0
+                complimentary INTEGER NOT NULL DEFAULT 0,
+                payment_method TEXT
             )"""
         )
         # 16 section 2l item 4: when a conversation broke and left this draft
@@ -187,6 +193,11 @@ def init_db() -> list[tuple[str, bool]]:
             conn.execute(
                 "ALTER TABLE orders ADD COLUMN complimentary INTEGER NOT NULL DEFAULT 0"
             )
+        # 16 section 2z item 2: cash or QR, recorded at collection. It arrives
+        # NULL on every existing row, which the Earnings panel reports as
+        # "collected without a payment type" rather than guessing.
+        if "payment_method" not in order_columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN payment_method TEXT")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS feedback (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -470,6 +481,9 @@ def order_view(order) -> dict:
         # event. The prices and the total are the stored ones either way, for
         # the record.
         "complimentary": bool(order.get("complimentary")),
+        # 16 section 2z item 2: in the view, so every order event carries it.
+        # null until the operator records it at collection.
+        "payment_method": order.get("payment_method"),
     }
 
 
@@ -715,11 +729,20 @@ def _refusal(current: str, new_status: str) -> str:
     return f"Order is {current}; it can't be marked {new_status}."
 
 
-def update_order_status(order_id, new_status, reason=None) -> dict:
+def update_order_status(order_id, new_status, reason=None, payment_method=None) -> dict:
     expire_pending_orders()
     status = str(new_status or "").strip().upper()
     if status not in ORDER_STATUSES:
         return {"ok": False, "error": f"'{new_status}' isn't an order status."}
+    # 16 section 2z item 2: a payment belongs to the moment of collection, and
+    # never to an order that is on the house. The endpoint says the same in the
+    # words the operator sees; this is the floor under it.
+    method = str(payment_method or "").strip().upper() or None
+    if method is not None:
+        if method not in PAYMENT_METHODS:
+            return {"ok": False, "error": "Payment is recorded at collection."}
+        if status != "COLLECTED":
+            return {"ok": False, "error": "Payment is recorded at collection."}
 
     with closing(_connect()) as conn:
         row = conn.execute(
@@ -732,9 +755,14 @@ def update_order_status(order_id, new_status, reason=None) -> dict:
         current = order["status"]
         if status not in ALLOWED_TRANSITIONS.get(current, ()):
             return {"ok": False, "error": _refusal(current, status)}
+        if method is not None and order.get("complimentary"):
+            return {"ok": False, "error": "This order is on the house."}
 
         assignments = ["status = ?"]
         params: list = [status]
+        if method is not None:
+            assignments.append("payment_method = ?")
+            params.append(method)
         if status == "PREPARING":
             names = [
                 str((entry or {}).get("name") or "").lower()
@@ -1172,6 +1200,113 @@ def get_metrics() -> dict:
         "orders_today": orders,
         "failed_tool_calls_today": failed_tool_calls,
         "connection_failures_today": connection_failures,
+    }
+
+
+def order_rupees(items) -> int | None:
+    """16 section 2z item 4: whole rupees from the stored prices, or None.
+
+    The same digits rule as `compute_total`, so an order whose prices carry no
+    digits is unpriced rather than zero -- it is excluded from every sum and
+    shown as a warning instead of quietly flattering the takings. The price is
+    the one stored on the order, so a later menu change never alters history.
+    """
+    total = 0
+    for entry in items or []:
+        digits = re.sub(r"[^0-9]", "", str((entry or {}).get("price") or ""))
+        if not digits:
+            return None
+        try:
+            quantity = int((entry or {}).get("quantity", 1))
+        except (TypeError, ValueError):
+            quantity = 1
+        total += int(digits) * max(1, quantity)
+    return total
+
+
+# 16 section 2z item 4: what is still owed to the stall, as against taken.
+_TO_COLLECT_STATUSES = ("CONFIRMED", "PREPARING", "READY", "REQUIRES_ATTENTION")
+
+
+def earnings_rows() -> list[dict]:
+    """Today's orders that are not drafts, oldest first (16 section 2z items 4, 6).
+
+    One place to read them, so the JSON and the CSV can never disagree.
+    """
+    today = _today()
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            f"SELECT {_ORDER_COLUMNS} FROM orders WHERE substr(timestamp, 1, 10) = ? "
+            "AND status != 'PENDING_CONFIRMATION' ORDER BY id",
+            (today,),
+        ).fetchall()
+    return [_order_from_row(row) for row in rows]
+
+
+def get_earnings() -> dict:
+    """16 section 2z item 4: today's money, computed on request like the metrics.
+
+    Every figure is an integer number of rupees except `date`. Drafts are never
+    counted anywhere: nothing was ordered until the guest said yes.
+    """
+    orders = earnings_rows()
+    earned = {"CASH": 0, "QR": 0, None: 0}
+    to_collect = 0
+    on_the_house = 0
+    on_the_house_orders = 0
+    paid_orders = 0
+    cancelled_orders = 0
+    unpriced_orders = 0
+    by_item: dict[str, dict] = {}
+
+    for order in orders:
+        status = order["status"]
+        if status in ("CANCELLED", "FAILED"):
+            cancelled_orders += 1
+            continue
+        amount = order_rupees(order["items"])
+        if amount is None:
+            unpriced_orders += 1
+            continue
+        if order.get("complimentary"):
+            # The menu value of what the team gave away, not money taken.
+            on_the_house += amount
+            on_the_house_orders += 1
+            continue
+        if status == "COLLECTED":
+            method = order.get("payment_method")
+            earned[method if method in PAYMENT_METHODS else None] += amount
+            paid_orders += 1
+            for entry in order["items"] or []:
+                name = (entry or {}).get("name")
+                if not name:
+                    continue
+                digits = re.sub(r"[^0-9]", "", str((entry or {}).get("price") or ""))
+                try:
+                    quantity = max(1, int((entry or {}).get("quantity", 1)))
+                except (TypeError, ValueError):
+                    quantity = 1
+                row = by_item.setdefault(name, {"name": name, "quantity": 0, "amount": 0})
+                row["quantity"] += quantity
+                row["amount"] += int(digits) * quantity
+        elif status in _TO_COLLECT_STATUSES:
+            to_collect += amount
+
+    return {
+        "date": _today(),
+        "earned": earned["CASH"] + earned["QR"] + earned[None],
+        "earned_cash": earned["CASH"],
+        "earned_qr": earned["QR"],
+        "earned_unrecorded": earned[None],
+        "to_collect": to_collect,
+        "on_the_house": on_the_house,
+        "on_the_house_orders": on_the_house_orders,
+        "paid_orders": paid_orders,
+        "cancelled_orders": cancelled_orders,
+        "by_item": sorted(
+            by_item.values(), key=lambda row: (-row["amount"], row["name"])
+        ),
+        "unpriced_orders": unpriced_orders,
     }
 
 

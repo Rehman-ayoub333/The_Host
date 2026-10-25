@@ -1,5 +1,7 @@
 import asyncio
+import csv
 import hmac
+import io
 import json
 import logging
 import re
@@ -301,6 +303,69 @@ def get_metrics():
     return _read_db(data.get_metrics)
 
 
+@app.get("/api/earnings", dependencies=[Depends(require_operator_token)])
+def get_earnings():
+    """16 section 2z item 4: today's money, computed on request.
+
+    Operator only, like the metrics: it never reaches /display and THE HOST has
+    no tool for it.
+    """
+    return _read_db(data.get_earnings)
+
+
+@app.get("/api/earnings.csv", dependencies=[Depends(require_operator_token)])
+def get_earnings_csv():
+    """16 section 2z item 6: the end-of-day sheet, one row per real order.
+
+    No transcript and no session data: order number, time, name, items, total,
+    status, how it was paid, and whether it was on the house.
+    """
+    rows = _read_db(data.earnings_rows)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(
+        [
+            "order_id",
+            "time",
+            "guest_name",
+            "items",
+            "total_rs",
+            "status",
+            "payment_method",
+            "on_the_house",
+        ]
+    )
+    for order in rows:
+        items = "; ".join(
+            f"{max(1, int((entry or {}).get('quantity', 1) or 1))}x {(entry or {}).get('name')}"
+            for entry in order["items"] or []
+            if (entry or {}).get("name")
+        )
+        amount = data.order_rupees(order["items"])
+        writer.writerow(
+            [
+                order["id"],
+                (order.get("timestamp") or "")[11:19],
+                order.get("guest_name") or "",
+                items,
+                "" if amount is None else amount,
+                order["status"],
+                order.get("payment_method") or "",
+                "yes" if order.get("complimentary") else "no",
+            ]
+        )
+    today = _read_db(data.get_earnings)["date"]
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="bite-and-pour-sales-{today}.csv"'
+            )
+        },
+    )
+
+
 @app.get("/api/menu")
 def get_menu():
     rows = _read_db(data.get_menu)
@@ -313,6 +378,8 @@ def get_menu():
 class OrderStatusUpdate(BaseModel):
     status: str
     reason: str | None = None
+    # 16 section 2z item 2: how the guest paid, recorded at collection only.
+    payment_method: str | None = None
 
 
 class AvailabilityUpdate(BaseModel):
@@ -354,11 +421,22 @@ async def post_order_status(order_id: int, request: Request):
     if body.status not in data.ORDER_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid status update.")
 
-    if await asyncio.to_thread(_read_db, data.get_order, order_id) is None:
+    # 16 section 2z item 2: a payment type belongs to the moment of collection,
+    # and never to an order the team gave away. Both are refused in the words
+    # the operator reads on the dashboard.
+    method = (body.payment_method or "").strip().upper() or None
+    if method is not None:
+        if method not in data.PAYMENT_METHODS or body.status != "COLLECTED":
+            raise HTTPException(status_code=400, detail="Payment is recorded at collection.")
+
+    existing = await asyncio.to_thread(_read_db, data.get_order, order_id)
+    if existing is None:
         raise HTTPException(status_code=404, detail="There is no order with that number.")
+    if method is not None and existing.get("complimentary"):
+        raise HTTPException(status_code=400, detail="This order is on the house.")
 
     result = await asyncio.to_thread(
-        _read_db, data.update_order_status, order_id, body.status, body.reason
+        _read_db, data.update_order_status, order_id, body.status, body.reason, method
     )
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -379,7 +457,13 @@ async def post_order_status(order_id: int, request: Request):
         data.log_system_event,
         "operator_action",
         "operator",
-        {"action": "order_status", "order_id": order_id, "status": body.status},
+        {
+            "action": "order_status",
+            "order_id": order_id,
+            "status": body.status,
+            # 16 section 2z item 2: the audit row says how it was paid.
+            "payment_method": method,
+        },
     )
     return {"order": view}
 

@@ -1,0 +1,345 @@
+"""Phase 7j: the money (16 section 2z), so there is no confusion at the end of the day.
+
+Rehman wants to see exactly what the orders brought in and from where. The
+figures are computed on request from each order's own stored prices, so a later
+menu change never alters history, and a draft is never counted: nothing was
+ordered until the guest said yes.
+
+Operator only. Nothing here reaches /display, and THE HOST has no tool for it.
+"""
+
+import csv
+import io
+import json
+import sqlite3
+from contextlib import closing
+
+import pytest
+from fastapi.testclient import TestClient
+
+import config
+import data
+import event_bus
+import main
+
+
+TOKEN = "test-operator-token"
+AUTH = {"X-Operator-Token": TOKEN}
+
+BURGER = {"name": "Chicken Burger", "quantity": 1, "price": "Rs. 650"}
+LEMONADE = {"name": "Blue Lemonade", "quantity": 1, "price": "Rs. 250"}
+SHAKE = {"name": "Mixed Fruit Shake", "quantity": 1, "price": "Rs. 350"}
+
+
+@pytest.fixture
+def served(monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "OPERATOR_TOKEN", TOKEN)
+    with TestClient(main.app) as client:
+        yield client
+
+
+def order(items, status=None, complimentary=False, name="Ali", payment=None):
+    """One order in the database, advanced to `status` the ordinary way."""
+    draft = data.create_order_draft(items, name, "session-1", complimentary=complimentary)
+    order_id = draft["order_id"]
+    for step in {
+        None: (),
+        "CONFIRMED": ("CONFIRMED",),
+        "PREPARING": ("CONFIRMED", "PREPARING"),
+        "READY": ("CONFIRMED", "PREPARING", "READY"),
+        "COLLECTED": ("CONFIRMED", "PREPARING", "READY", "COLLECTED"),
+        "CANCELLED": ("CANCELLED",),
+    }[status]:
+        if step == "COLLECTED":
+            data.update_order_status(order_id, step, payment_method=payment)
+        else:
+            data.update_order_status(order_id, step)
+    return order_id
+
+
+# --------------------------------------------- 2z item 2: the column and the API
+
+
+def test_the_migration_adds_payment_method(tmp_path, monkeypatch):
+    """A database from an earlier phase gains the column, NULL on every row."""
+    db_path = tmp_path / "old.db"
+    monkeypatch.setattr(config, "DB_PATH", db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.execute(
+            """CREATE TABLE orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                guest_name TEXT,
+                items TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING_CONFIRMATION',
+                announced INTEGER NOT NULL DEFAULT 0,
+                session_id TEXT,
+                cancel_reason TEXT,
+                estimated_ready_at TEXT,
+                ready_at TEXT
+            )"""
+        )
+        conn.execute(
+            "INSERT INTO orders (timestamp, items, status) VALUES (?, ?, 'COLLECTED')",
+            (data._now(), json.dumps([BURGER])),
+        )
+        conn.commit()
+
+    data.init_db()
+
+    with closing(sqlite3.connect(db_path)) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(orders)")}
+        print("columns after the migration:", sorted(columns))
+        assert "payment_method" in columns
+        stored = conn.execute("SELECT payment_method FROM orders").fetchone()[0]
+    assert stored is None
+
+
+@pytest.mark.parametrize("method", ["CASH", "QR"])
+def test_collected_with_a_payment_method_is_stored_and_published(served, method):
+    order_id = order([BURGER], "READY")
+    event_bus.PUBLISHED.clear()
+
+    response = served.post(
+        f"/api/orders/{order_id}/status",
+        json={"status": "COLLECTED", "payment_method": method},
+        headers=AUTH,
+    )
+
+    print(method, "->", response.status_code, response.json())
+    assert response.status_code == 200
+    assert response.json()["order"]["payment_method"] == method
+    assert data.get_order(order_id)["payment_method"] == method
+    updated = [e for e in event_bus.PUBLISHED if e["type"] == "order_updated"][0]
+    assert updated["order"]["payment_method"] == method
+    # 2z item 2: the audit row carries it too.
+    with closing(sqlite3.connect(config.DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = [
+            json.loads(row["detail"])
+            for row in conn.execute(
+                "SELECT detail FROM system_events WHERE event_type = 'operator_action' "
+                "ORDER BY id"
+            )
+        ]
+    print("audit rows:", rows)
+    assert rows[-1] == {
+        "action": "order_status",
+        "order_id": order_id,
+        "status": "COLLECTED",
+        "payment_method": method,
+    }
+
+
+def test_an_order_view_without_a_payment_carries_null(served):
+    order_id = order([BURGER], "READY")
+    response = served.post(
+        f"/api/orders/{order_id}/status", json={"status": "COLLECTED"}, headers=AUTH
+    )
+    assert response.status_code == 200
+    assert response.json()["order"]["payment_method"] is None
+
+
+@pytest.mark.parametrize("status", ["CONFIRMED", "PREPARING", "READY", "CANCELLED"])
+def test_a_payment_method_on_any_other_status_is_refused(served, status):
+    order_id = order([BURGER], "CONFIRMED")
+    response = served.post(
+        f"/api/orders/{order_id}/status",
+        json={"status": status, "payment_method": "CASH"},
+        headers=AUTH,
+    )
+    print(status, "->", response.status_code, response.json())
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Payment is recorded at collection."
+    assert data.get_order(order_id)["payment_method"] is None
+
+
+def test_an_unknown_payment_method_is_refused(served):
+    order_id = order([BURGER], "READY")
+    response = served.post(
+        f"/api/orders/{order_id}/status",
+        json={"status": "COLLECTED", "payment_method": "CARD"},
+        headers=AUTH,
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Payment is recorded at collection."
+    assert data.get_order(order_id)["status"] == "READY"
+
+
+def test_a_complimentary_order_never_takes_a_payment_method(served):
+    order_id = order([SHAKE], "READY", complimentary=True, name="Vice Chancellor")
+
+    refused = served.post(
+        f"/api/orders/{order_id}/status",
+        json={"status": "COLLECTED", "payment_method": "CASH"},
+        headers=AUTH,
+    )
+    print("on the house ->", refused.status_code, refused.json())
+    assert refused.status_code == 400
+    assert refused.json()["detail"] == "This order is on the house."
+    assert data.get_order(order_id)["status"] == "READY"
+
+    # Collected without one is how an on-the-house order is finished.
+    allowed = served.post(
+        f"/api/orders/{order_id}/status", json={"status": "COLLECTED"}, headers=AUTH
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["order"]["payment_method"] is None
+
+
+# ------------------------------------------- 2z item 4: the numbers themselves
+
+
+@pytest.fixture
+def mixed_day():
+    """A day with one of everything 2z item 9 names, worked out by hand.
+
+    cash      : 1 x Chicken Burger          650
+    qr        : 1 x Blue Lemonade           250
+    unrecorded: 3 x Mixed Fruit Shake     1,050   (COLLECTED, no method)
+    to collect: 1 x Chicken Burger (READY)  650
+              + 1 x Blue Lemonade (CONFIRMED) 250  = 900
+    on the house: 1 x Mixed Fruit Shake     350   (COLLECTED, complimentary)
+    cancelled : 1 x Chicken Burger          --    (not counted anywhere)
+    a draft   : 1 x Blue Lemonade           --    (never counted)
+    unpriced  : 1 x Mystery Item            --    (excluded, warned about)
+    """
+    ids = {
+        "cash": order([BURGER], "COLLECTED", payment="CASH"),
+        "qr": order([LEMONADE], "COLLECTED", payment="QR"),
+        "unrecorded": order(
+            [{**SHAKE, "quantity": 3}], "COLLECTED"
+        ),
+        "ready": order([BURGER], "READY"),
+        "confirmed": order([LEMONADE], "CONFIRMED"),
+        "house": order([SHAKE], "COLLECTED", complimentary=True, name="Vice Chancellor"),
+        "cancelled": order([BURGER], "CANCELLED"),
+        "draft": order([LEMONADE], None),
+        "unpriced": order(
+            [{"name": "Mystery Item", "quantity": 1, "price": "ask the team"}], "COLLECTED"
+        ),
+    }
+    return ids
+
+
+def test_the_earnings_add_up_for_a_mixed_day(mixed_day):
+    earnings = data.get_earnings()
+
+    print("earnings:", json.dumps(earnings, indent=2))
+    assert earnings["earned_cash"] == 650
+    assert earnings["earned_qr"] == 250
+    assert earnings["earned_unrecorded"] == 1050
+    # The three parts add up to the whole, which is the point of the breakdown.
+    assert earnings["earned"] == 650 + 250 + 1050 == 1950
+    assert earnings["to_collect"] == 900
+    assert earnings["on_the_house"] == 350
+    assert earnings["on_the_house_orders"] == 1
+    assert earnings["paid_orders"] == 3
+    assert earnings["cancelled_orders"] == 1
+    assert earnings["unpriced_orders"] == 1
+    assert earnings["date"] == data._today()
+
+
+def test_by_item_is_ordered_by_amount(mixed_day):
+    rows = data.get_earnings()["by_item"]
+
+    print("by_item:", rows)
+    # Only COLLECTED, not complimentary: the shake's three, the burger, the
+    # lemonade. The unpriced order contributes nothing.
+    assert rows == [
+        {"name": "Mixed Fruit Shake", "quantity": 3, "amount": 1050},
+        {"name": "Chicken Burger", "quantity": 1, "amount": 650},
+        {"name": "Blue Lemonade", "quantity": 1, "amount": 250},
+    ]
+
+
+def test_a_draft_is_counted_nowhere(mixed_day):
+    earnings = data.get_earnings()
+    # The draft is a Blue Lemonade: if it leaked it would show up in
+    # to_collect, which the hand-worked figure above pins to 900.
+    assert earnings["to_collect"] == 900
+    assert earnings["cancelled_orders"] == 1
+
+
+def test_an_empty_day_is_all_zeros():
+    earnings = data.get_earnings()
+    print("an empty day:", earnings)
+    assert earnings["earned"] == 0
+    assert earnings["by_item"] == []
+    assert earnings["unpriced_orders"] == 0
+
+
+def test_the_earnings_endpoint_needs_the_token(served, mixed_day):
+    assert served.get("/api/earnings").status_code == 401
+    assert served.get("/api/earnings", headers={"X-Operator-Token": "wrong"}).status_code == 401
+
+    response = served.get("/api/earnings", headers=AUTH)
+    assert response.status_code == 200
+    assert response.json()["earned"] == 1950
+
+
+# ----------------------------------------------------- 2z item 6: the CSV
+
+
+def test_the_csv_has_the_header_and_one_row_exactly(served):
+    order_id = order([{**BURGER, "quantity": 2}, LEMONADE], "COLLECTED", payment="QR")
+
+    response = served.get("/api/earnings.csv", headers=AUTH)
+
+    print("CSV:\n" + response.text)
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert f'bite-and-pour-sales-{data._today()}.csv' in response.headers["content-disposition"]
+    rows = list(csv.reader(io.StringIO(response.text)))
+    assert rows[0] == [
+        "order_id",
+        "time",
+        "guest_name",
+        "items",
+        "total_rs",
+        "status",
+        "payment_method",
+        "on_the_house",
+    ]
+    assert len(rows) == 2
+    row = rows[1]
+    assert row[0] == str(order_id)
+    assert len(row[1]) == 8 and row[1].count(":") == 2
+    assert row[2] == "Ali"
+    assert row[3] == "2x Chicken Burger; 1x Blue Lemonade"
+    assert row[4] == "1550"
+    assert row[5] == "COLLECTED"
+    assert row[6] == "QR"
+    assert row[7] == "no"
+
+
+def test_the_csv_leaves_out_drafts_and_marks_the_house(served):
+    order([LEMONADE], None)
+    house = order([SHAKE], "COLLECTED", complimentary=True, name="Chief Guest")
+
+    rows = list(csv.reader(io.StringIO(served.get("/api/earnings.csv", headers=AUTH).text)))
+
+    print("rows:", rows)
+    assert len(rows) == 2
+    assert rows[1][0] == str(house)
+    assert rows[1][7] == "yes"
+    assert rows[1][6] == ""
+
+
+def test_the_csv_endpoint_needs_the_token(served):
+    assert served.get("/api/earnings.csv").status_code == 401
+    assert (
+        served.get("/api/earnings.csv", headers={"X-Operator-Token": "nope"}).status_code
+        == 401
+    )
+
+
+def test_neither_endpoint_carries_a_transcript_or_a_session(served, mixed_day):
+    """2z item 6: no transcript, no session data, in either answer."""
+    body = served.get("/api/earnings", headers=AUTH).text
+    csv_text = served.get("/api/earnings.csv", headers=AUTH).text
+
+    for text in (body, csv_text):
+        assert "session" not in text.lower()
+        assert "transcript" not in text.lower()

@@ -462,6 +462,8 @@ def test_order_view_and_get_order_parse_items():
         "ready_at": None,
         # 16 section 2m item 5: in the view, and so in every order event.
         "complimentary": False,
+        # 16 section 2z item 2: null until the operator records it at collection.
+        "payment_method": None,
     }
     assert data.get_order(order_id + 500) is None
 
