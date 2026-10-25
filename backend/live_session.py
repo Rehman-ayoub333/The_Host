@@ -64,14 +64,41 @@ _AFFIRMATIVE_RE = re.compile(
     re.IGNORECASE | re.UNICODE,
 )
 
+# 16 section 2zc item 2(b): the cancel guard takes the affirmatives above and
+# these as well, because a guest asked "Shall I cancel order number 12?" answers
+# either with a yes or by saying again what they want gone.
+CANCEL_PHRASES = (
+    "cancel", "remove", "don't want", "do not want", "nahi chahiye",
+    "nahin chahiye", "cancel kar do", "hata do",
+)
+
+_CANCEL_RE = re.compile(
+    r"(?<!\w)(?:"
+    + "|".join(re.escape(word) for word in AFFIRMATIVES + CANCEL_PHRASES)
+    + r")(?!\w)",
+    re.IGNORECASE | re.UNICODE,
+)
+
 # The refusal 2zb item 3 requires, word for word. It goes back to Gemini as the
 # tool's result, so THE HOST asks the guest again instead of placing an order.
 CONFIRM_REFUSAL = {"source": "order", "error": "Please confirm first."}
+
+# 16 section 2zc item 2(b), word for word: a confirmed order is only cancelled
+# once the guest has said so themselves.
+CANCEL_REFUSAL = {
+    "source": "order",
+    "error": "Please ask the guest to confirm the cancellation first.",
+}
 
 
 def has_affirmative(line: str) -> bool:
     """True when the guest's line contains one of AFFIRMATIVES as a whole word."""
     return bool(_AFFIRMATIVE_RE.search(line or ""))
+
+
+def has_cancel_consent(line: str) -> bool:
+    """True for a yes or for the guest naming the cancellation themselves."""
+    return bool(_CANCEL_RE.search(line or ""))
 
 # 16 section 2a item 3: the state each tool call announces before it runs.
 TOOL_STATES = {
@@ -400,6 +427,12 @@ class LiveSession:
         self.draft_built_at = None
         self.draft_built_id = None
         self.opening_turn_done_at = None
+        # 16 section 2zc item 2(b): when each order was confirmed in this
+        # session, so a cancel can be measured against its own confirmation.
+        # An order confirmed before this conversation is not in here, and the
+        # session's own start stands in: every line of it came afterwards.
+        self.confirmed_at = {}
+        self.session_started_at = _now()
         self.transcripts = {"visitor": "", "agent": ""}
         self.last_state = None
         self.closed = False
@@ -1770,6 +1803,31 @@ class LiveSession:
             return "no_affirmative"
         return None
 
+    async def _cancel_refusal(self, args) -> str | None:
+        """16 section 2zc item 2(b): why this cancel_order may not run, or None.
+
+        It guards a CONFIRMED order only. A draft is never guarded, because a
+        "no" to the confirmation question has to cancel it, and the statuses
+        past CONFIRMED are the tool's own business (2zc item 2(a) refuses
+        PREPARING outright). For a confirmed order the guest must have spoken
+        after it was confirmed, and that line must carry their consent -- a yes,
+        or the cancellation in their own words.
+        """
+        try:
+            order_id = int(float(args.get("order_id")))
+        except (TypeError, ValueError):
+            # Not a number: let the tool itself answer, as 09 section 6 has it.
+            return None
+        order = await asyncio.to_thread(data.get_order, order_id)
+        if order is None or order["status"] != "CONFIRMED":
+            return None
+        since = self.confirmed_at.get(order_id, self.session_started_at)
+        if self.last_guest_line_at is None or self.last_guest_line_at <= since:
+            return "no_new_line"
+        if not has_cancel_consent(self.last_guest_line):
+            return "no_consent"
+        return None
+
     async def _handle_tool_call(self, tool_call):
         # A tool call is model output: the turn is running and stays running
         # across the tool response below (16 section 2e item 1).
@@ -1784,16 +1842,24 @@ class LiveSession:
         for function_call in tool_call.function_calls:
             args = function_call.args or {}
             name = function_call.name
-            refusal = (
-                self._confirm_refusal(args) if name == "confirm_order" else None
-            )
+            # 16 section 2zb item 3 and 2zc item 2(b): the two guards. Each
+            # names the word the log uses and the answer Gemini is given.
+            refusal = None
+            if name == "confirm_order":
+                refusal, verb, payload = (
+                    self._confirm_refusal(args), "confirm", CONFIRM_REFUSAL
+                )
+            elif name == "cancel_order":
+                refusal, verb, payload = (
+                    await self._cancel_refusal(args), "cancel", CANCEL_REFUSAL
+                )
             if refusal is not None:
-                # 16 section 2zb item 3: the tool never runs, Gemini is told to
-                # ask the guest, and the activity feed gets no row -- nothing
-                # happened to an order. Only the reason is logged, never a word
-                # of what the guest said.
+                # The tool never runs, Gemini is told to ask the guest, and the
+                # activity feed gets no row -- nothing happened to an order.
+                # Only the reason is logged, never a word of what the guest said.
                 log.info(
-                    "confirm refused session %s order %s reason=%s",
+                    "%s refused session %s order %s reason=%s",
+                    verb,
                     self.ctx["session_id"],
                     args.get("order_id"),
                     refusal,
@@ -1802,7 +1868,7 @@ class LiveSession:
                     types.FunctionResponse(
                         id=function_call.id,
                         name=name,
-                        response=dict(CONFIRM_REFUSAL),
+                        response=dict(payload),
                     )
                 )
                 continue
@@ -1832,6 +1898,10 @@ class LiveSession:
                         await self._send_state("TAKING_ORDER")
                     elif name in ("confirm_order", "cancel_order", "report_feedback"):
                         self.ctx["awaiting_confirmation"] = False
+                        if name == "confirm_order" and result.get("order_id"):
+                            # 16 section 2zc item 2(b): from here a cancel of
+                            # this order needs the guest to speak again.
+                            self.confirmed_at[result["order_id"]] = _now()
             log.info(
                 "tool %s session %s error=%s",
                 name,
