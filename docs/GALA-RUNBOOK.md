@@ -150,9 +150,19 @@ is Saad's:
 1. **PREPARING** — the kitchen has started it.
 2. **READY** — it is on the counter. The TV announces
    *"Order #27 for Ahmed is ready!"* and speaks it aloud.
-3. **COLLECTED** — the guest has taken it.
+3. **COLLECTED** — the guest has taken it. **At collection, press Cash or QR, never plain
+   Collected.** The card then reads *Paid · Cash* or *Paid · QR*, and the Earnings panel
+   counts it under the right heading. An order **on the house** has one plain *Collected*
+   button, because there is nothing to charge.
 
 **Announce again** re-plays a ready announcement if the guest missed it.
+
+**A guest who changes their mind.** While an order is still *Confirmed*, THE HOST can
+change or cancel it itself: it asks *"Shall I cancel order number 27?"* and waits for the
+guest's yes. For a change it places the corrected order first and cancels the old one
+after, so the guest is never left with nothing. Once the kitchen has started, THE HOST says
+so and flags it for the team — that call is the operator's, who can still cancel a
+*Preparing* order from the dashboard.
 
 ### The operator buttons (dashboard → System)
 
@@ -243,7 +253,15 @@ the USB stick afterwards.
 
 ## 6. After the gala
 
-1. **Stop both servers:**
+1. **Download the sales CSV before stopping the servers.** On the dashboard, the
+   **Earnings** panel (the last row of the Command Center, and the top of *Analytics*) has
+   **Download today's sales (CSV)**. It saves `bite-and-pour-sales-<date>.csv`: one row per
+   order of the day, with what was in it, the total, how it was paid and whether it was on
+   the house. **The Earned figures should match the cash box plus the QR account** — Cash
+   against what is in the box, QR against the account. If a line says *collected without a
+   payment type*, that money was taken with plain *Collected* and the panel cannot tell
+   which it was.
+2. **Stop both servers:**
    ```powershell
    .\scripts\stop-all.ps1
    ```
@@ -251,7 +269,7 @@ the USB stick afterwards.
    `stopped node (pid 5678) on 8080` — or `nothing listening on 8000` if that half is
    already down. **Closing the two windows is not enough:** the servers they started keep
    running and keep the ports open, so the next start finds the old one still answering.
-2. **Leave the database alone.** `backend\data\the_host.db` holds the evening's real orders
+3. **Leave the database alone.** `backend\data\the_host.db` holds the evening's real orders
    and visitors, and the report needs them. `reset-for-gala.ps1` keeps every earlier
    database in `backend\data\backups\` as well.
-3. Pack the microphone, the speaker and both chargers.
+4. Pack the microphone, the speaker and both chargers.
