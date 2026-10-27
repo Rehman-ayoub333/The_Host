@@ -160,6 +160,29 @@ def test_the_runbook_says_how_to_stop_and_carries_the_visit_protocol():
     assert "on the house" in text
     assert "Rehman Ayoub would be glad to answer" in text
     assert "THE HOST is never asked to judge who someone is" in text
-    assert "The chief guest is not on the house." in text
     # Item 7 without the name itself.
     assert "Rauf" not in text
+
+
+def test_the_runbook_carries_the_phase_7k_rules():
+    """16 §2ze item 7: the posters, always Cash or QR, and the name rule."""
+    text = RUNBOOK.read_text(encoding="utf-8")
+    # Read with the line wraps removed: these are sentences, not single lines.
+    unwrapped = " ".join(text.split())
+
+    # The posters: where they go, what they must carry, and the order.
+    assert "backend\\data\\posters\\" in text
+    assert "1920×1080 landscape, one picture per poster" in unwrapped
+    assert "shown in file-name order" in unwrapped
+    assert "01-burgers.jpg" in text
+    # Cash or QR, and what the operator sees if neither is sent.
+    assert "**Always Cash or QR.**" in unwrapped
+    assert "Choose Cash or QR." in unwrapped
+    # The name rule, and the quiet cancel for a prank. 21 Part E item 7, and
+    # still without the name itself.
+    assert "The name rule" in unwrapped
+    assert "by that name alone" in unwrapped
+    assert "Rehman cancels the order quietly on the dashboard" in unwrapped
+    assert "Nobody else is on the house, and the system enforces it" in unwrapped
+    for name in ("Rauf", "Azam"):
+        assert name not in text, name

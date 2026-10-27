@@ -36,21 +36,34 @@ any script here.
    punctuation, which break the token when it travels in a web address. Save and close.
    Do not share it, photograph it, or type it into anything but this file and the
    dashboard's Settings page.
-6. **Do one full test order,** end to end:
+6. **Put the posters in.** The TV shows full-screen pictures whenever nobody is talking to
+   THE HOST — that is the stall's menu board, so the pictures have to carry the prices and
+   everything else a guest needs to read. Copy them into:
+   ```
+   backend\data\posters\
+   ```
+   `.jpg`, `.jpeg`, `.png` or `.webp`, 1920×1080 landscape, one picture per poster. **They
+   are shown in file-name order,** so name them `01-burgers.jpg`, `02-drinks.jpg` and so on.
+   Each one is on screen for 8 seconds. Nothing else in the folder matters — the `README.txt`
+   that is already there is ignored. A picture added later in the evening appears on the TV
+   by itself within a minute, with nothing to restart; and if the folder is empty the TV
+   simply shows the brand screen, which is not wrong, only plainer.
+7. **Do one full test order,** end to end:
    ```powershell
    .\scripts\start-all.ps1
    ```
    On the dashboard set **Settings → Display screen devices** (Camera and Microphone), then
    open `http://localhost:8080/display`, tap **Tap to begin**, order one item out loud,
    give a first name, confirm, then on the dashboard move the order
-   PREPARING → READY → COLLECTED and watch the TV announce it. Then run
-   `reset-for-gala.ps1` once more so the gala starts clean.
+   PREPARING → READY → **Collected · Cash** and watch the TV announce it. Check the posters
+   are rotating on the TV between conversations. Then run `reset-for-gala.ps1` once more so
+   the gala starts clean.
 
    Doing this tonight also gets the dashboard built. The dashboard runs as a **production
    build**, and the first start after a `git pull` builds it, which takes a few seconds and
    prints `Building the dashboard`. Getting it out of the way now means gala night starts in
    about a second instead.
-7. **Stop both servers** and close the laptop.
+8. **Stop both servers** and close the laptop.
 
 ---
 
@@ -64,8 +77,9 @@ any script here.
 | The dashboard | `http://localhost:8080/` | The laptop on the front table, the operator's screen |
 
 The TV is THE HOST: the camera, the handheld microphone and THE HOST's voice all belong to
-that page. The laptop is the operator's, and it holds the only screen with order controls
-and guest names on it. `http://127.0.0.1:8000/` is the backend, not a screen: it answers
+that page. Between conversations it shows the stall's posters, full screen — that is the
+menu board, so the pictures must carry the prices (section 1, step 6). The laptop is the
+operator's, and it holds the only screen with order controls and guest names on it. `http://127.0.0.1:8000/` is the backend, not a screen: it answers
 with one line saying where the display is. If `/display` will not start, see section 4.
 
 1. **Plug in the hardware first,** before any window is opened: the external camera, the
@@ -150,10 +164,13 @@ is Saad's:
 1. **PREPARING** — the kitchen has started it.
 2. **READY** — it is on the counter. The TV announces
    *"Order #27 for Ahmed is ready!"* and speaks it aloud.
-3. **COLLECTED** — the guest has taken it. **At collection, press Cash or QR, never plain
-   Collected.** The card then reads *Paid · Cash* or *Paid · QR*, and the Earnings panel
-   counts it under the right heading. An order **on the house** has one plain *Collected*
-   button, because there is nothing to charge.
+3. **COLLECTED** — the guest has taken it. **Always Cash or QR.** Those are the only two
+   buttons a paying order has, the card then reads *Paid · Cash* or *Paid · QR*, and the
+   Earnings panel counts it under the right heading. If a *Collected* with neither is ever
+   sent — from a browser tab left open since before the day's update, say — the backend
+   refuses it and the dashboard says **Choose Cash or QR.**; press the right button and
+   carry on. An order **on the house** has one plain *Collected* button, because there is
+   nothing to charge.
 
 **Announce again** re-plays a ready announcement if the guest missed it.
 
@@ -216,11 +233,20 @@ people's steps.
 6. **Pranks.** If someone who is clearly not the Vice Chancellor is given an "on the house"
    order, Rehman cancels it quietly on the dashboard and Saad speaks to the guest in person.
    THE HOST is never asked to judge who someone is — that is the team's job.
-7. THE HOST has the Vice Chancellor's name and may say it once in its welcome, then "Sir".
-   Rehman has confirmed the name and how he is addressed; nobody needs to tell THE HOST.
-8. **The chief guest is not on the house.** THE HOST treats them with the same respect and
-   formality, and never mentions price or payment to them either way. Whether to charge is
-   the operator's call at the counter.
+7. **The name rule.** THE HOST knows the Vice Chancellor's name, says it in its welcome, and
+   uses it again whenever he asks. It also recognises him **by that name alone**: anyone who
+   gives the Vice Chancellor's name — introducing themselves, or just as the name for an
+   order, in any spelling — is treated as the Vice Chancellor from that moment, and an order
+   already being built is rebuilt on the house. That is deliberate: THE HOST must never
+   question a guest of honour. If it was a prank, Rehman cancels the order quietly on the
+   dashboard, as in step 6. Nobody needs to tell THE HOST the name.
+8. **Nobody else is on the house, and the system enforces it.** The chief guest, judges,
+   teachers and anyone who says they are staff get exactly the same respect, formality and
+   no jokes — and a normal bill. THE HOST never mentions price or payment to them either
+   way, so whether to charge the chief guest is still the operator's call at the counter, but
+   the order will be an ordinary paid order on the dashboard. Only the Vice Chancellor's own
+   name can put an order on the house; every other name is refused in the backend, whatever
+   the guest says and whatever THE HOST is told.
 
 ---
 
@@ -258,9 +284,10 @@ the USB stick afterwards.
    **Download today's sales (CSV)**. It saves `bite-and-pour-sales-<date>.csv`: one row per
    order of the day, with what was in it, the total, how it was paid and whether it was on
    the house. **The Earned figures should match the cash box plus the QR account** — Cash
-   against what is in the box, QR against the account. If a line says *collected without a
-   payment type*, that money was taken with plain *Collected* and the panel cannot tell
-   which it was.
+   against what is in the box, QR against the account. A line saying *collected without a
+   payment type* can only come from an order collected before the day's update, because a
+   collection with neither is now refused; if one appears, that money cannot be told apart
+   and has to be reconciled by hand.
 2. **Stop both servers:**
    ```powershell
    .\scripts\stop-all.ps1

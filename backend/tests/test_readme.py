@@ -91,6 +91,41 @@ def test_the_readme_names_the_whole_team():
     assert "Samundri Campus" in text
 
 
+def test_the_readme_is_the_final_public_one():
+    """16 §2ze item 7: the final README, for a public repository."""
+    text = readme_text()
+
+    # The formal title and the tagline. The title is read with its line wrap
+    # removed, because it is too long for one line of the file.
+    unwrapped = " ".join(text.split())
+    assert (
+        "A Real-Time Multimodal Agentic AI Host for Intelligent Customer Interaction "
+        "and Order Management" in unwrapped
+    )
+    assert "See. Understand. Act." in text
+    # The two-screen stall.
+    assert "## The stall: two screens" in text
+    # The features this phase and the last few added.
+    assert "## The menu and the posters" in text
+    assert "backend/data/posters/" in text
+    assert "1920×1080 landscape, one picture per poster, shown in file-name order" in text
+    assert "Collected · Cash" in text or "`CASH` or `QR`" in text
+    assert "GET /api/posters" in text
+    assert "Download today's sales (CSV)" in text
+    # The guest-of-honour rule, without ever naming him.
+    assert "decided in code, not in a prompt" in text
+    assert "Rauf" not in text
+    # The team, the supervisor and the credit.
+    assert "Lovable" in text
+
+
+def test_the_readme_carries_the_real_test_counts():
+    """16 §2ze item 7: "the real counts after this phase", not a round number."""
+    text = readme_text()
+
+    assert "**770 backend tests and 209 dashboard tests pass.**" in text
+
+
 def test_the_readme_describes_the_phase_5f_reliability_work():
     text = readme_text()
     # 2k item 2's window, 2k item 3's status, 2l item 3's names, 2l item 4.
