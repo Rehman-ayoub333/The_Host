@@ -243,6 +243,92 @@ def test_an_uplink_send_on_a_dying_connection_does_not_end_the_session(caplog):
         asyncio.run(session._uplink())
 
     assert "browser input dropped on a dying connection" in caplog.text
+    # 16 §2ze item 6(b): and it says how many, so a line can stand for many.
+    assert (
+        f"browser input dropped on a dying connection session "
+        f"{session.ctx['session_id']} dropped n=1" in caplog.text
+    )
+
+
+# ------------------------- 2ze item 6(b): one line a second, with a count
+
+
+def dropped_lines(caplog) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("browser input dropped")
+    ]
+
+
+def test_the_first_dropped_input_is_reported_at_once(caplog):
+    session, _ws = doubles.new_session()
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        session._log_dropped_input()
+
+    assert dropped_lines(caplog) == [
+        "browser input dropped on a dying connection session "
+        f"{session.ctx['session_id']} dropped n=1"
+    ]
+
+
+def test_a_flood_inside_one_second_is_one_line_and_nothing_is_lost(monkeypatch, caplog):
+    """The 26 Oct log is mostly this one line, hundreds of copies of it."""
+    session, _ws = doubles.new_session()
+    clock = [1000.0]
+    monkeypatch.setattr(live_session, "_now", lambda: clock[0])
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        for _ in range(50):
+            session._log_dropped_input()
+            clock[0] += 0.01  # 50 frames over half a second
+        # The second has not passed, so there is still only the first line.
+        assert len(dropped_lines(caplog)) == 1
+        # A second after that first line, the next drop carries the rest.
+        clock[0] = 1001.5
+        session._log_dropped_input()
+
+    lines = dropped_lines(caplog)
+    print("the lines written:", lines)
+    assert len(lines) == 2
+    assert lines[0].endswith("dropped n=1")
+    # 49 held back inside the second, plus the one that wrote this line.
+    assert lines[1].endswith("dropped n=50")
+
+
+def test_the_count_starts_again_after_every_line(monkeypatch, caplog):
+    session, _ws = doubles.new_session()
+    clock = [1000.0]
+    monkeypatch.setattr(live_session, "_now", lambda: clock[0])
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        for second in range(4):
+            clock[0] = 1000.0 + second
+            session._log_dropped_input()
+
+    assert [line.rsplit(" ", 1)[-1] for line in dropped_lines(caplog)] == [
+        "n=1",
+        "n=1",
+        "n=1",
+        "n=1",
+    ]
+
+
+def test_the_line_carries_no_guest_text(monkeypatch, caplog):
+    """A dropped frame is the guest's own audio; only the count is written."""
+    session, _ws = doubles.new_session()
+    session.last_guest_line = "two burgers please"
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        session._log_dropped_input()
+
+    for line in dropped_lines(caplog):
+        assert "burger" not in line
+        assert line == (
+            "browser input dropped on a dying connection session "
+            f"{session.ctx['session_id']} dropped n=1"
+        )
 
 
 # --------------------------------- 2k item 3: the reconnecting messages

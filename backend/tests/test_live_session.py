@@ -847,6 +847,32 @@ def test_a_second_session_is_refused_with_the_new_error_shape(monkeypatch):
     schemas.ErrorEvent.model_validate(refusal)
 
 
+def test_a_second_session_is_refused_in_the_log_too(monkeypatch, caplog):
+    """16 §2ze item 6(c): a page turned away left nothing in the log."""
+    monkeypatch.setattr(main, "ACTIVE", object())
+    ws = FakeWebSocket()
+
+    with caplog.at_level(logging.INFO, logger="main"):
+        asyncio.run(main.websocket_session(ws))
+
+    messages = [record.getMessage() for record in caplog.records]
+    print("the lines written:", messages)
+    assert "session refused: another session is active" in messages
+
+
+def test_the_only_session_is_not_refused_in_the_log(monkeypatch, caplog):
+    """The line belongs to the refusal, so a first conversation never writes it."""
+    monkeypatch.setattr(main, "ACTIVE", None)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
+    ws = FakeWebSocket()
+
+    with caplog.at_level(logging.INFO, logger="main"):
+        asyncio.run(main.websocket_session(ws))
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "session refused: another session is active" not in messages
+
+
 def test_a_tool_timeout_keeps_an_honest_source(monkeypatch):
     def slow_tool(**kwargs):
         time.sleep(0.05)

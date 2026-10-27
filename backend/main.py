@@ -929,6 +929,10 @@ async def websocket_session(websocket: WebSocket):
         await refuse(PAUSED_REFUSAL)
         return
     if ACTIVE is not None:
+        # 16 section 2ze item 6(c): until now the only refusal with a line of
+        # its own was the operator override, so a second page quietly turned
+        # away left nothing in the log to explain why it went no further.
+        log.info("session refused: another session is active")
         await refuse("Another conversation is already active.")
         return
 

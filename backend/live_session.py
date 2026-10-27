@@ -116,6 +116,11 @@ UNSOURCED_TOOLS = ("recommend_item", "signal_confirmation_request")
 # 16 section 2g item 4: how often the watcher looks at a pending announcement.
 ANNOUNCE_WATCH_INTERVAL_S = 1
 
+# 16 section 2ze item 6(b): the shortest gap between two lines about dropped
+# browser input, in one session. Everything dropped inside the gap is counted
+# and reported on the next line.
+DROP_LOG_INTERVAL_S = 1
+
 # 16 section 2h item 5: cleared for the rest of the process the first time a
 # connect carrying proactive audio is refused, so the next guest does not pay
 # for the same refusal again. `config.PROACTIVE_AUDIO` decides whether it is
@@ -443,6 +448,10 @@ class LiveSession:
         self.client = None
         self.prebuffer = []
         self.page_ended = False
+        # 16 section 2ze item 6(b): how many pieces of browser input have been
+        # dropped since the last line about it, and when that line was written.
+        self.dropped_inputs = 0
+        self.dropped_logged_at = None
         # 16 section 2j item 4: the newest resumable handle, and the live client
         # kept so a reconnect does not need the caller again.
         self.resume_handle = None
@@ -921,11 +930,32 @@ class LiveSession:
         except Exception as exc:
             if not is_connection_closed(exc):
                 raise
-            log.info(
-                "browser input dropped on a dying connection session %s",
-                self.ctx["session_id"],
-            )
+            self._log_dropped_input()
             return False
+
+    def _log_dropped_input(self) -> None:
+        """One line a second at most, carrying how many were dropped (2ze 6(b)).
+
+        A dying connection drops the page's audio frame by frame, so the old
+        line-per-drop filled the 26 Oct log with hundreds of copies of itself
+        and buried everything else. The first drop is still reported at once;
+        after that the count is carried to the next line a second later, so
+        nothing is lost and nothing floods.
+        """
+        self.dropped_inputs += 1
+        now = _now()
+        if (
+            self.dropped_logged_at is not None
+            and now - self.dropped_logged_at < DROP_LOG_INTERVAL_S
+        ):
+            return
+        log.info(
+            "browser input dropped on a dying connection session %s dropped n=%s",
+            self.ctx["session_id"],
+            self.dropped_inputs,
+        )
+        self.dropped_logged_at = now
+        self.dropped_inputs = 0
 
     async def _uplink(self):
         while not self.closed:
