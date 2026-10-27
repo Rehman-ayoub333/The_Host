@@ -196,9 +196,11 @@ def test_the_complimentary_guests_topic_is_stored_with_the_exact_text():
 
     assert len(rows) == 1
     # 16 §2y item 4: Rehman's ruling. Only the Vice Chancellor is on the house.
+    # 16 §2ze item 4 adds the name and spells out the "no one else" half.
     assert rows[0]["answer"] == (
-        "The Vice Chancellor is a guest of the Bite & Pour team: anything he would "
-        "like to eat or drink is on the house."
+        "The Vice Chancellor, Dr. Rauf-i-Azam, is a guest of the Bite & Pour team: "
+        "anything he would like to eat or drink is on the house. No one else is on "
+        "the house."
     )
     # It is served by the existing tool, inside the 2y item 2 cap of 12.
     answers = {row["topic"]: row["answer"] for row in tools.get_business_info()["answers"]}

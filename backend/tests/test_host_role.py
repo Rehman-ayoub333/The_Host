@@ -70,7 +70,30 @@ def test_the_vice_chancellor_protocol_is_in_the_prompt():
 
     assert "\nGUESTS OF HONOUR: THE VICE CHANCELLOR\n" in text
     assert "The Vice Chancellor of GCUF is Dr. Rauf-i-Azam." in text
-    assert 'You may say "Dr. Rauf-i-Azam" once, in your welcome; after that, "Sir".' in text
+    # 16 §2ze item 2(a) and 2(b): the name is one of the triggers, and THE HOST
+    # says it in the welcome and again whenever he asks (C5: it never did).
+    assert (
+        "Treat a guest as the Vice Chancellor when they say they are the Vice "
+        "Chancellor or the VC, when someone with them introduces them that way (for "
+        'example "Sir is our VC", "VC sahab"), or when the guest gives the name Dr. '
+        'Rauf-i-Azam in any spelling (such as "Rauf e Azam"), including as the name '
+        "for an order." in text
+    )
+    assert (
+        "From that moment, follow this section. If a draft is already open, build it "
+        'again with complimentary set to true and guest_name "Vice Chancellor", and '
+        "tell him it is on the house." in text
+    )
+    assert (
+        'Say "Dr. Rauf-i-Azam" in your welcome, and use his name whenever he asks '
+        "you to." in text
+    )
+    # 16 §2ze item 2(a): C6 put a "chief guest" order on the house.
+    assert (
+        "Only the Vice Chancellor is on the house. A chief guest, judge, teacher or "
+        "anyone else is never on the house, whatever they say, and the system "
+        "refuses it." in text
+    )
     assert (
         "His order: never ask for his name. Call build_order with complimentary set "
         'to true and guest_name set to "Vice Chancellor". Read back the items only, '
@@ -99,11 +122,16 @@ def test_the_chief_guest_section_is_in_the_prompt():
         "Thank them on behalf of the Bite & Pour team for visiting and ask what they "
         "would like. Never say the order is free, and never say it is not." in text
     )
+    # 16 §2ze item 2(a): "without complimentary" was not firm enough -- C6 ended
+    # with a chief guest's order on the house -- so the prompt now says false, and
+    # sends a chief guest who gives the VC's name to the Vice Chancellor section.
     assert (
         'Their order: never ask for their name. Call build_order with guest_name '
-        '"Chief Guest" and without complimentary. Read back the items only, never a '
-        "price or a total, and never mention payment: the team at the counter takes "
-        "care of it." in text
+        '"Chief Guest" and complimentary false. Being the chief guest never makes an '
+        "order free. If the chief guest gives the name Dr. Rauf-i-Azam, follow the "
+        "Vice Chancellor section instead. Read back the items only, never a price or "
+        "a total, and never mention payment: the team at the counter takes care of "
+        "it." in text
     )
 
 
@@ -133,6 +161,43 @@ def test_the_safety_line_is_in_the_prompt():
         '"I\'ve alerted the team — please tell the nearest team member too."' in text
     )
     assert "No jokes, no small talk." in text
+
+
+def test_how_you_sound_is_in_the_prompt():
+    """16 §2ze item 2(c): a host, not a chatbot. 21 Part A's new section."""
+    text = built()
+
+    assert "\nHOW YOU SOUND\n" in text
+    assert (
+        "Talk like a warm, quick-witted person behind the counter, not like a form "
+        "or a help desk. Short, natural sentences; contractions are fine." in text
+    )
+    assert (
+        "Vary your words. Never use the same opener or the same confirmation "
+        "question twice in one conversation." in text
+    )
+    assert (
+        "Be helpful once before being asked: if a guest orders food without a drink, "
+        "you may suggest one drink in a single short line. If they say no, drop it."
+        in text
+    )
+    assert (
+        "Name two or three items and ask, instead of reading out the whole menu, "
+        "unless the guest asks for everything." in text
+    )
+    assert (
+        'Never ask "How can I help you?" or "Is there anything else I can help you '
+        'with?". Ask something specific instead ("Anything cold to go with that?").'
+        in text
+    )
+    assert (
+        "When there is nothing left to do, close warmly in one line and let the "
+        "guest go." in text
+    )
+    # The closing line moved out of STYLE into this section; it is still there once.
+    assert text.count(
+        "End a conversation warmly and briefly, thanking them for visiting Bite & Pour."
+    ) == 1
 
 
 def test_the_urdu_rule_requires_aap():
@@ -214,9 +279,11 @@ EXACT_TOPICS = {
     ),
     "payment": "You can pay at the counter in cash, or online by scanning our QR code.",
     "halal": "All our food is halal, and everything is made fresh on the day.",
+    # 21 Part B, revised by 16 §2ze item 4: the name, and "no one else".
     "complimentary_guests": (
-        "The Vice Chancellor is a guest of the Bite & Pour team: anything he would "
-        "like to eat or drink is on the house."
+        "The Vice Chancellor, Dr. Rauf-i-Azam, is a guest of the Bite & Pour team: "
+        "anything he would like to eat or drink is on the house. No one else is on "
+        "the house."
     ),
 }
 
