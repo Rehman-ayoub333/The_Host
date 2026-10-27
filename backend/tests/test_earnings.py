@@ -133,7 +133,10 @@ def test_collected_with_a_payment_method_is_stored_and_published(served, method)
 
 
 def test_an_order_view_without_a_payment_carries_null(served):
-    order_id = order([BURGER], "READY")
+    # 16 §2ze item 6(a): a paid order can no longer reach COLLECTED with no
+    # payment type at all, so the collected order that carries null is the one
+    # on the house -- which is the only order that should ever have carried it.
+    order_id = order([SHAKE], "READY", complimentary=True, name="Vice Chancellor")
     response = served.post(
         f"/api/orders/{order_id}/status", json={"status": "COLLECTED"}, headers=AUTH
     )
@@ -186,6 +189,86 @@ def test_a_complimentary_order_never_takes_a_payment_method(served):
     )
     assert allowed.status_code == 200
     assert allowed.json()["order"]["payment_method"] is None
+
+
+# ------------------------------- 2ze item 6(a): Cash or QR, or not collected
+
+
+def test_a_paid_order_is_not_collected_without_cash_or_qr(served):
+    """Order #101 reached COLLECTED with no payment type, so the sale was lost."""
+    order_id = order([BURGER], "READY")
+
+    refused = served.post(
+        f"/api/orders/{order_id}/status", json={"status": "COLLECTED"}, headers=AUTH
+    )
+    print("no payment type ->", refused.status_code, refused.json())
+
+    assert refused.status_code == 400
+    assert refused.json()["detail"] == "Choose Cash or QR."
+    # Nothing moved: the order is still waiting to be handed over.
+    assert data.get_order(order_id)["status"] == "READY"
+    assert data.get_order(order_id)["payment_method"] is None
+
+
+@pytest.mark.parametrize("sent", [{}, {"payment_method": None}, {"payment_method": ""}])
+def test_a_missing_blank_or_null_payment_type_is_all_the_same_refusal(served, sent):
+    """A caller that leaves it out, sends null or sends "" is refused alike."""
+    order_id = order([BURGER], "READY")
+
+    refused = served.post(
+        f"/api/orders/{order_id}/status",
+        json={"status": "COLLECTED", **sent},
+        headers=AUTH,
+    )
+    print(sent, "->", refused.status_code, refused.json())
+
+    assert refused.status_code == 400
+    assert refused.json()["detail"] == "Choose Cash or QR."
+    assert data.get_order(order_id)["status"] == "READY"
+
+
+@pytest.mark.parametrize("method", ["CASH", "QR"])
+def test_either_payment_type_collects_a_paid_order(served, method):
+    order_id = order([BURGER], "READY")
+
+    allowed = served.post(
+        f"/api/orders/{order_id}/status",
+        json={"status": "COLLECTED", "payment_method": method},
+        headers=AUTH,
+    )
+
+    assert allowed.status_code == 200
+    assert allowed.json()["order"]["status"] == "COLLECTED"
+    assert data.get_order(order_id)["payment_method"] == method
+
+
+def test_an_order_on_the_house_is_still_collected_with_nothing(served):
+    """The refusal is for paid orders only; the VC's order has nothing to record."""
+    order_id = order([SHAKE], "READY", complimentary=True, name="Vice Chancellor")
+
+    allowed = served.post(
+        f"/api/orders/{order_id}/status", json={"status": "COLLECTED"}, headers=AUTH
+    )
+
+    assert allowed.status_code == 200
+    assert data.get_order(order_id)["status"] == "COLLECTED"
+
+
+@pytest.mark.parametrize("status", ["PREPARING", "READY", "CANCELLED", "FAILED"])
+def test_every_other_status_still_needs_no_payment_type(served, status):
+    order_id = order([BURGER], "CONFIRMED" if status != "FAILED" else "PREPARING")
+    if status == "READY":
+        served.post(
+            f"/api/orders/{order_id}/status", json={"status": "PREPARING"}, headers=AUTH
+        )
+
+    response = served.post(
+        f"/api/orders/{order_id}/status", json={"status": status}, headers=AUTH
+    )
+    print(status, "->", response.status_code)
+
+    assert response.status_code == 200
+    assert data.get_order(order_id)["status"] == status
 
 
 # ------------------------------------------- 2z item 4: the numbers themselves

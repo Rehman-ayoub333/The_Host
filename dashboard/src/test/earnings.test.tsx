@@ -19,7 +19,8 @@ import { EarningsPanel, OrderCard, fmtRs } from "@/components/host/panels";
 // Imported statically on purpose: a dynamic import after vi.resetModules()
 // would hand the service a second copy of the store, and the assertions here
 // are about the store the panel actually reads.
-import { loadEarnings, scheduleEarningsRefresh } from "@/lib/agent/service";
+import { loadEarnings, scheduleEarningsRefresh, setOrderStatus } from "@/lib/agent/service";
+import { toast } from "sonner";
 import { agentStore, initialSnapshot, reduce } from "@/lib/agent/store";
 import type { AgentEvent, AgentSnapshot, Earnings, Order } from "@/lib/agent/types";
 
@@ -125,6 +126,55 @@ describe("collecting an order records how it was paid (§2z item 3)", () => {
     });
 
     expect(calls.at(-1)!.body).toEqual({ status: "PREPARING" });
+  });
+});
+
+/* --------------------- 2ze item 6(a): Cash or QR, always -------------------- */
+
+describe("no dashboard path collects a paid order without Cash or QR (§2ze item 6(a))", () => {
+  // Every status whose card offers any action at all. PENDING_CONFIRMATION and
+  // the finished states render no action row (panels.tsx OrderCard).
+  const ACTIONABLE = ["CONFIRMED", "PREPARING", "READY", "REQUIRES_ATTENTION"] as const;
+
+  it.each(ACTIONABLE)("renders no plain Collected button for a paid order in %s", (status) => {
+    render(<OrderCard order={{ ...READY, status }} now={Date.now()} />);
+
+    expect(screen.queryByRole("button", { name: /^Collected$/ })).toBeNull();
+  });
+
+  it.each(ACTIONABLE)("sends Cash or QR with every Collected button offered in %s", async (status) => {
+    render(<OrderCard order={{ ...READY, status }} now={Date.now()} />);
+
+    const buttons = screen.queryAllByRole("button", { name: /Collected/ });
+    for (const button of buttons) {
+      await act(async () => {
+        button.click();
+      });
+      const body = calls.at(-1)!.body as { status: string; payment_method?: string };
+      expect(body.status).toBe("COLLECTED");
+      expect(["CASH", "QR"]).toContain(body.payment_method);
+    }
+  });
+
+  it("offers Cash and QR on an order flagged for attention, not one plain button", () => {
+    render(<OrderCard order={{ ...READY, status: "REQUIRES_ATTENTION" }} now={Date.now()} />);
+
+    expect(screen.getByRole("button", { name: /Collected · Cash/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Collected · QR/ })).toBeTruthy();
+  });
+
+  it("shows the backend's own refusal to the operator, for a page still on an older build", async () => {
+    // #101 was collected with no payment type at all. Whatever sends that now,
+    // the backend answers 400 and the operator reads why.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 400, json: async () => ({ detail: "Choose Cash or QR." }) }) as unknown as Response),
+    );
+
+    const ok = await setOrderStatus(27, "COLLECTED");
+
+    expect(ok).toBe(false);
+    expect(toast.error).toHaveBeenCalledWith("Choose Cash or QR.");
   });
 });
 

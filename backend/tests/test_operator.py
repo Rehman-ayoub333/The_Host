@@ -137,9 +137,12 @@ def test_each_forward_transition_through_the_status_endpoint(served):
     assert of_type("agent_activity")[0]["label"] == f"Order #{order_id} ready"
     assert of_type("agent_activity")[0]["detail"] == "ready"
 
-    collected = advance(served, order_id, "COLLECTED")
+    # 16 §2ze item 6(a): a paid order is collected as Cash or QR, never with
+    # nothing, so the forward path carries one of the two from here on.
+    collected = advance(served, order_id, "COLLECTED", payment_method="CASH")
     assert collected.status_code == 200
     assert collected.json()["order"]["status"] == "COLLECTED"
+    assert collected.json()["order"]["payment_method"] == "CASH"
     assert [event["type"] for event in event_bus.PUBLISHED] == [
         "order_updated",
         "agent_activity",

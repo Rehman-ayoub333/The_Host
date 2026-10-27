@@ -493,6 +493,13 @@ async def post_order_status(order_id: int, request: Request):
         raise HTTPException(status_code=404, detail="There is no order with that number.")
     if method is not None and existing.get("complimentary"):
         raise HTTPException(status_code=400, detail="This order is on the house.")
+    # 16 section 2ze item 6(a): order #101 reached COLLECTED with no payment
+    # type at all, so that sale could not be counted as cash or as QR. A paid
+    # order is now collected only with one of the two, whatever the caller --
+    # the dashboard's own two buttons, a page still running an older build, or
+    # the operator API by hand. An order on the house has nothing to record.
+    if body.status == "COLLECTED" and method is None and not existing.get("complimentary"):
+        raise HTTPException(status_code=400, detail="Choose Cash or QR.")
 
     result = await asyncio.to_thread(
         _read_db, data.update_order_status, order_id, body.status, body.reason, method
