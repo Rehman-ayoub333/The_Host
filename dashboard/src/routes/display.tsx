@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { AIOrb } from "@/components/host/AIOrb";
 import { BrandMark } from "@/components/host/Brand";
 import { VoiceWaveform } from "@/components/host/VoiceWaveform";
-import { MenuCarousel } from "@/components/host/MenuCarousel";
+import { PosterScreen } from "@/components/host/PosterScreen";
 import { agentStore, useAgent } from "@/lib/agent/store";
-import { connectAgent } from "@/lib/agent/service";
+import { connectAgent, getPosters, posterSrc } from "@/lib/agent/service";
 import { STATE_META, fmtCountdown, toMs, useNow } from "@/lib/agent/ui";
 import type { AgentStateName } from "@/lib/agent/types";
 import { chime, type ChimePort } from "@/lib/booth/chime";
@@ -148,6 +148,41 @@ function useOrderReadyChime(
   }, [head, lastAgentState, port]);
 }
 
+/** 16 §2ze item 5: the poster list is read again every minute. */
+export const POSTER_REFETCH_MS = 60_000;
+
+/**
+ * The posters the TV shows when nobody is talking (16 §2ze item 5).
+ *
+ * Rehman adds and removes pictures in `backend/data/posters/` during the gala,
+ * so the list is re-read every 60 s and the TV picks them up with no restart
+ * and no rebuild. A request that fails leaves the list empty, which is the
+ * §2ze item 5 fallback: the brand screen, never the old text menu.
+ */
+export function usePosters(): string[] {
+  const [posters, setPosters] = useState<string[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    const load = async () => {
+      try {
+        const { posters: list } = await getPosters();
+        if (live) setPosters(list.map(posterSrc));
+      } catch {
+        if (live) setPosters([]);
+      }
+    };
+    void load();
+    const t = setInterval(() => void load(), POSTER_REFETCH_MS);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  return posters;
+}
+
 /** 16 §2u item 5: the one line the TV shows before it is started. */
 export const TAP_TO_BEGIN = "Tap to begin";
 
@@ -204,6 +239,7 @@ export function SMDDisplay() {
   // the conversation itself. The video element is never shown: it exists so the
   // face detector and the capture_request snapshot have a frame to read.
   const { session, view, started, start } = useHostSession();
+  const posters = usePosters();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [starting, setStarting] = useState(false);
   const debugMic = isMicDebug();
@@ -253,8 +289,16 @@ export function SMDDisplay() {
   const resting = opMode && opMode.mode !== "ONLINE" && mode !== "demo";
   // A queued announcement takes the screen even when THE HOST is back to IDLE:
   // an order usually becomes ready long after its conversation ended, so the
-  // idle menu carousel must give way to it for its 15 s (16 §2o item 6).
+  // idle screen must give way to it for its 15 s (16 §2o item 6).
   const idle = state === "idle" && !resting && !ready;
+  // 16 §2ze item 5: the posters are the idle screen. They stay up under a
+  // ready-order banner — the banner shows over them, as it did over the menu —
+  // and give way entirely to a conversation. With no posters, or a list that
+  // could not be loaded, there is no poster layer and the brand screen shows.
+  const showPosters = state === "idle" && !resting && posters.length > 0;
+  // Nothing at all over the pictures: no border, no logo, no caption, no
+  // control. Rehman's rule 2(d) — each picture carries its own information.
+  const postersOnly = showPosters && !ready;
   const orderStates = ["taking_order", "order_ready"].includes(state);
   const memoryStates = state === "remembering";
   const voice = state === "listening" || state === "speaking";
@@ -271,7 +315,11 @@ export function SMDDisplay() {
 
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-hidden bg-background">
-      <div className="pointer-events-none absolute inset-3 border border-line sm:inset-6" />
+      {/* 16 §2ze item 5: the posters sit behind everything else, so a
+          ready-order banner shows over them exactly as it did over the menu. */}
+      {showPosters && <PosterScreen posters={posters} />}
+
+      {!postersOnly && <div className="pointer-events-none absolute inset-3 border border-line sm:inset-6" />}
 
       {/* The camera feed the detector and the snapshot read. Kept in the layout
           (not display:none, which stops a browser decoding frames) but invisible:
@@ -280,22 +328,26 @@ export function SMDDisplay() {
 
       {!started && <StartScreen onStart={(choice) => void onStart(choice)} starting={starting} />}
 
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => document.documentElement.requestFullscreen?.().catch(() => undefined)}
-        className="absolute right-7 top-7 z-10 text-muted-foreground transition-colors hover:text-gold sm:right-10 sm:top-10"
-        aria-label="Enter full screen"
-      >
-        <Maximize className="h-5 w-5" />
-      </Button>
-      {mode === "demo" && <span className="absolute left-7 top-7 font-mono text-xs uppercase text-warning sm:left-10 sm:top-10">Demo data</span>}
+      {!postersOnly && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => document.documentElement.requestFullscreen?.().catch(() => undefined)}
+          className="absolute right-7 top-7 z-10 text-muted-foreground transition-colors hover:text-gold sm:right-10 sm:top-10"
+          aria-label="Enter full screen"
+        >
+          <Maximize className="h-5 w-5" />
+        </Button>
+      )}
+      {mode === "demo" && !postersOnly && <span className="absolute left-7 top-7 font-mono text-xs uppercase text-warning sm:left-10 sm:top-10">Demo data</span>}
 
-      <header className="relative pt-12 sm:pt-14">
-        <BrandMark size="md" tagline />
-      </header>
+      {!postersOnly && (
+        <header className="relative pt-12 sm:pt-14">
+          <BrandMark size="md" tagline />
+        </header>
+      )}
 
-      {resting ? (
+      {postersOnly ? null : resting ? (
         <main className="relative flex flex-1 flex-col items-center justify-center px-7 text-center">
           <div className="w-[min(22vh,40vw)]">
             <AIOrb state="offline" />
@@ -310,16 +362,13 @@ export function SMDDisplay() {
               <AIOrb state={state} />
             </div>
             <p className="font-mono text-xs uppercase text-champagne">THE HOST · Your AI host</p>
-            {idle ? (
-              <MenuCarousel className="mt-4" />
-            ) : (
-              <>
-                <p key={headline} className={cn("animate-rise mt-3 text-center font-display text-4xl font-semibold leading-tight sm:text-6xl lg:text-7xl", toneText)}>
-                  {headline}
-                </p>
-                {state === "offline" && <p className="mt-2 text-center text-[clamp(1rem,1.8vw,1.6rem)] text-muted-foreground">Please speak with a host</p>}
-              </>
-            )}
+            {/* 16 §2ze item 5: the old text menu carousel is gone from the TV.
+                With no posters this is the brand screen and one line, and the
+                menu is read from the pictures Rehman puts up. */}
+            <p key={headline} className={cn("animate-rise mt-3 text-center font-display text-4xl font-semibold leading-tight sm:text-6xl lg:text-7xl", toneText)}>
+              {headline}
+            </p>
+            {state === "offline" && <p className="mt-2 text-center text-[clamp(1rem,1.8vw,1.6rem)] text-muted-foreground">Please speak with a host</p>}
             {/* 16 §2t item 4: THE HOST's own words, shown under the orb. The
                 guest's words are never shown — they never reach `hostLine`, so
                 there is no path to this element for them. */}
@@ -408,10 +457,12 @@ export function SMDDisplay() {
         </main>
       )}
 
-      <footer className="relative pb-12 text-center">
-        <p className="font-display text-2xl font-semibold text-foreground">THE HOST</p>
-        <p className="mt-1 text-xs uppercase text-gold/80">See · Hear · Think · Speak · Remember</p>
-      </footer>
+      {!postersOnly && (
+        <footer className="relative pb-12 text-center">
+          <p className="font-display text-2xl font-semibold text-foreground">THE HOST</p>
+          <p className="mt-1 text-xs uppercase text-gold/80">See · Hear · Think · Speak · Remember</p>
+        </footer>
+      )}
     </div>
   );
 }

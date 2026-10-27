@@ -16,6 +16,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StrictBool, StrictInt, ValidationError
 
 import config
@@ -199,6 +200,32 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+
+class PosterFiles(StaticFiles):
+    """The `/posters` mount (16 section 2ze item 5).
+
+    2v item 5 left the backend serving no static files at all; the posters are
+    the one exception, because the TV's idle screen is Rehman's own pictures and
+    he adds them during the gala. The folder is looked up on every request
+    instead of being captured at startup, so the mount survives a folder that
+    is created, emptied or renamed while the backend is running -- and a missing
+    folder answers 404 rather than stopping the backend from starting.
+
+    Starlette's own `commonpath` check still rejects any path that resolves
+    outside the folder.
+    """
+
+    def lookup_path(self, path: str):
+        self.all_directories = [config.POSTERS_DIR]
+        return super().lookup_path(path)
+
+
+app.mount(
+    "/posters",
+    PosterFiles(directory=config.POSTERS_DIR, check_dir=False),
+    name="posters",
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ALLOW_ORIGINS,
@@ -370,6 +397,38 @@ def get_earnings_csv():
 def get_menu():
     rows = _read_db(data.get_menu)
     return {"menu": [{**row, "available": bool(row["available"])} for row in rows]}
+
+
+# 16 section 2ze item 5: the picture types the TV shows. A README.txt, a
+# thumbs.db or anything else in the folder is not a poster and is not listed.
+POSTER_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def list_posters() -> list[str]:
+    """The poster URLs, sorted by file name, read fresh from the folder.
+
+    Rehman drops his pictures in during the gala, so the folder is read on
+    every request rather than at startup: a new poster appears on the TV within
+    the display's own refresh, with no restart.
+    """
+    try:
+        entries = sorted(config.POSTERS_DIR.iterdir(), key=lambda path: path.name)
+    except OSError as exc:
+        # A missing or unreadable folder simply has no posters in it; the
+        # display falls back to the brand screen.
+        log.warning("the poster folder could not be read: %s", type(exc).__name__)
+        return []
+    return [
+        f"/posters/{entry.name}"
+        for entry in entries
+        if entry.is_file() and entry.suffix.lower() in POSTER_SUFFIXES
+    ]
+
+
+@app.get("/api/posters")
+def get_posters():
+    """Public, like /api/menu: the display reads it with no token (2ze item 5)."""
+    return {"posters": list_posters()}
 
 
 # ------------------------------------------------------------ operator writes

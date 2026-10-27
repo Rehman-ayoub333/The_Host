@@ -90,6 +90,20 @@ function report(err: unknown) {
 
 export const getHealth = () => request<Health>("/health", undefined, false);
 export const getMenu = () => request<{ menu: MenuItem[] }>("/api/menu", undefined, false);
+// 16 §2ze item 5: public, like the menu — the display has no operator token.
+// This amends §2o item 6: /display now calls /api/menu, /health and this.
+export const getPosters = () => request<{ posters: string[] }>("/api/posters", undefined, false);
+
+/**
+ * The full URL of a poster the backend serves (16 §2ze item 5).
+ *
+ * `/api/posters` returns backend paths ("/posters/01-burgers.jpg"), and the TV
+ * is a different origin from the backend, so the agent link is put back in
+ * front of them before they reach an `<img src>`.
+ */
+export function posterSrc(path: string): string {
+  return `${getAgentConfig().agentUrl.replace(/\/$/, "")}${path}`;
+}
 export const getOrders = (status: "active" | "completed" | "all" = "all") =>
   request<{ orders: Order[]; counts: Record<string, number> }>(`/api/orders?status=${status}&limit=20`);
 export const getVisitors = () => request<{ visitors: Visitor[] }>("/api/visitors?limit=20");

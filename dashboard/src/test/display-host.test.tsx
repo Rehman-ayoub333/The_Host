@@ -15,6 +15,9 @@ vi.mock("@/lib/agent/service", () => ({
   connectAgent: () => undefined,
   disconnectAgent: () => undefined,
   getAgentConfig: () => ({ agentUrl: "http://localhost:8000", token: "" }),
+  // 16 §2ze item 5: the display asks for the poster list on mount.
+  getPosters: () => Promise.resolve({ posters: [] as string[] }),
+  posterSrc: (path: string) => path,
 }));
 
 import { SMDDisplay, TAP_TO_BEGIN, displayCaption, displayKeyAction, displayState } from "@/routes/display";

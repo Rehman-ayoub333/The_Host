@@ -12,6 +12,9 @@ vi.mock("@/lib/agent/service", () => ({
   disconnectAgent: () => undefined,
   // 16 §2t item 3: /display reads the agent link to reach /ws/session.
   getAgentConfig: () => ({ agentUrl: "http://localhost:8000", token: "" }),
+  // 16 §2ze item 5: the display asks for the poster list on mount.
+  getPosters: () => Promise.resolve({ posters: [] as string[] }),
+  posterSrc: (path: string) => path,
   setOrderStatus: () => Promise.resolve(true),
   announceAgain: () => Promise.resolve(true),
   updateVisitor: () => Promise.resolve(true),
