@@ -265,9 +265,11 @@ def test_the_complimentary_flag_is_stored_and_defaults_to_off(ctx):
 
 
 def test_build_order_takes_the_complimentary_argument(ctx):
-    result = tools.build_order([BURGER], guest_name="Sir", complimentary=True)
+    # 16 §2ze item 3: the name decides, so the title goes with the flag.
+    result = tools.build_order([BURGER], guest_name="Vice Chancellor", complimentary=True)
 
     assert result["complimentary"] is True
+    assert "note" not in result
     assert order_row(result["order_id"])["complimentary"] == 1
     assert data.order_view(data.get_order(result["order_id"]))["complimentary"] is True
     # The stored prices and the total are untouched, for the record.
@@ -276,13 +278,12 @@ def test_build_order_takes_the_complimentary_argument(ctx):
 
 def test_a_later_build_order_does_not_throw_the_flag_away(ctx):
     """The same trap 2l item 3 hit with the name: it arrives on a later call."""
-    first = tools.build_order([BURGER], complimentary=True)
-    second = tools.build_order(
-        [BURGER, {"name": "Blue Lemonade", "quantity": 1}], guest_name="Sir"
-    )
+    first = tools.build_order([BURGER], guest_name="Vice Chancellor", complimentary=True)
+    second = tools.build_order([BURGER, {"name": "Blue Lemonade", "quantity": 1}])
 
     assert second["order_id"] == first["order_id"]
     assert order_row(first["order_id"])["complimentary"] == 1
+    assert order_row(first["order_id"])["guest_name"] == "Vice Chancellor"
 
 
 @pytest.mark.parametrize(
@@ -291,7 +292,9 @@ def test_a_later_build_order_does_not_throw_the_flag_away(ctx):
     ids=["omitted", "json-false", "json-true", "string-false", "string-true"],
 )
 def test_a_boolean_the_model_spells_out_is_read_correctly(ctx, sent, stored):
-    result = tools.build_order([BURGER], complimentary=sent)
+    # Under the Vice Chancellor's own name, so this still tests the boolean and
+    # not the 2ze item 3 name check.
+    result = tools.build_order([BURGER], guest_name="Vice Chancellor", complimentary=sent)
 
     assert order_row(result["order_id"])["complimentary"] == stored
 
@@ -339,7 +342,9 @@ def test_the_complimentary_column_is_migrated_with_a_default_of_zero(tmp_path, m
 
 
 def test_every_order_event_carries_the_flag(ctx):
-    order_id = tools.build_order([BURGER], guest_name="Sir", complimentary=True)["order_id"]
+    order_id = tools.build_order(
+        [BURGER], guest_name="Vice Chancellor", complimentary=True
+    )["order_id"]
     tools.confirm_order(order_id)
 
     carried = order_events()
@@ -369,7 +374,9 @@ def test_an_ordinary_order_says_so_in_its_events(ctx):
 
 
 def test_the_activity_label_says_on_the_house(ctx):
-    order_id = tools.build_order([BURGER], guest_name="Sir", complimentary=True)["order_id"]
+    order_id = tools.build_order(
+        [BURGER], guest_name="Vice Chancellor", complimentary=True
+    )["order_id"]
     result = tools.confirm_order(order_id)
 
     row = summaries.activity_for_tool("confirm_order", {"order_id": order_id}, result)

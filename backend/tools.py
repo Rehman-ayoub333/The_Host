@@ -53,6 +53,25 @@ def _flag(value) -> bool:
     return bool(value)
 
 
+# 16 section 2ze item 3: the exact wording the model is given back, so it can
+# tell the guest nothing and simply carry on with a paid order.
+COMPLIMENTARY_NOTE = "Only the Vice Chancellor is on the house."
+
+
+def _is_the_vice_chancellor(name) -> bool:
+    """Whether this name is the one name that may be on the house (2ze item 3).
+
+    C6 ended with a "chief guest" order on the house, stored under the name
+    "Vice Chancellor", so the prompt is no longer the only thing standing
+    between a guest and a free order. The name is lowercased and stripped to
+    its letters before the comparison, so a title, a dot or a hyphen cannot
+    change the answer: "Dr. Rauf-i-Azam", "rauf e azam" and "RAUF-E-AZAM" all
+    pass, and "Chief Guest" cannot.
+    """
+    letters = "".join(ch for ch in str(name or "").lower() if ch.isalpha())
+    return letters == "vicechancellor" or ("rauf" in letters and "azam" in letters)
+
+
 def _queue_memory_row(order, old, profile) -> None:
     """09 section 15a: the `Memory updated` row only a tool can compute.
 
@@ -173,8 +192,18 @@ def build_order(items, guest_name=None, complimentary=None) -> dict:
         # 16 section 2m item 5: set only under the guest-of-honour rule. The
         # model may send it as a JSON false or omit it; both mean an ordinary,
         # paid order.
+        #
+        # 16 section 2ze item 3: and the code, not the prompt, decides. The
+        # name tested is the one that goes on the order, so the stored row can
+        # never say "on the house" under a name that is not the Vice
+        # Chancellor's -- which is exactly what C6 produced.
+        asked = _flag(complimentary)
+        on_the_house = asked and _is_the_vice_chancellor(who)
+        if asked and not on_the_house:
+            # The reason only; never the name and never a word of what was said.
+            log.info("complimentary refused session %s", c.get("session_id"))
         result = data.create_order_draft(
-            validated, who, c.get("session_id"), complimentary=_flag(complimentary)
+            validated, who, c.get("session_id"), complimentary=on_the_house
         )
         c["pending_order_id"] = result["order_id"]
         order = data.get_order(result["order_id"])
@@ -193,6 +222,12 @@ def build_order(items, guest_name=None, complimentary=None) -> dict:
         # the model has no reason to mention the arrangement to anyone else.
         if order.get("complimentary"):
             drafted["complimentary"] = True
+        elif asked:
+            # 16 section 2ze item 3: a refused request is answered plainly, so
+            # the model reads the items back as an ordinary, paid order instead
+            # of telling the guest it is free.
+            drafted["complimentary"] = False
+            drafted["note"] = COMPLIMENTARY_NOTE
         return _finish("build_order", args, drafted)
     except Exception:
         log.exception("build_order failed")

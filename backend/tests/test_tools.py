@@ -176,16 +176,21 @@ def test_a_later_call_with_no_name_publishes_nothing_and_keeps_the_name(ctx):
 
 
 def test_a_late_on_the_house_publishes_the_flag(ctx):
+    # 16 §2ze item 3: the name has to be the Vice Chancellor's for the flag to
+    # be stored at all, so the guest who turns out to be him is renamed on the
+    # same call that sets it -- which is what 21 Part A now tells THE HOST.
     first = tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")
     assert _published("order_created")[0]["order"]["complimentary"] is False
 
-    tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed", complimentary=True)
+    tools.build_order(
+        [{"name": "Chicken Burger"}], guest_name="Vice Chancellor", complimentary=True
+    )
 
     updates = _published("order_updated")
     assert len(updates) == 1
     assert updates[0]["order"]["id"] == first["order_id"]
     assert updates[0]["order"]["complimentary"] is True
-    assert updates[0]["order"]["guest_name"] == "Ahmed"
+    assert updates[0]["order"]["guest_name"] == "Vice Chancellor"
 
 
 def test_build_order_rejects_unknown_unavailable_and_empty_items(ctx):
