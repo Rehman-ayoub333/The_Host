@@ -41,6 +41,16 @@ def model_texts(session):
     return [payload["text"] for payload in session.session.inputs if "text" in payload]
 
 
+# 16 §2zf item 1(c): the look_at_camera timing tests are load-sensitive, and
+# the suite went red on a busy machine for a reason that had nothing to do
+# with the code. Every test that asserts the timeout has NOT been reached uses
+# this timeout, and waits AFTER_LONG_S when it needs the timer to have fired:
+# a quarter of a second of room at the tightest point, where the old margins
+# were 30 ms.
+LONG_TIMEOUT_S = 1.0
+AFTER_LONG_S = 1.5
+
+
 async def look(session, args=None, call_id="call-1"):
     await session._handle_message(
         doubles.message(tool_call=doubles.call("look_at_camera", args or {}, call_id))
@@ -86,7 +96,10 @@ def test_the_declaration_is_registered_once():
 
 
 def test_the_happy_path_asks_for_a_picture_and_uses_the_one_that_arrives(monkeypatch):
-    monkeypatch.setattr(config, "LOOK_TIMEOUT_S", 0.05)
+    # 16 §2zf item 1(c): half a second, not 50 ms. What is under test is that
+    # the arriving frame cancels the timer, so the timeout has to be far
+    # enough away that a loaded machine cannot reach it first.
+    monkeypatch.setattr(config, "LOOK_TIMEOUT_S", LONG_TIMEOUT_S)
     session, ws = doubles.new_session([FRAME, DISCONNECT])
 
     async def go():
@@ -99,7 +112,7 @@ def test_the_happy_path_asks_for_a_picture_and_uses_the_one_that_arrives(monkeyp
         print("timer after the frame arrived:", session.look_timer)
         assert session.look_timer is None
         # Long enough for the cancelled timer to have fired, had it survived.
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(AFTER_LONG_S)
 
     asyncio.run(go())
 
@@ -238,24 +251,30 @@ def test_a_frame_that_arrives_late_still_goes_through_the_vision_path(monkeypatc
 
 
 def test_a_second_call_restarts_the_wait(monkeypatch):
-    monkeypatch.setattr(config, "LOOK_TIMEOUT_S", 0.1)
+    # 16 §2zf item 1(c): every gap here is a fifth of the timeout or more, in
+    # both directions. The old 100 ms timeout with 60 ms and 70 ms sleeps left
+    # 30 ms of room on a machine that was also running the rest of the suite.
+    monkeypatch.setattr(config, "LOOK_TIMEOUT_S", LONG_TIMEOUT_S)
     session, ws = doubles.new_session()
 
     async def go():
         await session._send_state("LISTENING")
         await look(session, call_id="call-1")
         first = session.look_timer
-        await asyncio.sleep(0.06)
+        # Half way through the first timer's wait: 0.5 s of room either way.
+        await asyncio.sleep(LONG_TIMEOUT_S / 2)
         await look(session, call_id="call-2")
         await asyncio.sleep(0)
         print("the first timer was cancelled:", first.cancelled())
         assert first.cancelled()
         assert session.look_timer is not first
-        # The first timer would have fired by now; only the second one may.
-        await asyncio.sleep(0.07)
+        # t = 1.25 s: a quarter of a second past when the FIRST timer would
+        # have fired (1.0 s), and a quarter of a second short of the second
+        # one (1.5 s). Only the second may ever fire.
+        await asyncio.sleep(LONG_TIMEOUT_S * 0.75)
         print("activity rows mid-wait:", activity_labels())
         assert "Camera picture failed" not in activity_labels()
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(AFTER_LONG_S)
 
     asyncio.run(go())
 
@@ -273,13 +292,15 @@ def test_a_second_call_restarts_the_wait(monkeypatch):
 
 
 def test_the_timer_dies_with_the_session(monkeypatch):
-    monkeypatch.setattr(config, "LOOK_TIMEOUT_S", 0.05)
+    # 16 §2zf item 1(c): `stop()` has to get there before the timeout, and on
+    # a loaded machine 50 ms is not enough room to be sure of it.
+    monkeypatch.setattr(config, "LOOK_TIMEOUT_S", LONG_TIMEOUT_S)
     session, ws = doubles.new_session()
 
     async def go():
         await look(session)
         await session.stop()
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(AFTER_LONG_S)
 
     asyncio.run(go())
 
@@ -332,7 +353,8 @@ def test_the_default_mode_is_client_content():
 
 def test_the_button_and_the_camera_request_use_the_one_function(monkeypatch):
     """16 section 2d item 4: one vision-send function, whoever took the picture."""
-    monkeypatch.setattr(config, "LOOK_TIMEOUT_S", 0.05)
+    # 16 §2zf item 1(c): the frame has to arrive before the timeout.
+    monkeypatch.setattr(config, "LOOK_TIMEOUT_S", LONG_TIMEOUT_S)
     session, _ = doubles.new_session([FRAME, DISCONNECT])
     calls = []
 
