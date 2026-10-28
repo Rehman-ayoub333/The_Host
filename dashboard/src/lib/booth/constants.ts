@@ -79,6 +79,16 @@ export const C = {
   // fast run of transcript fragments cannot turn into a React render per
   // fragment while audio is being scheduled.
   CAPTION_MIN_MS: 100,
+  // 16 §2zf item 7, Rehman's request 2(d): THE HOST's words disappear from the
+  // TV once they have been said. The caption stays up while the audio plays
+  // out and for this long afterwards, so the guest can read the end of a line
+  // they only half heard; then the screen is clear again. Only the
+  // ready-order banners stay on their own 15 s clock.
+  CAPTION_CLEAR_MS: 1500,
+  // How often the page looks to see whether the queued audio has finished.
+  // A turn ends at the backend long before its last chunk is heard, so the
+  // 1.5 s is counted from the end of playback, not the end of the turn.
+  CAPTION_CLEAR_POLL_MS: 100,
 } as const;
 
 /** 16 §2i item 3: how long after the wrap-up line is asked for the page waits

@@ -719,6 +719,130 @@ describe("playback never starves (16 §2u item 4)", () => {
     expect(updates).toBeGreaterThan(0);
   });
 
+  /* ------------- 16 §2zf item 7: the caption clears once it is said ------- */
+
+  it("keeps the caption up while THE HOST is still speaking", async () => {
+    const playing = { value: true };
+    const audio = fakeAudio({ isPlaying: () => playing.value });
+    const h = harness({ audio });
+    const socket = await inConversation(h);
+
+    socket.deliver({ type: "agent_state_changed", state: "SPEAKING" });
+    socket.deliver({ type: "speech_transcript", role: "agent", text: "One Chicken Burger.", final: true });
+    await h.advance(C.CAPTION_MIN_MS + 20);
+    expect(h.session.getView().hostLine).toBe("One Chicken Burger.");
+
+    // Long past the clearing delay, but it has not finished speaking.
+    await h.advance(C.CAPTION_CLEAR_MS * 4);
+    expect(h.session.getView().hostLine).toBe("One Chicken Burger.");
+  });
+
+  it("clears it 1.5 s after the audio of the turn has finished", async () => {
+    const playing = { value: true };
+    const audio = fakeAudio({ isPlaying: () => playing.value });
+    const h = harness({ audio });
+    const socket = await inConversation(h);
+
+    socket.deliver({ type: "agent_state_changed", state: "SPEAKING" });
+    socket.deliver({ type: "speech_transcript", role: "agent", text: "Pay at the counter.", final: true });
+    await h.advance(C.CAPTION_MIN_MS + 20);
+    // The turn is complete at the backend, but the last chunks are still
+    // being heard: a reply arrives far faster than it plays out.
+    socket.deliver({ type: "agent_state_changed", state: "LISTENING" });
+    await h.advance(C.CAPTION_CLEAR_MS * 3);
+    expect(h.session.getView().hostLine).toBe("Pay at the counter.");
+
+    // The queue empties.
+    playing.value = false;
+    await h.advance(C.CAPTION_CLEAR_POLL_MS + 20);
+    // Still up: the 1.5 s is counted from here, so a guest can read the end
+    // of a line they only half heard.
+    expect(h.session.getView().hostLine).toBe("Pay at the counter.");
+
+    await h.advance(C.CAPTION_CLEAR_MS + 50);
+    expect(h.session.getView().hostLine).toBe("");
+  });
+
+  it("starts a fresh caption for the next turn instead of clearing it", async () => {
+    const playing = { value: false };
+    const audio = fakeAudio({ isPlaying: () => playing.value });
+    const h = harness({ audio });
+    const socket = await inConversation(h);
+
+    socket.deliver({ type: "agent_state_changed", state: "SPEAKING" });
+    socket.deliver({ type: "speech_transcript", role: "agent", text: "First line.", final: true });
+    await h.advance(C.CAPTION_MIN_MS + 20);
+    socket.deliver({ type: "agent_state_changed", state: "LISTENING" });
+    // Part-way through the 1.5 s, THE HOST starts the next turn.
+    await h.advance(C.CAPTION_CLEAR_MS / 2);
+
+    socket.deliver({ type: "agent_state_changed", state: "SPEAKING" });
+    socket.deliver({ type: "speech_transcript", role: "agent", text: "Second line.", final: true });
+    await h.advance(C.CAPTION_MIN_MS + 20);
+
+    // The new line is never wiped by the old line's timer.
+    await h.advance(C.CAPTION_CLEAR_MS + 50);
+    expect(h.session.getView().hostLine).toBe("Second line.");
+  });
+
+  it("leaves nothing on the screen when the conversation ends", async () => {
+    const h = harness();
+    const socket = await inConversation(h);
+    socket.deliver({ type: "agent_state_changed", state: "SPEAKING" });
+    socket.deliver({ type: "speech_transcript", role: "agent", text: "Thanks for visiting!", final: true });
+    await h.advance(C.CAPTION_MIN_MS + 20);
+
+    h.session.endSession("user");
+
+    expect(h.session.getView().hostLine).toBe("");
+    // And nothing left running that could put it back up.
+    await h.advance(C.CAPTION_CLEAR_MS * 3);
+    expect(h.session.getView().hostLine).toBe("");
+  });
+
+  it("does not clear One moment…, which has its own lifetime", async () => {
+    const h = harness();
+    const socket = await inConversation(h);
+    socket.deliver({ type: "voice_activity", active: false });
+    (h.session as unknown as { onVoiceActivityChanged(active: boolean): void }).onVoiceActivityChanged(false);
+    await h.advance(C.ONE_MOMENT_MS + 50);
+    expect(h.session.getView().oneMoment).toBe(true);
+
+    // Far longer than the caption delay: the notice is not a caption.
+    await h.advance(C.CAPTION_CLEAR_MS * 4);
+    expect(h.session.getView().oneMoment).toBe(true);
+  });
+
+  it("clears it after a turn that was interrupted", async () => {
+    const playing = { value: false };
+    const audio = fakeAudio({ isPlaying: () => playing.value });
+    const h = harness({ audio });
+    const socket = await inConversation(h);
+
+    socket.deliver({ type: "agent_state_changed", state: "SPEAKING" });
+    socket.deliver({ type: "speech_transcript", role: "agent", text: "Would you like a—", final: false });
+    await h.advance(C.CAPTION_MIN_MS + 20);
+    socket.deliver({ type: "interrupted" });
+    socket.deliver({ type: "agent_state_changed", state: "LISTENING" });
+
+    await h.advance(C.CAPTION_CLEAR_MS + C.CAPTION_CLEAR_POLL_MS + 50);
+    expect(h.session.getView().hostLine).toBe("");
+  });
+
+  it("clears the caption of a turn that was already silent when it ended", async () => {
+    // The whole reply had played out before the state changed, which is the
+    // ordinary case for a one-line answer.
+    const h = harness();
+    const socket = await inConversation(h);
+    socket.deliver({ type: "agent_state_changed", state: "SPEAKING" });
+    socket.deliver({ type: "speech_transcript", role: "agent", text: "Of course.", final: true });
+    await h.advance(C.CAPTION_MIN_MS + 20);
+    socket.deliver({ type: "agent_state_changed", state: "TAKING_ORDER" });
+
+    await h.advance(C.CAPTION_CLEAR_MS + 50);
+    expect(h.session.getView().hostLine).toBe("");
+  });
+
   it("ends the playback turn when THE HOST stops speaking", async () => {
     const h = harness();
     const socket = await inConversation(h);

@@ -159,6 +159,10 @@ export class HostSession {
     vision: Timer;
     oneMoment: Timer;
     caption: Timer;
+    // 16 §2zf item 7: the two halves of clearing a caption once it has been
+    // heard -- waiting for the audio to finish, then the 1.5 s after it.
+    captionWatch: Timer;
+    captionClear: Timer;
     playCounters: Timer;
   } = {
     tick: null,
@@ -172,6 +176,8 @@ export class HostSession {
     vision: null,
     oneMoment: null,
     caption: null,
+    captionWatch: null,
+    captionClear: null,
     playCounters: null,
   };
 
@@ -241,6 +247,14 @@ export class HostSession {
 
   private setState(next: LocalState, errorMessage = "") {
     this.patch({ state: next, errorMessage: next === "error" ? errorMessage : "" });
+    // 16 §2zf item 7: THE HOST has stopped producing this turn, so the caption
+    // is on its way out as soon as the last of its audio has been heard. While
+    // it is still speaking there is nothing to clear.
+    if (next === "speaking") {
+      this.cancelCaptionClear();
+    } else {
+      this.watchForCaptionClear();
+    }
   }
 
   /* ---------------------------- presence feed ---------------------------- */
@@ -611,6 +625,9 @@ export class HostSession {
    * fragment of a line is never the one that gets dropped.
    */
   private setCaption(text: string) {
+    // 16 §2zf item 7: "the next turn starts a fresh caption" -- new words are
+    // never wiped by the clearing of the line before them.
+    this.cancelCaptionClear();
     const since = this.now() - this.caption.lastAt;
     if (since >= C.CAPTION_MIN_MS) {
       if (this.timers.caption) clearTimeout(this.timers.caption);
@@ -637,6 +654,55 @@ export class HostSession {
     if (this.timers.caption) clearTimeout(this.timers.caption);
     this.timers.caption = null;
     this.caption = { lastAt: 0, pending: null };
+    this.cancelCaptionClear();
+  }
+
+  /**
+   * 16 §2zf item 7 (Rehman's request 2(d)): the caption goes once it has
+   * been said.
+   *
+   * The TV used to keep THE HOST's last line up until the next one replaced
+   * it, so a finished conversation left a sentence on the screen for the next
+   * guest in the queue to read. It now clears 1.5 s after the audio of the
+   * turn has finished playing -- not 1.5 s after the turn ended at the
+   * backend, which is earlier: a reply arrives far faster than it plays, so
+   * the last chunk is still being heard long after Gemini has finished
+   * producing it.
+   *
+   * The wait is a poll rather than a callback because `AudioPort` schedules
+   * its chunks on the audio clock and has no "finished" event; `isPlaying()`
+   * is the same question the idle clock already asks it.
+   */
+  private watchForCaptionClear() {
+    // Nothing on screen, or a line that is not THE HOST's own words: the
+    // "One moment…" and "Reconnecting…" labels have their own lifetimes
+    // (§2t item 4 and §2k item 3) and are not cleared here.
+    if (!this.view.hostLine) return;
+    if (this.timers.captionWatch || this.timers.captionClear) return;
+    const look = () => {
+      if (this.deps.audio.isPlaying()) return;
+      if (this.timers.captionWatch) clearInterval(this.timers.captionWatch);
+      this.timers.captionWatch = null;
+      this.timers.captionClear = setTimeout(() => {
+        this.timers.captionClear = null;
+        // A new turn may have started while this was counting down; its own
+        // caption is never cleared by the previous turn's timer.
+        if (this.view.state === "speaking") return;
+        this.caption = { lastAt: 0, pending: null };
+        this.patch({ hostLine: "" });
+      }, C.CAPTION_CLEAR_MS);
+    };
+    this.timers.captionWatch = setInterval(look, C.CAPTION_CLEAR_POLL_MS);
+    // Playback may already have finished before the state changed.
+    look();
+  }
+
+  /** A fresh caption cancels the clearing of the one before it. */
+  private cancelCaptionClear() {
+    if (this.timers.captionWatch) clearInterval(this.timers.captionWatch);
+    this.timers.captionWatch = null;
+    if (this.timers.captionClear) clearTimeout(this.timers.captionClear);
+    this.timers.captionClear = null;
   }
 
   private setReconnecting(active: boolean) {
