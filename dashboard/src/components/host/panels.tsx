@@ -245,6 +245,8 @@ export function Avatar({ name, size = "sm" }: { name: string; size?: "sm" | "lg"
 
 const STATUS_STYLE: Record<OrderStatus, string> = {
   PENDING_CONFIRMATION: "text-champagne",
+  // 16 §2zf item 4: money is owed, so it reads as something to act on.
+  AWAITING_PAYMENT: "text-warning",
   CONFIRMED: "text-champagne",
   PREPARING: "text-warning",
   READY: "text-success",
@@ -256,6 +258,7 @@ const STATUS_STYLE: Record<OrderStatus, string> = {
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   PENDING_CONFIRMATION: "Being taken",
+  AWAITING_PAYMENT: "Waiting for payment",
   CONFIRMED: "Confirmed",
   PREPARING: "Preparing",
   READY: "Ready",
@@ -264,6 +267,9 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   FAILED: "Failed",
   REQUIRES_ATTENTION: "Needs attention",
 };
+
+/** 16 §2zf item 3(a): every status an order reaches once the money is taken. */
+const PAID_STATUSES: OrderStatus[] = ["CONFIRMED", "PREPARING", "READY", "COLLECTED"];
 
 function OrderActions({ order }: { order: Order }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -310,26 +316,44 @@ function OrderActions({ order }: { order: Order }) {
     );
   }
 
+  // 16 §2zf item 4: the two presses that take the money. The method the guest
+  // named is highlighted, because it is what the team expects at the counter —
+  // but either press is allowed, since what was really handed over wins.
+  const paidBtn = (method: PaymentMethod, label: string) => (
+    <button
+      disabled={busy}
+      onClick={() => void act("CONFIRMED", undefined, method)}
+      className={cn(
+        btn,
+        order.payment_method === method && "border-gold bg-gold/10 text-gold",
+      )}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="relative mt-2.5 flex flex-wrap items-center gap-1.5">
+      {/* 16 §2zf item 4: an order waiting for payment is not the kitchen's
+          yet. The only things to do with it are take the money or cancel it. */}
+      {order.status === "AWAITING_PAYMENT" && (
+        <>
+          {paidBtn("CASH", "Paid · Cash")}
+          {paidBtn("QR", "Paid · QR")}
+        </>
+      )}
       {(order.status === "CONFIRMED" || order.status === "REQUIRES_ATTENTION") && (
         <button disabled={busy} onClick={() => void act("PREPARING")} className={btn}>Preparing</button>
       )}
       {(order.status === "PREPARING" || order.status === "REQUIRES_ATTENTION") && (
         <button disabled={busy} onClick={() => void act("READY")} className={btn}>Ready</button>
       )}
-      {/* 16 §2z item 3: how the guest paid is recorded at the moment of
-          collection, because that is the only moment anyone knows it. An order
-          on the house has nothing to record, so it keeps one button. */}
-      {(order.status === "READY" || order.status === "REQUIRES_ATTENTION") &&
-        (order.complimentary ? (
-          <button disabled={busy} onClick={() => void act("COLLECTED")} className={btn}>Collected</button>
-        ) : (
-          <>
-            <button disabled={busy} onClick={() => void act("COLLECTED", undefined, "CASH")} className={btn}>Collected · Cash</button>
-            <button disabled={busy} onClick={() => void act("COLLECTED", undefined, "QR")} className={btn}>Collected · QR</button>
-          </>
-        ))}
+      {/* 16 §2zf item 4, replacing §2z item 3's two buttons: under pay-first
+          the method is already on the order by the time the food goes out, so
+          collection is one press again, for every order. */}
+      {(order.status === "READY" || order.status === "REQUIRES_ATTENTION") && (
+        <button disabled={busy} onClick={() => void act("COLLECTED")} className={btn}>Collected</button>
+      )}
       {/* A deliberate repeat of the announcement (20 §4 item 4). */}
       {order.status === "READY" && (
         <button
@@ -343,7 +367,7 @@ function OrderActions({ order }: { order: Order }) {
           Announce again
         </button>
       )}
-      {(order.status === "CONFIRMED" || order.status === "PREPARING" || order.status === "REQUIRES_ATTENTION") && (
+      {(order.status === "AWAITING_PAYMENT" || order.status === "CONFIRMED" || order.status === "PREPARING" || order.status === "REQUIRES_ATTENTION") && (
         <button disabled={busy} onClick={() => setCancelOpen(true)} className={cn(btn, "hover:border-destructive hover:text-destructive")}>Cancel</button>
       )}
       {(order.status === "CONFIRMED" || order.status === "PREPARING" || order.status === "READY") && (
@@ -402,14 +426,27 @@ export function OrderCard({ order, now }: { order: Order; now: number }) {
         {order.complimentary && (
           <span className="rounded-sm border border-gold/40 px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider text-gold">On the house</span>
         )}
-        {/* 16 §2z item 3: a collected order says how it was paid. An old row
-            has no payment type, and says exactly that instead of guessing. */}
-        {order.status === "COLLECTED" && !order.complimentary && (
+        {/* 16 §2z item 3, as §2zf item 4 extends it: from the payment on, a
+            card says how it was paid. An order waiting for payment is handled
+            on its own below, and an old row that recorded nothing says exactly
+            that instead of guessing. */}
+        {PAID_STATUSES.includes(order.status) && !order.complimentary && (
           <span className="rounded-sm border border-line px-1.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider text-muted-foreground">
             {order.payment_method === "CASH" ? "Paid · Cash" : order.payment_method === "QR" ? "Paid · QR" : "Paid · not recorded"}
           </span>
         )}
       </div>
+      {/* 16 §2zf item 4: the total large, and the method the guest named, so
+          the team at the counter knows what to expect before they take it. */}
+      {order.status === "AWAITING_PAYMENT" && (
+        <div className="mt-2 flex items-baseline justify-between gap-2 rounded-sm border border-warning/30 bg-warning/5 px-2.5 py-2">
+          <p className="text-[0.68rem] font-semibold uppercase tracking-wider text-warning">
+            Waiting for payment
+            {order.payment_method === "CASH" ? " · Cash" : order.payment_method === "QR" ? " · QR" : ""}
+          </p>
+          {order.total != null && <p className="font-mono text-2xl text-gold">{order.total}</p>}
+        </div>
+      )}
       {!done && (
         <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-surface-2">
           <div className={cn("h-full rounded-full transition-all duration-1000", order.status === "READY" ? "bg-success" : "bg-gradient-to-r from-gold-dim to-champagne")} style={{ width: `${pct}%` }} />
@@ -426,14 +463,27 @@ export function OrdersPanel({ className, limit = 3 }: { className?: string; limi
   const now = useNow(1000);
   const [tab, setTab] = useState<"active" | "completed" | "all">("active");
   const taking = orders.filter((o) => o.status === "PENDING_CONFIRMATION");
-  const active = orders.filter((o) => ["CONFIRMED", "PREPARING", "READY", "REQUIRES_ATTENTION"].includes(o.status));
+  // 16 §2zf item 4: an order waiting for payment is active, and it is shown
+  // at the top of whatever is on screen — it is the one thing holding a guest
+  // at the counter, so it must never scroll out of sight behind the kitchen.
+  const unpaid = orders.filter((o) => o.status === "AWAITING_PAYMENT");
+  const active = orders.filter((o) => ["AWAITING_PAYMENT", "CONFIRMED", "PREPARING", "READY", "REQUIRES_ATTENTION"].includes(o.status));
   const completed = orders.filter((o) => ["COLLECTED", "CANCELLED", "FAILED"].includes(o.status));
-  const list = (tab === "active" ? active : tab === "completed" ? completed : orders.filter((o) => o.status !== "PENDING_CONFIRMATION")).slice(0, limit);
+  const chosen = tab === "active" ? active : tab === "completed" ? completed : orders.filter((o) => o.status !== "PENDING_CONFIRMATION");
+  const list = [
+    ...chosen.filter((o) => o.status === "AWAITING_PAYMENT"),
+    ...chosen.filter((o) => o.status !== "AWAITING_PAYMENT"),
+  ].slice(0, limit);
 
   return (
     <Panel title="Orders" icon={<ShoppingBag className="h-4 w-4" />} className={className} action={<TagFor demo={isDemo} />}>
       {taking.length > 0 && (
         <p className="mb-2 animate-pulse rounded-sm border border-champagne/20 bg-champagne/5 px-2.5 py-1.5 text-[0.68rem] text-champagne/80">Order being taken…</p>
+      )}
+      {unpaid.length > 0 && (
+        <p className="mb-2 rounded-sm border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[0.68rem] font-semibold text-warning">
+          {unpaid.length === 1 ? "1 order waiting for payment" : `${unpaid.length} orders waiting for payment`}
+        </p>
       )}
       <div className="mb-3 flex gap-1 rounded-md bg-background/50 p-1">
         {(
@@ -934,11 +984,13 @@ const DEMO_EARNINGS: Earnings = {
   earned_cash: 7200,
   earned_qr: 5250,
   earned_unrecorded: 0,
-  to_collect: 1850,
+  awaiting_payment: 1850,
   on_the_house: 600,
   on_the_house_orders: 2,
   paid_orders: 24,
   cancelled_orders: 1,
+  refunded: 250,
+  refunded_orders: 1,
   by_item: [
     { name: "Chicken Burger", quantity: 9, amount: 5850 },
     { name: "Club Sandwich", quantity: 6, amount: 3300 },
@@ -994,7 +1046,9 @@ export function EarningsPanel({ className }: { className?: string }) {
             <Figure label="Earned today" value={fmtRs(earnings.earned)} tone="gold" />
             <Figure label="Cash" value={fmtRs(earnings.earned_cash)} />
             <Figure label="QR" value={fmtRs(earnings.earned_qr)} />
-            <Figure label="Still to collect" value={fmtRs(earnings.to_collect)} />
+            {/* 16 §2zf item 4: what is still at the counter, not what is
+                still in the kitchen — under pay-first they are not the same. */}
+            <Figure label="Waiting for payment" value={fmtRs(earnings.awaiting_payment)} />
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
@@ -1006,6 +1060,10 @@ export function EarningsPanel({ className }: { className?: string }) {
             </span>
             <span>
               Cancelled <span className="font-mono text-foreground/90">{earnings.cancelled_orders}</span>
+            </span>
+            {/* 16 §2zf item 3(i): money taken and then given back. */}
+            <span>
+              Refunded <span className="font-mono text-foreground/90">{fmtRs(earnings.refunded)}</span> ({earnings.refunded_orders})
             </span>
           </div>
 

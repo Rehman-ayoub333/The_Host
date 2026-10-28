@@ -8,11 +8,12 @@
  * cookie, a file, the console or any log, and the backend never sends them to
  * the public display at all (16 §2o item 2).
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Radio } from "lucide-react";
 import { useAgent } from "@/lib/agent/store";
+import { setOrderStatus } from "@/lib/agent/service";
 import { fmtClock, fmtElapsed, toMs, useNow } from "@/lib/agent/ui";
-import type { OperationalMode, TranscriptLine } from "@/lib/agent/types";
+import type { OperationalMode, OrderStatus, PaymentMethod, TranscriptLine } from "@/lib/agent/types";
 import { cn } from "@/lib/utils";
 import { Panel, StatusDot } from "./Panel";
 
@@ -115,6 +116,81 @@ function OpenDraft() {
   );
 }
 
+/**
+ * 16 §2zf item 4 — the order this guest has just placed and not yet paid for.
+ *
+ * It sits in the Live panel as well as the Orders panel because this is the
+ * screen Rehman is watching while the guest is still standing there: the total
+ * is large, the method the guest named is highlighted, and the two presses
+ * that take the money are right under it.
+ */
+function AwaitingPayment() {
+  const orders = useAgent((s) => s.orders);
+  const [busy, setBusy] = useState(false);
+  // The newest one still waiting. It disappears by itself the moment the
+  // payment is marked, because it stops matching.
+  const order = orders.find((o) => o.status === "AWAITING_PAYMENT");
+
+  if (!order) return null;
+
+  const act = async (status: OrderStatus, method?: PaymentMethod) => {
+    setBusy(true);
+    await setOrderStatus(order.id, status, undefined, method);
+    setBusy(false);
+  };
+
+  const btn =
+    "h-8 rounded-sm border border-line px-2.5 text-[0.65rem] font-semibold uppercase transition-colors hover:border-gold hover:text-gold disabled:opacity-50";
+
+  return (
+    <div className="rounded-md border border-warning/40 bg-warning/5 p-3">
+      <p className="label-caps mb-1.5 text-warning">Waiting for payment</p>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="font-mono text-sm text-foreground">Order #{order.id}</p>
+        {order.guest_name && <p className="truncate text-xs text-champagne">{order.guest_name}</p>}
+      </div>
+      <ul className="mt-1 space-y-0.5">
+        {order.items.map((i) => (
+          <li key={i.name} className="text-xs text-muted-foreground">
+            {i.quantity > 1 ? `${i.quantity}× ` : ""}
+            {i.name}
+          </li>
+        ))}
+      </ul>
+      <div className="mt-1.5 flex items-baseline justify-between gap-2">
+        {/* Shown exactly as sent; no arithmetic, no second "Rs". */}
+        {order.total != null && <p className="font-mono text-3xl text-gold">{order.total}</p>}
+        <p className="text-[0.68rem] uppercase tracking-wider text-muted-foreground">
+          {order.payment_method === "CASH" ? "Guest said cash" : order.payment_method === "QR" ? "Guest said QR" : "No method given"}
+        </p>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <button
+          disabled={busy}
+          onClick={() => void act("CONFIRMED", "CASH")}
+          className={cn(btn, order.payment_method === "CASH" && "border-gold bg-gold/10 text-gold")}
+        >
+          Paid · Cash
+        </button>
+        <button
+          disabled={busy}
+          onClick={() => void act("CONFIRMED", "QR")}
+          className={cn(btn, order.payment_method === "QR" && "border-gold bg-gold/10 text-gold")}
+        >
+          Paid · QR
+        </button>
+        <button
+          disabled={busy}
+          onClick={() => void act("CANCELLED")}
+          className={cn(btn, "hover:border-destructive hover:text-destructive")}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const SPEAKER_LABEL = { visitor: "Guest", host: "THE HOST" } as const;
 
 function LiveTranscript() {
@@ -193,6 +269,8 @@ export function LivePanel({ className }: { className?: string }) {
           <OperationalMode_ />
         </div>
         <OpenDraft />
+        {/* 16 §2zf item 4: nothing at all when no order is waiting. */}
+        <AwaitingPayment />
         <LiveTranscript />
       </div>
     </Panel>

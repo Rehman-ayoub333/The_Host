@@ -116,8 +116,10 @@ export const getEarnings = () => request<Earnings>("/api/earnings");
 /** Order ids are integers (20 §4 item 1). */
 export async function setOrderStatus(id: number, status: OrderStatus, reason?: string, paymentMethod?: PaymentMethod): Promise<boolean> {
   try {
-    // 16 §2z item 2: payment_method travels only with COLLECTED, and the
-    // backend refuses it anywhere else, so it is sent only when given.
+    // 16 §2z item 2, as §2zf item 3(d) extends it: payment_method travels
+    // with the payment (CONFIRMED on an order that was waiting for it) and
+    // with the old COLLECTED path; the backend refuses it anywhere else, so
+    // it is sent only when given.
     const body: { status: OrderStatus; reason?: string; payment_method?: PaymentMethod } = { status };
     if (reason) body.reason = reason;
     if (paymentMethod) body.payment_method = paymentMethod;

@@ -64,6 +64,8 @@ export interface OrderItem {
 
 export type OrderStatus =
   | "PENDING_CONFIRMATION"
+  /** 16 §2zf item 3(a) — placed, waiting for the guest to pay at the counter. */
+  | "AWAITING_PAYMENT"
   | "CONFIRMED"
   | "PREPARING"
   | "READY"
@@ -86,12 +88,18 @@ export interface Order {
   /** 16 §2m item 5. Missing means false. */
   complimentary?: boolean | undefined;
   /**
-   * 16 §2z item 2 — how the guest paid, recorded by the operator at
-   * collection. null or missing on anything not collected, and on the rows
-   * that existed before the Earnings panel: the card says "not recorded"
-   * rather than inventing a method.
+   * 16 §2z item 2, as §2zf item 3(b) extends it — on an AWAITING_PAYMENT
+   * order this is the method the guest said they would use, and from the
+   * payment on it is the one the team really took. null or missing on the
+   * rows that existed before the Earnings panel: the card says "not
+   * recorded" rather than inventing a method.
    */
   payment_method?: PaymentMethod | null | undefined;
+  /**
+   * 16 §2zf item 3(d) — when the team marked the money taken, or null. This
+   * is what tells "Paid · Cash" from "Waiting for payment".
+   */
+  paid_at?: BoothTime | null | undefined;
 }
 
 /** 16 §2z item 2. */
@@ -104,11 +112,15 @@ export interface Earnings {
   earned_cash: number;
   earned_qr: number;
   earned_unrecorded: number;
-  to_collect: number;
+  /** 16 §2zf item 3(i) — replaces `to_collect`: money still at the counter. */
+  awaiting_payment: number;
   on_the_house: number;
   on_the_house_orders: number;
   paid_orders: number;
   cancelled_orders: number;
+  /** 16 §2zf item 3(i) — paid, then cancelled: money that has to go back. */
+  refunded: number;
+  refunded_orders: number;
   by_item: { name: string; quantity: number; amount: number }[];
   unpriced_orders: number;
 }

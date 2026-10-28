@@ -1,7 +1,9 @@
 /**
  * 16 §2o item 8 — what each screen actually renders.
  *  - the public display renders no spoken line of any kind;
- *  - the Live panel shows an open draft and hides it once it is confirmed;
+ *  - the Live panel shows an open draft and hides it once it is placed;
+ *  - the Live panel shows an order waiting for payment, with the two presses
+ *    that take the money (16 §2zf item 4);
  *  - a complimentary order is badged "On the house".
  */
 import { cleanup, render, screen } from "@testing-library/react";
@@ -198,6 +200,70 @@ describe("the Live panel's open draft", () => {
     render(<LivePanel />);
 
     expect(screen.getByText("On the house")).toBeInTheDocument();
+  });
+});
+
+describe("the Live panel's Waiting for payment card (16 §2zf item 4)", () => {
+  const unpaid: Order = {
+    ...draft,
+    status: "AWAITING_PAYMENT",
+    payment_method: "CASH",
+  };
+
+  it("shows nothing at all when no order is waiting for payment", () => {
+    dispatchAll([{ type: "order_created", order: draft }] as AgentEvent[]);
+
+    render(<LivePanel />);
+
+    expect(screen.queryByText("Waiting for payment")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Paid · Cash/ })).toBeNull();
+  });
+
+  it("shows the order, the total large and the method the guest named", () => {
+    dispatchAll([{ type: "order_updated", order: unpaid }] as AgentEvent[]);
+
+    render(<LivePanel />);
+
+    expect(screen.getByText("Waiting for payment")).toBeInTheDocument();
+    expect(screen.getByText("Order #27")).toBeInTheDocument();
+    expect(screen.getByText("Chicken Burger")).toBeInTheDocument();
+    expect(screen.getByText("2× Blue Lemonade")).toBeInTheDocument();
+    expect(screen.getByText("Rs. 950")).toBeInTheDocument();
+    expect(screen.getByText("Guest said cash")).toBeInTheDocument();
+  });
+
+  it("offers Paid · Cash, Paid · QR and Cancel", () => {
+    dispatchAll([{ type: "order_updated", order: unpaid }] as AgentEvent[]);
+
+    render(<LivePanel />);
+
+    expect(screen.getByRole("button", { name: /Paid · Cash/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Paid · QR/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("says so plainly when the guest was never asked how they would pay", () => {
+    dispatchAll([
+      { type: "order_updated", order: { ...unpaid, payment_method: null } },
+    ] as AgentEvent[]);
+
+    render(<LivePanel />);
+
+    expect(screen.getByText("No method given")).toBeInTheDocument();
+  });
+
+  it("disappears the moment the payment is marked", () => {
+    dispatchAll([
+      { type: "order_updated", order: unpaid },
+      {
+        type: "order_updated",
+        order: { ...unpaid, status: "CONFIRMED", paid_at: "2026-10-28T19:06:10" },
+      },
+    ] as AgentEvent[]);
+
+    render(<LivePanel />);
+
+    expect(screen.queryByText("Waiting for payment")).toBeNull();
   });
 });
 
