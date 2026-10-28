@@ -20,7 +20,8 @@ def queued(ctx):
 
 def confirm(items, guest_name="Ahmed"):
     order_id = tools.build_order(list(items), guest_name=guest_name)["order_id"]
-    return tools.confirm_order(order_id)
+    # 16 section 2zf item 3(b): an ordinary order is placed with a payment.
+    return tools.confirm_order(order_id, payment_method="CASH")
 
 
 def activity_rows():
@@ -95,7 +96,7 @@ def test_a_visit_with_no_order_linked_produces_no_memory_row(ctx):
 def test_a_name_given_after_a_confirmed_order_queues_the_row(ctx):
     """09 section 10: the attach loop links the order, so the row belongs there."""
     order_id = tools.build_order([{"name": "Club Sandwich"}])["order_id"]
-    tools.confirm_order(order_id)
+    tools.confirm_order(order_id, payment_method="CASH")
     assert queued(ctx) == []
 
     tools.remember_visitor("Sara")
@@ -133,7 +134,11 @@ def test_live_session_publishes_each_queued_row_after_the_tool():
         await session._handle_message(doubles.message(doubles.content(visitor="Yes.")))
         await session._handle_message(
             doubles.message(
-                tool_call=doubles.call("confirm_order", {"order_id": order_id}, "call-confirm")
+                tool_call=doubles.call(
+                    "confirm_order",
+                    {"order_id": order_id, "payment_method": "CASH"},
+                    "call-confirm",
+                )
             )
         )
         return order_id
@@ -202,7 +207,12 @@ def test_the_system_events_history_keeps_the_memory_row():
         await session._handle_message(
             doubles.message(
                 tool_call=doubles.call(
-                    "confirm_order", {"order_id": session.ctx["pending_order_id"]}, "call-confirm"
+                    "confirm_order",
+                    {
+                        "order_id": session.ctx["pending_order_id"],
+                        "payment_method": "CASH",
+                    },
+                    "call-confirm",
                 )
             )
         )

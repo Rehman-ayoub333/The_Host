@@ -52,6 +52,11 @@ MAX_TEXT_INPUT_CHARS = 500
 MAX_IMAGE_BASE64_CHARS = 2_800_000
 INPUT_AUDIO_MIME = "audio/pcm;rate=16000"
 PENDING_ORDER_TTL_S = 300
+# 16 section 2zf item 3(f): an order is placed before it is paid, so a guest who
+# walks away from the counter leaves one waiting for money that never comes.
+# AWAITING_PAYMENT this old is cancelled with the reason `unpaid`, by the same
+# sweeper that expires abandoned drafts.
+PAYMENT_TTL_S = 600
 PENDING_SWEEP_INTERVAL_S = 60
 HEARTBEAT_INTERVAL_S = 10
 EVENT_SEND_TIMEOUT_S = 1

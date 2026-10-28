@@ -53,6 +53,8 @@ def test_orders_endpoint_shape_and_counts(served):
         "complimentary",
         # 16 section 2z item 2
         "payment_method",
+        # 16 section 2zf item 3(d)
+        "paid_at",
     }
     assert first["total"] == "Rs. 650"
 

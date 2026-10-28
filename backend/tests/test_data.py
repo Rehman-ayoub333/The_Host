@@ -409,13 +409,20 @@ def test_on_the_house_arriving_later_is_an_update_once():
     assert _complimentary(first["order_id"]) is True
 
 
-def test_a_later_call_that_does_not_say_on_the_house_leaves_the_flag_alone():
+def test_a_later_call_that_does_not_say_on_the_house_clears_the_flag():
+    """16 section 2zf item 1(b), amending 2m item 5: it is no longer sticky.
+
+    Until this phase a later call that said nothing left a flag already set
+    alone, so a draft built for the Vice Chancellor and then rebuilt under
+    another name stayed on the house. Every build writes the answer again, in
+    both directions, and a flag that really moves is an `updated`.
+    """
     first = data.create_order_draft([BURGER], "Ahmed", "s-1", complimentary=True)
 
     ordinary = data.create_order_draft([BURGER], "Ahmed", "s-1")
 
-    assert ordinary == {"order_id": first["order_id"], "action": "existing"}
-    assert _complimentary(first["order_id"]) is True
+    assert ordinary == {"order_id": first["order_id"], "action": "updated"}
+    assert _complimentary(first["order_id"]) is False
 
 
 def test_changed_items_are_still_an_update_whatever_else_the_call_brings():
@@ -462,8 +469,10 @@ def test_order_view_and_get_order_parse_items():
         "ready_at": None,
         # 16 section 2m item 5: in the view, and so in every order event.
         "complimentary": False,
-        # 16 section 2z item 2: null until the operator records it at collection.
+        # 16 section 2z item 2: null until a payment is recorded.
         "payment_method": None,
+        # 16 section 2zf item 3(d): null until the team marks it paid.
+        "paid_at": None,
     }
     assert data.get_order(order_id + 500) is None
 

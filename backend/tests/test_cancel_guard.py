@@ -1,15 +1,19 @@
 """Phase 7j: the cancel guard (16 section 2zc item 2), mirroring the confirm one.
 
-Rehman asked whether a guest can change an order after confirming it. They can,
-while the kitchen has not started -- which opens two ways to lose food: a
+Rehman asked whether a guest can change an order after placing it. They can,
+while the money has not been taken -- which opens two ways to lose food: a
 misheard line cancelling a real order, and a voice cancel of something already
-in the pan. `tools.cancel_order` closes the second (PREPARING is refused, tested
-in test_tools.py); this file is the first. Before `cancel_order` runs against a
-CONFIRMED order, the guest must have spoken since it was confirmed, and that
-line must carry their consent.
+paid for. `tools.cancel_order` closes the second (anything from CONFIRMED on is
+refused, tested in test_tools.py and test_pay_first.py); this file is the first.
+Before `cancel_order` runs against a placed order, the guest must have spoken
+since it was placed, and that line must carry their consent.
 
-A draft is deliberately not guarded: "no" to the confirmation question has to
-cancel it. Nothing here logs a word of what the guest said.
+16 section 2zf item 3(g) moves the guarded status from CONFIRMED to
+AWAITING_PAYMENT: under pay-first that is what "placed, but not yet the
+kitchen's" means, and it is the only placed status a voice cancel can reach.
+
+A draft is deliberately not guarded: "no" to the final question has to cancel
+it. Nothing here logs a word of what the guest said.
 """
 
 import asyncio
@@ -69,19 +73,31 @@ def guest_typed(session, ws, line):
     asyncio.run(session._uplink())
 
 
-def confirmed_order(session, items=(BURGER,)):
-    """A draft built and confirmed in this session, the ordinary way."""
+def placed_order(session, items=(BURGER,)):
+    """A draft built and placed in this session, the ordinary pay-first way."""
     feed(
         session,
         doubles.message(tool_call=doubles.call("build_order", {"items": list(items)})),
     )
     order_id = session.ctx["pending_order_id"]
-    guest_said(session, "Yes.")
-    feed(session, doubles.message(tool_call=doubles.call("confirm_order", {"order_id": order_id})))
-    assert data.get_order(order_id)["status"] == "CONFIRMED"
-    # "Done — order 12." The yes is finished business from here.
-    host_replied(session, "Done — your order number is ready to go.")
+    guest_said(session, "Cash.")
+    feed(
+        session,
+        doubles.message(
+            tool_call=doubles.call(
+                "confirm_order", {"order_id": order_id, "payment_method": "CASH"}
+            )
+        ),
+    )
+    assert data.get_order(order_id)["status"] == "AWAITING_PAYMENT"
+    # "Order 12 — pay at the counter." The answer is finished business now.
+    host_replied(session, "Done — pay at the counter and the kitchen starts.")
     return order_id
+
+
+def paid(order_id):
+    """The team marks the money taken, as the operator endpoint does."""
+    data.update_order_status(order_id, "CONFIRMED", payment_method="CASH")
 
 
 def cancel(session, order_id, call_id="call-cancel"):
@@ -142,12 +158,12 @@ def test_a_line_without_consent_does_not_count(line):
 def test_a_cancel_in_the_same_turn_as_the_confirmation_is_refused(caplog):
     """The guest said yes to placing the order, not to cancelling it."""
     session, ws = listening()
-    order_id = confirmed_order(session)
+    order_id = placed_order(session)
 
     with caplog.at_level(logging.INFO, logger="live_session"):
         cancel(session, order_id)
 
-    assert data.get_order(order_id)["status"] == "CONFIRMED"
+    assert data.get_order(order_id)["status"] == "AWAITING_PAYMENT"
     assert last_response(session).response == {
         "source": "order",
         "error": "Please ask the guest to confirm the cancellation first.",
@@ -163,13 +179,13 @@ def test_a_cancel_in_the_same_turn_as_the_confirmation_is_refused(caplog):
 
 def test_a_cancel_after_a_line_without_consent_is_refused(caplog):
     session, ws = listening()
-    order_id = confirmed_order(session)
+    order_id = placed_order(session)
 
     guest_said(session, "How long will it take?")
     with caplog.at_level(logging.INFO, logger="live_session"):
         cancel(session, order_id)
 
-    assert data.get_order(order_id)["status"] == "CONFIRMED"
+    assert data.get_order(order_id)["status"] == "AWAITING_PAYMENT"
     assert last_response(session).response == dict(CANCEL_REFUSAL)
     assert (
         f"cancel refused session {session.ctx['session_id']} order {order_id} "
@@ -180,7 +196,7 @@ def test_a_cancel_after_a_line_without_consent_is_refused(caplog):
 
 def test_a_cancel_after_a_yes_passes():
     session, ws = listening()
-    order_id = confirmed_order(session)
+    order_id = placed_order(session)
 
     guest_said(session, "Yes.")
     cancel(session, order_id)
@@ -192,7 +208,7 @@ def test_a_cancel_after_a_yes_passes():
 
 def test_a_cancel_after_a_haan_ji_passes():
     session, _ws = listening()
-    order_id = confirmed_order(session)
+    order_id = placed_order(session)
 
     guest_said(session, "Haan ji.")
     cancel(session, order_id)
@@ -203,7 +219,7 @@ def test_a_cancel_after_a_haan_ji_passes():
 def test_a_cancel_after_the_guest_says_cancel_it_passes():
     """2zc item 2(b): the guest naming the cancellation is consent too."""
     session, _ws = listening()
-    order_id = confirmed_order(session)
+    order_id = placed_order(session)
 
     guest_said(session, "Cancel it, please.")
     cancel(session, order_id)
@@ -213,7 +229,7 @@ def test_a_cancel_after_the_guest_says_cancel_it_passes():
 
 def test_a_typed_consent_line_counts():
     session, ws = listening()
-    order_id = confirmed_order(session)
+    order_id = placed_order(session)
 
     guest_typed(session, ws, "Cancel my order.")
     cancel(session, order_id)
@@ -235,10 +251,11 @@ def test_a_draft_is_never_guarded():
     assert session.ctx["pending_order_id"] is None
 
 
-def test_a_preparing_order_is_the_tools_business_not_the_guards(caplog):
-    """The guard steps aside; cancel_order itself refuses (2zc item 2(a))."""
+def test_a_paid_order_is_the_tools_business_not_the_guards(caplog):
+    """The guard steps aside; cancel_order itself refuses (2zf item 3(g))."""
     session, _ws = listening()
-    order_id = confirmed_order(session)
+    order_id = placed_order(session)
+    paid(order_id)
     data.update_order_status(order_id, "PREPARING")
 
     guest_said(session, "Cancel it.")
@@ -248,7 +265,7 @@ def test_a_preparing_order_is_the_tools_business_not_the_guards(caplog):
     assert data.get_order(order_id)["status"] == "PREPARING"
     assert last_response(session).response == {
         "source": "order",
-        "error": "The kitchen has already started on that order — the team can help.",
+        "error": "That order is already paid — the team can help.",
     }
     # The guard did not refuse it: the tool did, so the tool's lines are logged.
     assert "cancel refused" not in " ".join(
@@ -256,18 +273,18 @@ def test_a_preparing_order_is_the_tools_business_not_the_guards(caplog):
     )
 
 
-def test_an_order_confirmed_before_this_conversation_needs_a_line_in_it(caplog):
+def test_an_order_placed_before_this_conversation_needs_a_line_in_it(caplog):
     """A cancel of an order from an earlier session still needs consent now."""
     order_id = data.create_order_draft([BURGER], "Ali", "earlier-1")["order_id"]
-    data.update_order_status(order_id, "CONFIRMED")
+    data.update_order_status(order_id, "AWAITING_PAYMENT", payment_method="CASH")
     session, _ws = listening()
     # The guest gave their name, so the order is theirs by name (09 section 1's
-    # ownership rule); the confirmation itself happened before this session.
+    # ownership rule); the order itself was placed before this session.
     session.ctx["visitor_name"] = "Ali"
 
     with caplog.at_level(logging.INFO, logger="live_session"):
         cancel(session, order_id)
-    assert data.get_order(order_id)["status"] == "CONFIRMED"
+    assert data.get_order(order_id)["status"] == "AWAITING_PAYMENT"
     assert (
         f"cancel refused session {session.ctx['session_id']} order {order_id} "
         "reason=no_new_line" in [record.getMessage() for record in caplog.records]
@@ -283,7 +300,7 @@ def test_an_order_confirmed_before_this_conversation_needs_a_line_in_it(caplog):
 
 def test_a_change_confirms_the_new_order_before_cancelling_the_old():
     session, _ws = listening()
-    old_id = confirmed_order(session, [BURGER, {"name": "Mixed Fruit Shake", "quantity": 1}])
+    old_id = placed_order(session, [BURGER, {"name": "Mixed Fruit Shake", "quantity": 1}])
 
     # "Remove the shake": a new draft with the corrected items.
     guest_said(session, "Remove the shake.")
@@ -293,22 +310,22 @@ def test_a_change_confirms_the_new_order_before_cancelling_the_old():
     new_id = session.ctx["pending_order_id"]
     assert new_id != old_id
 
-    guest_said(session, "Yes.")
+    guest_said(session, "Cash.")
     feed(session, doubles.message(tool_call=doubles.call(
-        "confirm_order", {"order_id": new_id}, "call-confirm-new"
+        "confirm_order", {"order_id": new_id, "payment_method": "CASH"}, "call-confirm-new"
     )))
-    assert data.get_order(new_id)["status"] == "CONFIRMED"
+    assert data.get_order(new_id)["status"] == "AWAITING_PAYMENT"
     cancel(session, old_id)
 
     print("old:", data.get_order(old_id)["status"], "new:", data.get_order(new_id)["status"])
     assert data.get_order(old_id)["status"] == "CANCELLED"
-    assert data.get_order(new_id)["status"] == "CONFIRMED"
+    assert data.get_order(new_id)["status"] == "AWAITING_PAYMENT"
 
 
 def test_when_the_new_confirm_fails_the_old_order_is_untouched():
     """2zc item 2(c): new-first means a failure leaves the guest with an order."""
     session, _ws = listening()
-    old_id = confirmed_order(session)
+    old_id = placed_order(session)
 
     guest_said(session, "Make it a Club Sandwich instead.")
     feed(session, doubles.message(tool_call=doubles.call(
@@ -317,15 +334,15 @@ def test_when_the_new_confirm_fails_the_old_order_is_untouched():
     new_id = session.ctx["pending_order_id"]
     # The confirm fails: the draft expired under the guest (09 section 5).
     data.update_order_status(new_id, "CANCELLED", reason="expired")
-    guest_said(session, "Yes.")
+    guest_said(session, "Cash.")
     feed(session, doubles.message(tool_call=doubles.call(
-        "confirm_order", {"order_id": new_id}, "call-confirm-new"
+        "confirm_order", {"order_id": new_id, "payment_method": "CASH"}, "call-confirm-new"
     )))
 
     response = last_response(session).response
     print("the failed confirm:", response)
     assert "error" in response
-    assert data.get_order(old_id)["status"] == "CONFIRMED"
+    assert data.get_order(old_id)["status"] == "AWAITING_PAYMENT"
 
 
 # ----------------------------------------------- what a refusal must not do
@@ -333,7 +350,7 @@ def test_when_the_new_confirm_fails_the_old_order_is_untouched():
 
 def test_a_refusal_writes_no_activity_row_and_no_text(caplog):
     session, _ws = listening()
-    order_id = confirmed_order(session)
+    order_id = placed_order(session)
     event_bus.PUBLISHED.clear()
 
     with caplog.at_level(logging.INFO, logger="live_session"):
@@ -346,7 +363,7 @@ def test_a_refusal_writes_no_activity_row_and_no_text(caplog):
 
     logged = " | ".join(record.getMessage() for record in caplog.records)
     print("every log line:", logged)
-    for word in ("Chicken", "Burger", "Yes", "yes", "Cancel it", "confirm the cancellation"):
+    for word in ("Chicken", "Burger", "Cash", "cash", "Cancel it", "confirm the cancellation"):
         assert word not in logged, word
 
 
@@ -356,7 +373,7 @@ def test_the_refusal_response_is_exactly_as_written():
         "error": "Please ask the guest to confirm the cancellation first.",
     }
     session, _ws = listening()
-    order_id = confirmed_order(session)
+    order_id = placed_order(session)
     cancel(session, order_id)
     response = last_response(session).response
     assert response == CANCEL_REFUSAL

@@ -58,6 +58,42 @@ def _flag(value) -> bool:
 COMPLIMENTARY_NOTE = "Only the Vice Chancellor is on the house."
 
 
+# 16 section 2zf item 3(b): the two answers a guest can give to "cash or QR?".
+# "online" is what a guest who means the QR code usually says, and the prompt
+# tells THE HOST to accept it, so it is mapped here rather than refused.
+_PAYMENT_WORDS = {"cash": "CASH", "qr": "QR", "online": "QR"}
+
+# The exact wording 2zf item 3(b) gives back when nobody has said how they will
+# pay. It is an error, so the order is not placed and THE HOST asks again.
+PAYMENT_NEEDED = {"source": "order", "error": "Ask the guest: cash or QR?"}
+
+# 16 section 2zf item 3(g), word for word: a paid order is the team's to undo.
+ALREADY_PAID = {
+    "source": "order",
+    "error": "That order is already paid — the team can help.",
+}
+
+
+def _letters(name) -> str:
+    """A name reduced to its letters, lowercased: titles and punctuation gone."""
+    return "".join(ch for ch in str(name or "").lower() if ch.isalpha())
+
+
+def _payment_method(value) -> str | None:
+    """CASH, QR, or None -- "QR" and "online" both mean the QR code (3(b))."""
+    return _PAYMENT_WORDS.get(str(value or "").strip().lower())
+
+
+def _is_the_chief_guest(name) -> bool:
+    """16 section 2zf item 3(b): the one name that may be placed with no method.
+
+    The chief guest is never asked how they will pay (`21` Part A), so their
+    order would otherwise be impossible to place at all. The team settles it at
+    the counter, and the card simply shows no intended method.
+    """
+    return _letters(name) == "chiefguest"
+
+
 def _is_the_vice_chancellor(name) -> bool:
     """Whether this name is the one name that may be on the house (2ze item 3).
 
@@ -68,7 +104,7 @@ def _is_the_vice_chancellor(name) -> bool:
     change the answer: "Dr. Rauf-i-Azam", "rauf e azam" and "RAUF-E-AZAM" all
     pass, and "Chief Guest" cannot.
     """
-    letters = "".join(ch for ch in str(name or "").lower() if ch.isalpha())
+    letters = _letters(name)
     return letters == "vicechancellor" or ("rauf" in letters and "azam" in letters)
 
 
@@ -238,8 +274,16 @@ def build_order(items, guest_name=None, complimentary=None) -> dict:
         )
 
 
-def confirm_order(order_id) -> dict:
-    args = {"order_id": order_id}
+def confirm_order(order_id, payment_method=None) -> dict:
+    """16 section 2zf item 3(b): place the order, and say how it will be paid.
+
+    An order on the house is placed exactly as before: it goes straight to
+    CONFIRMED and the kitchen has it, and any payment_method sent with it is
+    ignored -- the Vice Chancellor is never asked. Every other order stops at
+    AWAITING_PAYMENT carrying the method the guest named, and reaches the
+    kitchen only when the team marks the money taken.
+    """
+    args = {"order_id": order_id, "payment_method": payment_method}
     try:
         try:
             oid = int(float(order_id))
@@ -272,7 +316,17 @@ def confirm_order(order_id) -> dict:
                 args,
                 {"source": "order", "error": "That order isn't waiting on confirmation."},
             )
-        result = data.update_order_status(oid, "CONFIRMED")
+        # 16 section 2zf item 3(b): where this order goes, and with what.
+        on_the_house = bool(order.get("complimentary"))
+        method = None if on_the_house else _payment_method(payment_method)
+        if on_the_house:
+            target = "CONFIRMED"
+        else:
+            if method is None and not _is_the_chief_guest(order.get("guest_name")):
+                # Nothing is placed and nothing is changed: THE HOST asks again.
+                return _finish("confirm_order", args, dict(PAYMENT_NEEDED))
+            target = "AWAITING_PAYMENT"
+        result = data.update_order_status(oid, target, payment_method=method)
         if not result["ok"]:
             return _finish(
                 "confirm_order",
@@ -293,9 +347,12 @@ def confirm_order(order_id) -> dict:
         placed = {
             "source": "order",
             "order_id": oid,
-            "status": "CONFIRMED",
+            "status": order["status"],
             "items": order["items"],
             "total": data.compute_total(order["items"]),
+            # 16 section 2zf item 3(b): null for the chief guest, who is never
+            # asked, and for an order on the house.
+            "payment_method": order.get("payment_method"),
         }
         # 16 section 2m item 5: this is what gives the activity row its
         # "(on the house)", so the team can see it and check.
@@ -329,23 +386,15 @@ def cancel_order(order_id, reason=None) -> dict:
                 args,
                 {"source": "order", "error": "I couldn't find that order."},
             )
-        # 16 section 2zc item 2(a), amending 09 section 6: a voice cancel is
-        # allowed only while the kitchen has not started. PREPARING used to be
-        # cancellable here, which meant a misheard line could throw away food
-        # already being made. The operator's own cancel
-        # (POST /api/orders/{id}/status) is unchanged and still reaches
-        # PREPARING -- the team can see the pan.
-        if order["status"] == "PREPARING":
-            return _finish(
-                "cancel_order",
-                args,
-                {
-                    "source": "order",
-                    "error": "The kitchen has already started on that order "
-                             "— the team can help.",
-                },
-            )
-        if order["status"] not in ("PENDING_CONFIRMATION", "CONFIRMED"):
+        # 16 section 2zf item 3(g), amending 2zc item 2(a) and 09 section 6: a
+        # voice cancel is allowed only before the money is taken. Under
+        # pay-first, CONFIRMED means paid, so the line the guest hears is about
+        # the payment rather than the pan, and any refund is the team's call.
+        # The operator's own cancel (POST /api/orders/{id}/status) is unchanged
+        # and still reaches CONFIRMED and PREPARING.
+        if order["status"] in ("CONFIRMED", "PREPARING", "READY", "COLLECTED"):
+            return _finish("cancel_order", args, dict(ALREADY_PAID))
+        if order["status"] not in ("PENDING_CONFIRMATION", "AWAITING_PAYMENT"):
             return _finish(
                 "cancel_order",
                 args,
@@ -495,7 +544,10 @@ def remember_visitor(name) -> dict:
         # Orders placed this session before a name was given.
         for order in data.attach_guest_name(c.get("session_id"), profile["display_name"]):
             _pub({"type": "order_updated", "order": data.order_view(order)})
-            if order["status"] in ("CONFIRMED", "PREPARING", "READY", "COLLECTED"):
+            # 16 section 2zf item 3(a): AWAITING_PAYMENT is a placed order, so
+            # the list is read from data rather than written out again here --
+            # it was missed once already when the status was added.
+            if order["status"] in data.CONFIRMED_OR_LATER:
                 old_favourite = _old_favourite(order)
                 linked = data.refresh_visitor_after_order(order)
                 if linked:
@@ -743,18 +795,29 @@ TOOL_DECLARATIONS = [
     ),
     _decl(
         "confirm_order",
-        "Place the draft order for real. Only call this after signal_confirmation_request AND a clear spoken yes from the guest.",
+        "Place the draft order for real, with how the guest will pay. The order then waits for payment at the counter; the kitchen gets it when the team marks it paid. Only call this after the guest's own clear answer.",
         {
             "order_id": {
                 "type": "integer",
                 "description": "The order_id returned by build_order.",
-            }
+            },
+            # 16 section 2zf item 3(b): optional, because the Vice Chancellor
+            # and the chief guest are never asked how they will pay.
+            "payment_method": {
+                "type": "string",
+                "enum": ["CASH", "QR"],
+                "description": (
+                    "How the guest said they will pay: CASH, or QR for the QR "
+                    "code (also when they say 'online'). Leave it out for a "
+                    "guest of honour, who is never asked."
+                ),
+            },
         },
         ("order_id",),
     ),
     _decl(
         "cancel_order",
-        "Cancel one of this guest's orders (a draft, confirmed, or being prepared). Not possible once it is ready.",
+        "Cancel one of this guest's orders: a draft, or one still waiting for payment. Not possible once it is paid.",
         {
             "order_id": {"type": "integer", "description": "The order number."},
             "reason": {"type": "string", "description": "Short reason, optional."},

@@ -48,11 +48,17 @@ HELD_WHILE_ORDERING = frozenset({"THINKING", "SPEAKING", "GREETING", "RECOMMENDI
 # Ali had answered, so the confirmation is no longer left to the prompt alone.
 # "mhm" is here because it was a real, accepted confirmation in the 8 Oct voice
 # test. The list is exactly 2zb item 3(b)'s.
+#
+# 16 section 2zf item 3(c): under pay-first the question is "Shall I place it --
+# cash or QR?", and the guest answers it with the payment rather than with a
+# yes. Those four words are the guest's own consent to placing the order, so
+# the guard has to count them or it would refuse every real order.
 AFFIRMATIVES = (
     "yes", "yeah", "yep", "yup", "sure", "confirm", "confirmed", "okay", "ok",
     "alright", "go ahead", "please do", "place it", "mhm", "mm-hmm", "uh-huh",
     "haan", "han", "ji", "jee", "theek hai", "thik hai", "bilkul", "kar do",
     "kardo", "ہاں", "جی", "ٹھیک ہے",
+    "cash", "qr", "online", "scan",
 )
 
 # Whole word, case-insensitive: "yes" in "yesterday" is not a yes, and the
@@ -413,6 +419,12 @@ class LiveSession:
         # one task that makes sure none of them waits for ever.
         self.pending_deferred_at = {}
         self.announce_watcher = None
+        # 16 section 2zf items 3(e) and 6: lines for THE HOST that come from the
+        # team's side rather than from the guest -- an order the team has just
+        # marked paid, and an operator's note. They are injected into the live
+        # conversation on the same terms as an announcement, so neither ever
+        # talks over THE HOST or the guest. Oldest first.
+        self.pending_injections = []
         # 16 section 2v item 4: an order is never handed over twice. `announced`
         # is every order id THE HOST has spoken in this session, and
         # `announcing_id` is the one whose announcement is in the air right now:
@@ -830,6 +842,16 @@ class LiveSession:
         # session -- but 2g item 4 says it is logged and handed to the display
         # rather than dropped in silence.
         self._drop_pending_announcements()
+        # 16 section 2zf items 3(e) and 6: the conversation is over, so a line
+        # still waiting for a gap has nobody to say it to. It is counted in the
+        # log, never quoted -- the text of a note is the team's, not the log's.
+        if self.pending_injections:
+            log.info(
+                "injections dropped session %s n=%s",
+                self.ctx["session_id"],
+                len(self.pending_injections),
+            )
+            self.pending_injections.clear()
         self.guest_voice_active = False
         self.voice_active_since = None
         self.voice_stale_logged = False
@@ -1546,6 +1568,16 @@ class LiveSession:
                 # It stays pending, so the watcher or the session's end still has
                 # it (2v item 4).
                 log.exception("the deferred order-ready announcement could not be spoken")
+        elif (
+            self.pending_injections
+            and self.announcing_id is None
+            and not self.voice_active_effective()
+        ):
+            # 16 section 2zf items 3(e) and 6: the same gap, on the same terms,
+            # for a paid-order line or an operator's note. A ready order is
+            # always spoken first -- a guest waiting at the counter comes
+            # before anything the team wants said.
+            await self._send_pending_injection()
 
     # ------------------------------------------------------------ announcement
 
@@ -1632,7 +1664,13 @@ class LiveSession:
             # No connection to speak over: mid-reconnect (2j item 4). The
             # announcement stays pending, and the watcher takes it from there.
             return
-        if not self.pending_announcements or self.announcing_id is not None:
+        if self.announcing_id is not None:
+            return
+        if not self.pending_announcements:
+            # 16 section 2zf items 3(e) and 6: the guest has stopped talking,
+            # so this is a gap for a deferred line from the team as well.
+            if self.pending_injections:
+                await self._send_pending_injection()
             return
         order = self.pending_announcements[0]
         try:
@@ -1642,12 +1680,71 @@ class LiveSession:
             # a failed injection must never end the conversation (2c item 3).
             log.exception("the deferred order-ready announcement could not be spoken")
 
+    # ------------------------------------------- lines from the team's side
+
+    def owns_order(self, order) -> bool:
+        """16 section 2zf item 3(e): whether this order belongs to this guest.
+
+        The same two tests `tools._owns_order` applies: the conversation that
+        placed it, or the name this conversation knows the guest by. An order
+        from the next guest along is never spoken about here.
+        """
+        if order.get("session_id") and order["session_id"] == self.ctx.get("session_id"):
+            return True
+        name = (self.ctx.get("visitor_name") or "").strip().lower()
+        return bool(name and str(order.get("guest_name") or "").strip().lower() == name)
+
+    async def inject(self, kind: str, text: str) -> None:
+        """16 section 2zf items 3(e) and 6: tell THE HOST something, in a gap.
+
+        Deferred on exactly the conditions an announcement is deferred on, and
+        through the same grace and the same watchdog, so a paid-order line or
+        an operator's note never cuts THE HOST off mid-sentence or talks over a
+        guest who has started speaking. Nothing of the text is ever logged.
+        """
+        if self._announcement_blocked():
+            self._defer_injection(kind, text)
+            return
+        await asyncio.sleep(config.ANNOUNCE_GRACE_S)
+        if self._announcement_blocked():
+            self._defer_injection(kind, text)
+            return
+        try:
+            await self._send_injection(kind, text)
+        except Exception:
+            # The order is paid or the note is logged either way: a failed
+            # injection must never end the conversation (2c item 3). It stays
+            # pending, so the watchdog has another go at it.
+            log.exception("a %s line could not be sent", kind)
+            self._defer_injection(kind, text)
+
+    def _defer_injection(self, kind: str, text: str) -> None:
+        log.info("%s deferred session %s", kind, self.ctx["session_id"])
+        self.pending_injections.append({"kind": kind, "text": text})
+        self._start_announce_watcher()
+
+    async def _send_injection(self, kind: str, text: str) -> None:
+        log.info("%s sent session %s", kind, self.ctx["session_id"])
+        await self.session.send_realtime_input(text=text)
+
+    async def _send_pending_injection(self) -> None:
+        """One deferred line, in a gap. The rest wait for the next gap."""
+        if not self.pending_injections:
+            return
+        entry = self.pending_injections[0]
+        try:
+            await self._send_injection(entry["kind"], entry["text"])
+        except Exception:
+            log.exception("a deferred %s line could not be sent", entry["kind"])
+            return
+        self.pending_injections.pop(0)
+
     # -------------------------------------------------- the deferral watchdog
 
     def _start_announce_watcher(self) -> None:
         if self.announce_watcher is not None and not self.announce_watcher.done():
             return
-        if self.closed or not self.pending_announcements:
+        if self.closed or not (self.pending_announcements or self.pending_injections):
             return
         self.announce_watcher = asyncio.create_task(self._watch_pending())
 
@@ -1664,13 +1761,19 @@ class LiveSession:
         a latched voice flag, or a guest who simply never stops making noise.
         """
         try:
-            while self.pending_announcements and not self.closed:
+            while (self.pending_announcements or self.pending_injections) and not self.closed:
                 await asyncio.sleep(ANNOUNCE_WATCH_INTERVAL_S)
-                if self.closed or not self.pending_announcements:
+                if self.closed or not (self.pending_announcements or self.pending_injections):
                     break
                 # 16 section 2v item 4: the head is still being announced, so
                 # there is nothing here to rescue yet.
                 if self.announcing_id is not None:
+                    continue
+                # 16 section 2zf items 3(e) and 6: a deferred line from the
+                # team waits on the same gap, and a ready order comes first.
+                if not self.pending_announcements:
+                    if not self._announcement_blocked():
+                        await self._send_pending_injection()
                     continue
                 order = self.pending_announcements[0]
                 waited = _now() - self.pending_deferred_at.get(order["id"], _now())
@@ -1836,12 +1939,13 @@ class LiveSession:
     async def _cancel_refusal(self, args) -> str | None:
         """16 section 2zc item 2(b): why this cancel_order may not run, or None.
 
-        It guards a CONFIRMED order only. A draft is never guarded, because a
-        "no" to the confirmation question has to cancel it, and the statuses
-        past CONFIRMED are the tool's own business (2zc item 2(a) refuses
-        PREPARING outright). For a confirmed order the guest must have spoken
-        after it was confirmed, and that line must carry their consent -- a yes,
-        or the cancellation in their own words.
+        16 section 2zf item 3(g) moves it onto AWAITING_PAYMENT: that is now
+        what "placed" means, and it is the only placed status a voice cancel can
+        still reach. A draft is never guarded, because a "no" to the final
+        question has to cancel it, and everything from CONFIRMED on is the
+        tool's own business -- it refuses a paid order outright. For a placed
+        order the guest must have spoken after it was placed, and that line must
+        carry their consent -- a yes, or the cancellation in their own words.
         """
         try:
             order_id = int(float(args.get("order_id")))
@@ -1849,7 +1953,7 @@ class LiveSession:
             # Not a number: let the tool itself answer, as 09 section 6 has it.
             return None
         order = await asyncio.to_thread(data.get_order, order_id)
-        if order is None or order["status"] != "CONFIRMED":
+        if order is None or order["status"] != "AWAITING_PAYMENT":
             return None
         since = self.confirmed_at.get(order_id, self.session_started_at)
         if self.last_guest_line_at is None or self.last_guest_line_at <= since:
@@ -1929,8 +2033,9 @@ class LiveSession:
                     elif name in ("confirm_order", "cancel_order", "report_feedback"):
                         self.ctx["awaiting_confirmation"] = False
                         if name == "confirm_order" and result.get("order_id"):
-                            # 16 section 2zc item 2(b): from here a cancel of
-                            # this order needs the guest to speak again.
+                            # 16 section 2zc item 2(b), as 2zf item 3(g) reads
+                            # it: the order is placed, so from here a cancel of
+                            # it needs the guest to speak again.
                             self.confirmed_at[result["order_id"]] = _now()
             log.info(
                 "tool %s session %s error=%s",

@@ -744,7 +744,13 @@ def test_get_order_status_by_number_covers_every_status(ctx, host_data):
     assert waiting["status"] == "PENDING_CONFIRMATION"
     assert waiting["status_text"] == "waiting for your confirmation"
 
-    tools.confirm_order(order_id)
+    # 16 section 2zf item 3: placed, then paid, then through the kitchen.
+    tools.confirm_order(order_id, payment_method="CASH")
+    placed = tools.get_order_status(order_id)["orders"][0]
+    assert placed["status"] == "AWAITING_PAYMENT"
+    assert placed["status_text"] == "waiting for payment at the counter"
+
+    host_data.update_order_status(order_id, "CONFIRMED", payment_method="CASH")
     for status, text in (
         ("PREPARING", "being prepared"),
         ("READY", "ready to collect"),
@@ -758,7 +764,7 @@ def test_get_order_status_by_number_covers_every_status(ctx, host_data):
 
 def test_get_order_status_by_name_finds_todays_orders(ctx, host_data):
     first = tools.build_order([{"name": "Chicken Burger"}], guest_name="Rehman")["order_id"]
-    tools.confirm_order(first)
+    tools.confirm_order(first, payment_method="CASH")
     second = tools.build_order([{"name": "Blue Lemonade"}], guest_name="Rehman")["order_id"]
 
     result = tools.get_order_status(guest_name="Rehman")
@@ -768,7 +774,7 @@ def test_get_order_status_by_name_finds_todays_orders(ctx, host_data):
     assert sorted(ids) == sorted([first, second])
     # Both statuses, including the one still waiting.
     texts_by_id = {order["order_id"]: order["status_text"] for order in result["orders"]}
-    assert texts_by_id[first] == "confirmed and queued"
+    assert texts_by_id[first] == "waiting for payment at the counter"
     assert texts_by_id[second] == "waiting for your confirmation"
 
 

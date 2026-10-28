@@ -23,6 +23,7 @@ import config
 import data
 import event_bus
 import health
+import prompts
 import summaries
 from live_session import LiveSession
 
@@ -132,13 +133,27 @@ async def _heartbeat_loop() -> None:
 
 
 async def _sweep_loop() -> None:
-    """16 section 2b item 11: expire abandoned drafts even with no traffic."""
+    """16 section 2b item 11: expire abandoned drafts even with no traffic.
+
+    16 section 2zf item 3(f): and, in the same sweeper, cancel an order nobody
+    ever came to the counter to pay for. The activity row is written here
+    because `data` cannot reach `summaries`.
+    """
     while True:
         await asyncio.sleep(config.PENDING_SWEEP_INTERVAL_S)
         try:
             await asyncio.to_thread(data.expire_pending_orders)
         except Exception:
             log.exception("draft sweep failed")
+        try:
+            unpaid = await asyncio.to_thread(data.expire_unpaid_orders)
+        except Exception:
+            log.exception("unpaid-order sweep failed")
+        else:
+            for order_id in unpaid:
+                summaries.emit_activity(
+                    "order", f"Order #{order_id} cancelled (unpaid)", None, None
+                )
 
 
 @asynccontextmanager
@@ -359,6 +374,10 @@ def get_earnings_csv():
             "total_rs",
             "status",
             "payment_method",
+            # 16 section 2zf item 3(i): when the team marked the money taken,
+            # empty for an order that was never paid or was collected before
+            # pay-first existed.
+            "paid_at",
             "on_the_house",
         ]
     )
@@ -378,6 +397,7 @@ def get_earnings_csv():
                 "" if amount is None else amount,
                 order["status"],
                 order.get("payment_method") or "",
+                order.get("paid_at") or "",
                 "yes" if order.get("complimentary") else "no",
             ]
         )
@@ -480,25 +500,42 @@ async def post_order_status(order_id: int, request: Request):
     if body.status not in data.ORDER_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid status update.")
 
-    # 16 section 2z item 2: a payment type belongs to the moment of collection,
-    # and never to an order the team gave away. Both are refused in the words
-    # the operator reads on the dashboard.
     method = (body.payment_method or "").strip().upper() or None
-    if method is not None:
-        if method not in data.PAYMENT_METHODS or body.status != "COLLECTED":
-            raise HTTPException(status_code=400, detail="Payment is recorded at collection.")
+    if method is not None and method not in data.PAYMENT_METHODS:
+        raise HTTPException(status_code=400, detail="Payment is recorded at collection.")
 
     existing = await asyncio.to_thread(_read_db, data.get_order, order_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="There is no order with that number.")
-    if method is not None and existing.get("complimentary"):
-        raise HTTPException(status_code=400, detail="This order is on the house.")
+
+    # 16 section 2zf item 3(d): this is the moment the team marks the money
+    # taken -- CONFIRMED on an order that was waiting for payment. The method
+    # recorded here is the one they really took, and it may differ from the one
+    # the guest named when the order was placed.
+    paying = body.status == "CONFIRMED" and existing["status"] == "AWAITING_PAYMENT"
+    if method is not None:
+        # 16 section 2z item 2, as 2zf item 3 amends it: a payment type belongs
+        # to the payment or to the old collection path, and nowhere else.
+        if not paying and body.status != "COLLECTED":
+            raise HTTPException(status_code=400, detail="Payment is recorded at collection.")
+        # And never to an order the team gave away.
+        if existing.get("complimentary"):
+            raise HTTPException(status_code=400, detail="This order is on the house.")
+    if paying and method is None:
+        raise HTTPException(status_code=400, detail="Choose Cash or QR.")
     # 16 section 2ze item 6(a): order #101 reached COLLECTED with no payment
     # type at all, so that sale could not be counted as cash or as QR. A paid
     # order is now collected only with one of the two, whatever the caller --
-    # the dashboard's own two buttons, a page still running an older build, or
-    # the operator API by hand. An order on the house has nothing to record.
-    if body.status == "COLLECTED" and method is None and not existing.get("complimentary"):
+    # the dashboard's own Collected button, a page still running an older
+    # build, or the operator API by hand. 2zf item 3(h): under pay-first the
+    # method is already on the order by then, which is why collection is one
+    # button again. An order on the house has nothing to record.
+    if (
+        body.status == "COLLECTED"
+        and not existing.get("complimentary")
+        and method is None
+        and not existing.get("payment_method")
+    ):
         raise HTTPException(status_code=400, detail="Choose Cash or QR.")
 
     result = await asyncio.to_thread(
@@ -513,8 +550,27 @@ async def post_order_status(order_id: int, request: Request):
         # order_ready follows its order_updated immediately (04 section 5 step 2).
         await _run_announcement(result["order"])
 
+    if paying:
+        # 16 section 2zf item 3(e): THE HOST is told, but only when the order
+        # belongs to the guest it is talking to right now. Anyone else's order
+        # is none of this conversation's business.
+        session = ACTIVE
+        if session is not None and session.owns_order(result["order"]):
+            try:
+                await session.inject(
+                    "payment", prompts.PAYMENT_TEMPLATE.format(order_id=order_id)
+                )
+            except Exception:
+                # The order is paid and both screens know: a line that could
+                # not be spoken must never fail the operator's press.
+                log.exception("the paid-order line could not be spoken")
+
+    # 16 section 2zf item 3(d): the payment gets a row of its own, so the feed
+    # reads as what happened at the counter rather than "updated".
     label = (
-        f"Order #{order_id} ready"
+        f"Order #{order_id} paid ({'cash' if method == 'CASH' else 'QR'})"
+        if paying
+        else f"Order #{order_id} ready"
         if body.status == "READY"
         else f"Order #{order_id} updated"
     )

@@ -14,14 +14,34 @@ log = logging.getLogger(__name__)
 
 # A REQUIRES_ATTENTION order still needs the operator, so it counts as active
 # everywhere (03 section 8, 15 section 4).
-ACTIVE_STATUSES = ("CONFIRMED", "PREPARING", "READY", "REQUIRES_ATTENTION")
+#
+# 16 section 2zf item 3(a): AWAITING_PAYMENT joins both groups. It is a placed
+# order -- the team has to take money for it, so the Orders panel must show it
+# -- and it counts towards a guest's favourite like any other order they placed,
+# which is what `confirm_order` refreshes the moment it is placed.
+ACTIVE_STATUSES = (
+    "AWAITING_PAYMENT", "CONFIRMED", "PREPARING", "READY", "REQUIRES_ATTENTION",
+)
 COMPLETED_STATUSES = ("COLLECTED", "CANCELLED", "FAILED")
-CONFIRMED_OR_LATER = ("CONFIRMED", "PREPARING", "READY", "COLLECTED")
+CONFIRMED_OR_LATER = (
+    "AWAITING_PAYMENT", "CONFIRMED", "PREPARING", "READY", "COLLECTED",
+)
 FINAL_STATUSES = ("COLLECTED", "CANCELLED", "FAILED")
 
 # 08 section 5 / 15 section 4: the only allowed order-status transitions.
+#
+# 16 section 2zf item 3(a) amends both: an order is placed before it is paid, so
+# a draft that is not on the house stops at AWAITING_PAYMENT and only reaches
+# CONFIRMED -- the status the kitchen works from -- once the team has marked the
+# money taken. A complimentary order still goes straight to CONFIRMED.
 ALLOWED_TRANSITIONS = {
-    "PENDING_CONFIRMATION": ("CONFIRMED", "CANCELLED", "REQUIRES_ATTENTION"),
+    "PENDING_CONFIRMATION": (
+        "AWAITING_PAYMENT",
+        "CONFIRMED",
+        "CANCELLED",
+        "REQUIRES_ATTENTION",
+    ),
+    "AWAITING_PAYMENT": ("CONFIRMED", "CANCELLED", "REQUIRES_ATTENTION"),
     "CONFIRMED": ("PREPARING", "CANCELLED", "REQUIRES_ATTENTION", "FAILED"),
     "PREPARING": ("READY", "CANCELLED", "REQUIRES_ATTENTION", "FAILED"),
     "READY": ("COLLECTED", "REQUIRES_ATTENTION", "FAILED"),
@@ -32,8 +52,17 @@ ALLOWED_TRANSITIONS = {
 }
 ORDER_STATUSES = tuple(ALLOWED_TRANSITIONS)
 
-# The forward chain, used only to word a refusal ("mark it PREPARING before READY").
-_STATUS_CHAIN = ("PENDING_CONFIRMATION", "CONFIRMED", "PREPARING", "READY", "COLLECTED")
+# The forward chain, used only to word a refusal ("mark it PREPARING before
+# READY"). 16 section 2zf item 3(a) puts the payment step into it, so a kitchen
+# press on an order nobody has paid for says which step was skipped.
+_STATUS_CHAIN = (
+    "PENDING_CONFIRMATION",
+    "AWAITING_PAYMENT",
+    "CONFIRMED",
+    "PREPARING",
+    "READY",
+    "COLLECTED",
+)
 
 _MENU_COLUMNS = (
     "name, category, price, description, image_url, available, prep_seconds, "
@@ -47,17 +76,27 @@ MENU_TAGS = ("spicy", "sweet", "vegetarian", "cold", "hot")
 _ORDER_COLUMNS = (
     "id, timestamp, guest_name, items, status, announced, session_id, "
     "cancel_reason, estimated_ready_at, ready_at, orphaned_at, complimentary, "
-    "payment_method"
+    "payment_method, paid_at"
 )
 
-# 16 section 2z item 2: how the guest paid, recorded by the operator at
-# collection. NULL until then, and for every order from before this phase.
+# 16 section 2z item 2: how the guest paid. Since 2zf item 3 it is recorded
+# twice: the method the guest said they would use, stored when the order is
+# placed, and the one the team really took, stored when they mark it paid.
 PAYMENT_METHODS = ("CASH", "QR")
+
+# 16 section 2zf item 3(d): when the team marked the money taken. NULL on every
+# order from before this phase, including ones already collected -- their
+# payment was never timed, and guessing a time would be inventing history.
+# The statuses that may carry a payment_method at all.
+PAYMENT_STATUSES = ("AWAITING_PAYMENT", "CONFIRMED", "COLLECTED")
 
 # 16 section 2l item 5: how each status is described to a guest. A draft is not
 # a placed order, and THE HOST must never let one sound like one.
 STATUS_TEXT = {
     "PENDING_CONFIRMATION": "waiting for your confirmation",
+    # 16 section 2zf item 3(a): placed, but not with the kitchen until the guest
+    # has paid at the counter and the team has marked it.
+    "AWAITING_PAYMENT": "waiting for payment at the counter",
     "CONFIRMED": "confirmed and queued",
     "PREPARING": "being prepared",
     "READY": "ready to collect",
@@ -178,7 +217,8 @@ def init_db() -> list[tuple[str, bool]]:
                 ready_at TEXT,
                 orphaned_at TEXT,
                 complimentary INTEGER NOT NULL DEFAULT 0,
-                payment_method TEXT
+                payment_method TEXT,
+                paid_at TEXT
             )"""
         )
         # 16 section 2l item 4: when a conversation broke and left this draft
@@ -198,6 +238,13 @@ def init_db() -> list[tuple[str, bool]]:
         # "collected without a payment type" rather than guessing.
         if "payment_method" not in order_columns:
             conn.execute("ALTER TABLE orders ADD COLUMN payment_method TEXT")
+        # 16 section 2zf item 3(d): when the team marked the money taken. It
+        # arrives NULL, and stays NULL on orders that are already past CONFIRMED
+        # with a payment_method on them: those were collected before pay-first
+        # existed, and their payment was never timed. The Earnings panel counts
+        # them from their status instead of inventing a time for them.
+        if "paid_at" not in order_columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN paid_at TEXT")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS feedback (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -482,8 +529,14 @@ def order_view(order) -> dict:
         # the record.
         "complimentary": bool(order.get("complimentary")),
         # 16 section 2z item 2: in the view, so every order event carries it.
-        # null until the operator records it at collection.
+        # Since 2zf item 3(b) it is set the moment the order is placed -- the
+        # method the guest said they would use -- and replaced by the one the
+        # team really took when they mark it paid.
         "payment_method": order.get("payment_method"),
+        # 16 section 2zf item 3(d): when the team marked it paid, or null. This
+        # is what tells a card "Paid · Cash" from "Waiting for payment", and
+        # what the Earnings panel counts.
+        "paid_at": order.get("paid_at"),
     }
 
 
@@ -519,6 +572,53 @@ def expire_pending_orders(ttl_seconds: int = config.PENDING_ORDER_TTL_S) -> list
             ids,
         ).fetchall()
     for row in rows:
+        event_bus.publish_threadsafe(
+            {
+                "type": "order_updated",
+                "order": order_view(_order_from_row(row)),
+                "session_id": None,
+            }
+        )
+    return ids
+
+
+def expire_unpaid_orders(ttl_seconds: int = None) -> list[int]:
+    """16 section 2zf item 3(f): a placed order nobody ever paid for.
+
+    Pay-first means an order can sit AWAITING_PAYMENT for ever if the guest
+    never reaches the counter, holding a slot in the Orders panel and a figure
+    in "Waiting for payment". One this old is cancelled with the reason
+    `unpaid`, by the same sweeper that expires abandoned drafts.
+
+    The age is the order's own `timestamp`, the one column the orders table has
+    for when an order began: a draft is cancelled at `PENDING_ORDER_TTL_S`, so
+    an order that was placed at all was placed well inside that, and the TTL
+    here is twice it. The activity row belongs to the caller (`main`), because
+    `summaries` reads this module and cannot be imported from it.
+    """
+    window = config.PAYMENT_TTL_S if ttl_seconds is None else ttl_seconds
+    cutoff = (datetime.now() - timedelta(seconds=window)).isoformat(timespec="seconds")
+    with closing(_connect()) as conn:
+        stale = conn.execute(
+            "SELECT id FROM orders WHERE status = 'AWAITING_PAYMENT' AND timestamp < ?",
+            (cutoff,),
+        ).fetchall()
+        if not stale:
+            return []
+        ids = [int(row["id"]) for row in stale]
+        placeholders = ",".join("?" * len(ids))
+        conn.execute(
+            f"UPDATE orders SET status = 'CANCELLED', cancel_reason = 'unpaid' "
+            f"WHERE id IN ({placeholders})",
+            ids,
+        )
+        conn.commit()
+        rows = conn.execute(
+            f"SELECT {_ORDER_COLUMNS} FROM orders WHERE id IN ({placeholders}) ORDER BY id",
+            ids,
+        ).fetchall()
+    for row in rows:
+        log.info("order unpaid order %s", int(row["id"]))
         event_bus.publish_threadsafe(
             {
                 "type": "order_updated",
@@ -674,14 +774,17 @@ def create_order_draft(items, guest_name, session_id, complimentary=False) -> di
                 )
                 conn.commit()
                 changed = True
-            # 16 section 2m item 5, and for the same reason as the name above:
-            # "this one is on the house" can arrive on a later build_order than
-            # the items, so a call that does not say so leaves the flag alone.
-            # Only the guest-of-honour rule ever sets it, and only 0 to 1 is a
-            # change -- a flag already set is not set again.
-            if on_the_house and not row["complimentary"]:
+            # 16 section 2zf item 1(b), amending 2m item 5: the flag is no
+            # longer sticky. Until this phase a call that did not ask for it
+            # left a flag already set alone, so a draft built for the Vice
+            # Chancellor and then rebuilt under another name stayed on the
+            # house. Every build now writes the answer the caller computed from
+            # this call's name (2ze item 3), in both directions, and only a
+            # value that really moves counts as a change.
+            if int(bool(row["complimentary"])) != on_the_house:
                 conn.execute(
-                    "UPDATE orders SET complimentary = 1 WHERE id = ?", (row["id"],)
+                    "UPDATE orders SET complimentary = ? WHERE id = ?",
+                    (on_the_house, row["id"]),
                 )
                 conn.commit()
                 changed = True
@@ -734,14 +837,16 @@ def update_order_status(order_id, new_status, reason=None, payment_method=None) 
     status = str(new_status or "").strip().upper()
     if status not in ORDER_STATUSES:
         return {"ok": False, "error": f"'{new_status}' isn't an order status."}
-    # 16 section 2z item 2: a payment belongs to the moment of collection, and
-    # never to an order that is on the house. The endpoint says the same in the
-    # words the operator sees; this is the floor under it.
+    # 16 section 2z item 2, as amended by 2zf item 3: a payment belongs to one
+    # of three moments and to no other, and never to an order that is on the
+    # house. AWAITING_PAYMENT carries the method the guest said they would use,
+    # CONFIRMED the one the team really took, and COLLECTED is the pre-pay-first
+    # path that still has to work for an order placed before this phase. The
+    # endpoint says the same in the words the operator reads; this is the floor
+    # under it.
     method = str(payment_method or "").strip().upper() or None
     if method is not None:
-        if method not in PAYMENT_METHODS:
-            return {"ok": False, "error": "Payment is recorded at collection."}
-        if status != "COLLECTED":
+        if method not in PAYMENT_METHODS or status not in PAYMENT_STATUSES:
             return {"ok": False, "error": "Payment is recorded at collection."}
 
     with closing(_connect()) as conn:
@@ -763,6 +868,16 @@ def update_order_status(order_id, new_status, reason=None, payment_method=None) 
         if method is not None:
             assignments.append("payment_method = ?")
             params.append(method)
+        # 16 section 2zf item 3(d): the moment the money was taken. Only the
+        # step out of AWAITING_PAYMENT is that moment, and only once: an order
+        # already carrying a paid_at keeps the time it was really paid.
+        if (
+            current == "AWAITING_PAYMENT"
+            and status == "CONFIRMED"
+            and not order.get("paid_at")
+        ):
+            assignments.append("paid_at = ?")
+            params.append(_now())
         if status == "PREPARING":
             names = [
                 str((entry or {}).get("name") or "").lower()
@@ -1224,8 +1339,22 @@ def order_rupees(items) -> int | None:
     return total
 
 
-# 16 section 2z item 4: what is still owed to the stall, as against taken.
-_TO_COLLECT_STATUSES = ("CONFIRMED", "PREPARING", "READY", "REQUIRES_ATTENTION")
+# 16 section 2zf item 3(i), replacing 2z item 4's `to_collect`: with pay-first
+# the money is either taken or it is still at the counter, and the only status
+# that means "still at the counter" is this one.
+_AWAITING_PAYMENT_STATUSES = ("AWAITING_PAYMENT",)
+
+
+def _is_paid(order) -> bool:
+    """16 section 2zf item 3(i): whether this order's money was really taken.
+
+    `paid_at` is the pay-first answer. A COLLECTED order from before this phase
+    has no `paid_at` at all -- the column was added NULL and nothing went back
+    to fill it in -- so its status is the only evidence there is, and it still
+    counts as paid: the team took the money, they just did it under the old
+    rules. Both are "paid orders" wherever 3(i) uses the word.
+    """
+    return bool(order.get("paid_at")) or order.get("status") == "COLLECTED"
 
 
 def earnings_rows() -> list[dict]:
@@ -1251,20 +1380,32 @@ def get_earnings() -> dict:
     """
     orders = earnings_rows()
     earned = {"CASH": 0, "QR": 0, None: 0}
-    to_collect = 0
+    awaiting_payment = 0
     on_the_house = 0
     on_the_house_orders = 0
     paid_orders = 0
     cancelled_orders = 0
+    refunded = 0
+    refunded_orders = 0
     unpriced_orders = 0
     by_item: dict[str, dict] = {}
 
     for order in orders:
         status = order["status"]
+        amount = order_rupees(order["items"])
         if status in ("CANCELLED", "FAILED"):
             cancelled_orders += 1
+            # 16 section 2zf item 3(i): an order the guest paid for and the team
+            # then cancelled is money that has to go back, so it is reported on
+            # its own instead of simply vanishing from the day's figures.
+            if (
+                amount is not None
+                and not order.get("complimentary")
+                and _is_paid(order)
+            ):
+                refunded += amount
+                refunded_orders += 1
             continue
-        amount = order_rupees(order["items"])
         if amount is None:
             unpriced_orders += 1
             continue
@@ -1273,10 +1414,16 @@ def get_earnings() -> dict:
             on_the_house += amount
             on_the_house_orders += 1
             continue
-        if status == "COLLECTED":
+        if _is_paid(order):
+            # 16 section 2zf item 3(i): earned is now every paid order, whatever
+            # the kitchen has done with it since -- with pay-first the money is
+            # in the box long before the food is handed over, and a day's
+            # takings that only counted COLLECTED would read far too low.
             method = order.get("payment_method")
             earned[method if method in PAYMENT_METHODS else None] += amount
-            paid_orders += 1
+            # 2z item 4, not amended by 2zf: this counts collected orders.
+            if status == "COLLECTED":
+                paid_orders += 1
             for entry in order["items"] or []:
                 name = (entry or {}).get("name")
                 if not name:
@@ -1289,8 +1436,8 @@ def get_earnings() -> dict:
                 row = by_item.setdefault(name, {"name": name, "quantity": 0, "amount": 0})
                 row["quantity"] += quantity
                 row["amount"] += int(digits) * quantity
-        elif status in _TO_COLLECT_STATUSES:
-            to_collect += amount
+        elif status in _AWAITING_PAYMENT_STATUSES:
+            awaiting_payment += amount
 
     return {
         "date": _today(),
@@ -1298,11 +1445,14 @@ def get_earnings() -> dict:
         "earned_cash": earned["CASH"],
         "earned_qr": earned["QR"],
         "earned_unrecorded": earned[None],
-        "to_collect": to_collect,
+        # 16 section 2zf item 3(i): `awaiting_payment` replaces `to_collect`.
+        "awaiting_payment": awaiting_payment,
         "on_the_house": on_the_house,
         "on_the_house_orders": on_the_house_orders,
         "paid_orders": paid_orders,
         "cancelled_orders": cancelled_orders,
+        "refunded": refunded,
+        "refunded_orders": refunded_orders,
         "by_item": sorted(
             by_item.values(), key=lambda row: (-row["amount"], row["name"])
         ),

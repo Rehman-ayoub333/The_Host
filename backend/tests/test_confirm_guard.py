@@ -65,10 +65,22 @@ def built_draft(session):
     return session.ctx["pending_order_id"]
 
 
-def confirm(session, order_id, call_id="call-confirm"):
+def confirm(session, order_id, call_id="call-confirm", payment="CASH"):
+    """16 §2zf item 3(b): placing an ordinary order now says how it will be paid.
+
+    The guard is unchanged by that -- it still asks whether the guest spoke
+    after the draft and whether they said yes -- so every test here passes the
+    method the model would have passed and watches the guard, not the payment.
+    """
     feed(
         session,
-        doubles.message(tool_call=doubles.call("confirm_order", {"order_id": order_id}, call_id)),
+        doubles.message(
+            tool_call=doubles.call(
+                "confirm_order",
+                {"order_id": order_id, "payment_method": payment},
+                call_id,
+            )
+        ),
     )
 
 
@@ -166,8 +178,10 @@ def test_a_confirm_after_a_later_yes_passes():
     guest_said(session, "Yes.")
     confirm(session, order_id)
 
-    assert data.get_order(order_id)["status"] == "CONFIRMED"
-    assert last_response(session).response["status"] == "CONFIRMED"
+    # 16 §2zf item 3(b): a guest's yes places the order; the money makes it
+    # CONFIRMED. The guard's job ends at the yes.
+    assert data.get_order(order_id)["status"] == "AWAITING_PAYMENT"
+    assert last_response(session).response["status"] == "AWAITING_PAYMENT"
     doubles.validate(ws)
 
 
@@ -197,7 +211,7 @@ def test_a_haan_ji_passes():
     guest_said(session, "Haan ji.")
     confirm(session, order_id)
 
-    assert data.get_order(order_id)["status"] == "CONFIRMED"
+    assert data.get_order(order_id)["status"] == "AWAITING_PAYMENT"
 
 
 def test_a_typed_yes_counts_as_a_guest_line():
@@ -208,7 +222,7 @@ def test_a_typed_yes_counts_as_a_guest_line():
     guest_typed(session, ws, "Yes.")
     confirm(session, order_id)
 
-    assert data.get_order(order_id)["status"] == "CONFIRMED"
+    assert data.get_order(order_id)["status"] == "AWAITING_PAYMENT"
 
 
 def test_an_orphaned_draft_is_confirmed_after_the_offer_and_a_yes(host_data):
@@ -232,7 +246,7 @@ def test_an_orphaned_draft_is_confirmed_after_the_offer_and_a_yes(host_data):
     guest_said(session, "Yes.")
     confirm(session, order_id)
 
-    assert data.get_order(order_id)["status"] == "CONFIRMED"
+    assert data.get_order(order_id)["status"] == "AWAITING_PAYMENT"
 
 
 def test_an_orphaned_draft_is_refused_before_the_offer_has_been_made(caplog):
@@ -314,11 +328,18 @@ def test_the_refusal_response_is_exactly_as_written():
 
 
 def test_the_word_list_is_the_one_the_spec_names():
+    """16 section 2zb item 3(b), with 2zf item 3(c)'s four payment words.
+
+    Under pay-first the one question is "Shall I place it -- cash or QR?", so
+    the guest answers it with the payment and not with a yes. Those four words
+    are the guest's own consent to the order being placed.
+    """
     assert ls.AFFIRMATIVES == (
         "yes", "yeah", "yep", "yup", "sure", "confirm", "confirmed", "okay", "ok",
         "alright", "go ahead", "please do", "place it", "mhm", "mm-hmm", "uh-huh",
         "haan", "han", "ji", "jee", "theek hai", "thik hai", "bilkul", "kar do",
         "kardo", "ہاں", "جی", "ٹھیک ہے",
+        "cash", "qr", "online", "scan",
     )
 
 

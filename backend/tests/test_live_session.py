@@ -259,8 +259,11 @@ def test_an_order_turn_holds_taking_order_throughout():
     assert session.ctx["pending_order_id"] == order_id
 
     # 16 section 2zb item 3: the guest answers the question before the confirm.
-    feed(session, [message(content(visitor="Yes."))])
-    feed(session, [message(tool_call=call("confirm_order", {"order_id": order_id}))])
+    # 2zf item 3(b): the answer is the payment, and it goes with the call.
+    feed(session, [message(content(visitor="Cash."))])
+    feed(session, [message(tool_call=call(
+        "confirm_order", {"order_id": order_id, "payment_method": "CASH"}
+    ))])
     assert session.ctx["pending_order_id"] is None
     assert session.ctx["awaiting_confirmation"] is False
 
@@ -272,7 +275,8 @@ def test_an_order_turn_holds_taking_order_throughout():
         "SPEAKING",
         "LISTENING",
     ]
-    assert order_row(order_id)["status"] == "CONFIRMED"
+    # 16 section 2zf item 3(a): placed, and waiting for the money.
+    assert order_row(order_id)["status"] == "AWAITING_PAYMENT"
     validate(ws)
 
 
@@ -991,12 +995,16 @@ def test_a_confirmed_order_survives_the_session_ending():
     session, ws = listening()
     feed(session, [message(tool_call=call("build_order", {"items": [BURGER]}))])
     order_id = session.ctx["pending_order_id"]
-    feed(session, [message(content(visitor="Yes."))])
-    feed(session, [message(tool_call=call("confirm_order", {"order_id": order_id}))])
+    feed(session, [message(content(visitor="Cash."))])
+    feed(session, [message(tool_call=call(
+        "confirm_order", {"order_id": order_id, "payment_method": "CASH"}
+    ))])
 
     asyncio.run(session.stop())
 
-    assert order_row(order_id)["status"] == "CONFIRMED"
+    # 16 section 2zf item 3(a): a placed order survives the conversation just
+    # as a confirmed one did; the money is still owed at the counter.
+    assert order_row(order_id)["status"] == "AWAITING_PAYMENT"
 
 
 def test_a_session_start_logs_its_row_and_activity(monkeypatch):
@@ -1088,8 +1096,10 @@ def test_a_tool_call_publishes_its_activity():
 
     feed(session, [message(tool_call=call("build_order", {"items": [BURGER]}))])
     order_id = session.ctx["pending_order_id"]
-    feed(session, [message(content(visitor="Yes."))])
-    feed(session, [message(tool_call=call("confirm_order", {"order_id": order_id}))])
+    feed(session, [message(content(visitor="Cash."))])
+    feed(session, [message(tool_call=call(
+        "confirm_order", {"order_id": order_id, "payment_method": "CASH"}
+    ))])
 
     activity = [
         (event["kind"], event["label"], event["detail"])

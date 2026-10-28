@@ -40,21 +40,54 @@ def served(monkeypatch):
 
 
 def order(items, status=None, complimentary=False, name="Ali", payment=None):
-    """One order in the database, advanced to `status` the ordinary way."""
+    """One order in the database, advanced to `status` the ordinary way.
+
+    16 section 2zf item 3: with pay-first a real order reaches CONFIRMED
+    through AWAITING_PAYMENT, and `payment` is what the team marked it paid
+    with. The old route -- straight to CONFIRMED and a payment at COLLECTED --
+    is what an order from before this phase looks like, so it is kept here
+    under `legacy=True` and is the only thing `earned_unrecorded` can mean.
+    """
     draft = data.create_order_draft(items, name, "session-1", complimentary=complimentary)
     order_id = draft["order_id"]
     for step in {
         None: (),
-        "CONFIRMED": ("CONFIRMED",),
-        "PREPARING": ("CONFIRMED", "PREPARING"),
-        "READY": ("CONFIRMED", "PREPARING", "READY"),
-        "COLLECTED": ("CONFIRMED", "PREPARING", "READY", "COLLECTED"),
+        "AWAITING_PAYMENT": ("AWAITING_PAYMENT",),
+        "CONFIRMED": ("AWAITING_PAYMENT", "CONFIRMED"),
+        "PREPARING": ("AWAITING_PAYMENT", "CONFIRMED", "PREPARING"),
+        "READY": ("AWAITING_PAYMENT", "CONFIRMED", "PREPARING", "READY"),
+        "COLLECTED": (
+            "AWAITING_PAYMENT", "CONFIRMED", "PREPARING", "READY", "COLLECTED",
+        ),
         "CANCELLED": ("CANCELLED",),
     }[status]:
-        if step == "COLLECTED":
+        if step == "CONFIRMED" and not complimentary:
+            data.update_order_status(order_id, step, payment_method=payment or "CASH")
+        else:
+            data.update_order_status(order_id, step)
+    return order_id
+
+
+def legacy_order(items, status, complimentary=False, name="Ali", payment=None):
+    """An order as it looked before pay-first: no payment step, no `paid_at`."""
+    draft = data.create_order_draft(items, name, "session-old", complimentary=complimentary)
+    order_id = draft["order_id"]
+    for step in {
+        "CONFIRMED": ("CONFIRMED",),
+        "READY": ("CONFIRMED", "PREPARING", "READY"),
+        "COLLECTED": ("CONFIRMED", "PREPARING", "READY", "COLLECTED"),
+    }[status]:
+        if step == "COLLECTED" and payment is not None:
             data.update_order_status(order_id, step, payment_method=payment)
         else:
             data.update_order_status(order_id, step)
+    return order_id
+
+
+def paid_then_cancelled(items, name="Ali", payment="CASH"):
+    """The operator cancels an order the guest had already paid for."""
+    order_id = order(items, "CONFIRMED", name=name, payment=payment)
+    data.update_order_status(order_id, "CANCELLED", reason="operator")
     return order_id
 
 
@@ -98,7 +131,7 @@ def test_the_migration_adds_payment_method(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("method", ["CASH", "QR"])
 def test_collected_with_a_payment_method_is_stored_and_published(served, method):
-    order_id = order([BURGER], "READY")
+    order_id = legacy_order([BURGER], "READY")
     event_bus.PUBLISHED.clear()
 
     response = served.post(
@@ -146,7 +179,10 @@ def test_an_order_view_without_a_payment_carries_null(served):
 
 @pytest.mark.parametrize("status", ["CONFIRMED", "PREPARING", "READY", "CANCELLED"])
 def test_a_payment_method_on_any_other_status_is_refused(served, status):
-    order_id = order([BURGER], "CONFIRMED")
+    # 16 section 2zf item 3(d): CONFIRMED on an order that is waiting for
+    # payment IS the payment, so the order under test here is one that never
+    # waited -- an order from before pay-first, carrying no method at all.
+    order_id = legacy_order([BURGER], "CONFIRMED")
     response = served.post(
         f"/api/orders/{order_id}/status",
         json={"status": status, "payment_method": "CASH"},
@@ -159,7 +195,7 @@ def test_a_payment_method_on_any_other_status_is_refused(served, status):
 
 
 def test_an_unknown_payment_method_is_refused(served):
-    order_id = order([BURGER], "READY")
+    order_id = legacy_order([BURGER], "READY")
     response = served.post(
         f"/api/orders/{order_id}/status",
         json={"status": "COLLECTED", "payment_method": "CARD"},
@@ -195,8 +231,13 @@ def test_a_complimentary_order_never_takes_a_payment_method(served):
 
 
 def test_a_paid_order_is_not_collected_without_cash_or_qr(served):
-    """Order #101 reached COLLECTED with no payment type, so the sale was lost."""
-    order_id = order([BURGER], "READY")
+    """Order #101 reached COLLECTED with no payment type, so the sale was lost.
+
+    16 section 2zf item 3(h): under pay-first the method is already on the
+    order by the time it is handed over, so the order that can still hit this
+    refusal is one from before pay-first, which never recorded one.
+    """
+    order_id = legacy_order([BURGER], "READY")
 
     refused = served.post(
         f"/api/orders/{order_id}/status", json={"status": "COLLECTED"}, headers=AUTH
@@ -213,7 +254,7 @@ def test_a_paid_order_is_not_collected_without_cash_or_qr(served):
 @pytest.mark.parametrize("sent", [{}, {"payment_method": None}, {"payment_method": ""}])
 def test_a_missing_blank_or_null_payment_type_is_all_the_same_refusal(served, sent):
     """A caller that leaves it out, sends null or sends "" is refused alike."""
-    order_id = order([BURGER], "READY")
+    order_id = legacy_order([BURGER], "READY")
 
     refused = served.post(
         f"/api/orders/{order_id}/status",
@@ -229,7 +270,7 @@ def test_a_missing_blank_or_null_payment_type_is_all_the_same_refusal(served, se
 
 @pytest.mark.parametrize("method", ["CASH", "QR"])
 def test_either_payment_type_collects_a_paid_order(served, method):
-    order_id = order([BURGER], "READY")
+    order_id = legacy_order([BURGER], "READY")
 
     allowed = served.post(
         f"/api/orders/{order_id}/status",
@@ -257,6 +298,7 @@ def test_an_order_on_the_house_is_still_collected_with_nothing(served):
 @pytest.mark.parametrize("status", ["PREPARING", "READY", "CANCELLED", "FAILED"])
 def test_every_other_status_still_needs_no_payment_type(served, status):
     order_id = order([BURGER], "CONFIRMED" if status != "FAILED" else "PREPARING")
+    # The payment is already on it: these presses carry nothing of their own.
     if status == "READY":
         served.post(
             f"/api/orders/{order_id}/status", json={"status": "PREPARING"}, headers=AUTH
@@ -276,34 +318,35 @@ def test_every_other_status_still_needs_no_payment_type(served, status):
 
 @pytest.fixture
 def mixed_day():
-    """A day with one of everything 2z item 9 names, worked out by hand.
+    """A day with one of everything 16 section 2zf item 9 names, by hand.
 
-    cash      : 1 x Chicken Burger          650
-    qr        : 1 x Blue Lemonade           250
-    unrecorded: 3 x Mixed Fruit Shake     1,050   (COLLECTED, no method)
-    to collect: 1 x Chicken Burger (READY)  650
-              + 1 x Blue Lemonade (CONFIRMED) 250  = 900
-    on the house: 1 x Mixed Fruit Shake     350   (COLLECTED, complimentary)
-    cancelled : 1 x Chicken Burger          --    (not counted anywhere)
-    a draft   : 1 x Blue Lemonade           --    (never counted)
-    unpriced  : 1 x Mystery Item            --    (excluded, warned about)
+    cash         : 1 x Chicken Burger       650   (paid CASH, then COLLECTED)
+    qr           : 1 x Blue Lemonade        250   (paid QR, still CONFIRMED)
+    unrecorded   : 3 x Mixed Fruit Shake  1,050   (an order from before
+                                                   pay-first: COLLECTED with
+                                                   no method and no paid_at)
+    awaiting     : 1 x Chicken Burger       650   (placed, nobody has paid)
+    on the house : 1 x Mixed Fruit Shake    350   (complimentary, COLLECTED)
+    cancelled    : 1 x Chicken Burger        --   (never paid, never counted)
+    refunded     : 1 x Blue Lemonade        250   (paid CASH, then cancelled
+                                                   by the operator)
+    a draft      : 1 x Blue Lemonade         --   (never counted)
+    unpriced     : 1 x Mystery Item          --   (excluded, warned about)
     """
-    ids = {
+    return {
         "cash": order([BURGER], "COLLECTED", payment="CASH"),
-        "qr": order([LEMONADE], "COLLECTED", payment="QR"),
-        "unrecorded": order(
-            [{**SHAKE, "quantity": 3}], "COLLECTED"
-        ),
-        "ready": order([BURGER], "READY"),
-        "confirmed": order([LEMONADE], "CONFIRMED"),
+        "qr": order([LEMONADE], "CONFIRMED", payment="QR"),
+        "unrecorded": legacy_order([{**SHAKE, "quantity": 3}], "COLLECTED"),
+        "awaiting": order([BURGER], "AWAITING_PAYMENT"),
         "house": order([SHAKE], "COLLECTED", complimentary=True, name="Vice Chancellor"),
         "cancelled": order([BURGER], "CANCELLED"),
+        "refunded": paid_then_cancelled([LEMONADE]),
         "draft": order([LEMONADE], None),
-        "unpriced": order(
-            [{"name": "Mystery Item", "quantity": 1, "price": "ask the team"}], "COLLECTED"
+        "unpriced": legacy_order(
+            [{"name": "Mystery Item", "quantity": 1, "price": "ask the team"}],
+            "COLLECTED",
         ),
     }
-    return ids
 
 
 def test_the_earnings_add_up_for_a_mixed_day(mixed_day):
@@ -315,21 +358,72 @@ def test_the_earnings_add_up_for_a_mixed_day(mixed_day):
     assert earnings["earned_unrecorded"] == 1050
     # The three parts add up to the whole, which is the point of the breakdown.
     assert earnings["earned"] == 650 + 250 + 1050 == 1950
-    assert earnings["to_collect"] == 900
+    # 16 section 2zf item 3(i): `awaiting_payment` replaces `to_collect`.
+    assert earnings["awaiting_payment"] == 650
+    assert "to_collect" not in earnings
     assert earnings["on_the_house"] == 350
     assert earnings["on_the_house_orders"] == 1
-    assert earnings["paid_orders"] == 3
-    assert earnings["cancelled_orders"] == 1
+    # 2z item 4, not amended: COLLECTED and not on the house. The QR order is
+    # paid but still with the kitchen, so it is earned and not yet collected.
+    assert earnings["paid_orders"] == 2
+    # The order nobody paid for, and the one the operator cancelled after it
+    # had been paid.
+    assert earnings["cancelled_orders"] == 2
+    assert earnings["refunded"] == 250
+    assert earnings["refunded_orders"] == 1
     assert earnings["unpriced_orders"] == 1
     assert earnings["date"] == data._today()
+
+
+def test_money_paid_and_then_cancelled_is_reported_as_a_refund():
+    """2zf item 3(i): it leaves `earned` and turns up under `refunded`."""
+    paid_then_cancelled([BURGER])
+
+    earnings = data.get_earnings()
+
+    print("after the operator cancelled a paid order:", earnings)
+    assert earnings["earned"] == 0
+    assert earnings["refunded"] == 650
+    assert earnings["refunded_orders"] == 1
+    assert earnings["cancelled_orders"] == 1
+
+
+def test_an_order_cancelled_before_it_was_paid_is_not_a_refund():
+    order([BURGER], "CANCELLED")
+
+    earnings = data.get_earnings()
+
+    assert earnings["refunded"] == 0
+    assert earnings["refunded_orders"] == 0
+    assert earnings["cancelled_orders"] == 1
+
+
+def test_an_order_is_earned_as_soon_as_it_is_paid_not_when_it_is_handed_over():
+    """2zf item 3(i): the money is in the box long before the food goes out."""
+    order([BURGER], "CONFIRMED", payment="QR")
+
+    earnings = data.get_earnings()
+
+    assert earnings["earned"] == 650
+    assert earnings["earned_qr"] == 650
+    assert earnings["awaiting_payment"] == 0
+
+
+def test_an_unpaid_order_is_money_still_at_the_counter():
+    order([BURGER], "AWAITING_PAYMENT")
+
+    earnings = data.get_earnings()
+
+    assert earnings["earned"] == 0
+    assert earnings["awaiting_payment"] == 650
 
 
 def test_by_item_is_ordered_by_amount(mixed_day):
     rows = data.get_earnings()["by_item"]
 
     print("by_item:", rows)
-    # Only COLLECTED, not complimentary: the shake's three, the burger, the
-    # lemonade. The unpriced order contributes nothing.
+    # Only paid, not complimentary: the shake's three, the burger, the
+    # lemonade. The unpriced order and the refunded one contribute nothing.
     assert rows == [
         {"name": "Mixed Fruit Shake", "quantity": 3, "amount": 1050},
         {"name": "Chicken Burger", "quantity": 1, "amount": 650},
@@ -340,9 +434,9 @@ def test_by_item_is_ordered_by_amount(mixed_day):
 def test_a_draft_is_counted_nowhere(mixed_day):
     earnings = data.get_earnings()
     # The draft is a Blue Lemonade: if it leaked it would show up in
-    # to_collect, which the hand-worked figure above pins to 900.
-    assert earnings["to_collect"] == 900
-    assert earnings["cancelled_orders"] == 1
+    # awaiting_payment, which the hand-worked figure above pins to 650.
+    assert earnings["awaiting_payment"] == 650
+    assert earnings["cancelled_orders"] == 2
 
 
 def test_an_empty_day_is_all_zeros():
@@ -383,6 +477,8 @@ def test_the_csv_has_the_header_and_one_row_exactly(served):
         "total_rs",
         "status",
         "payment_method",
+        # 16 section 2zf item 3(i): the CSV gains the time of the payment.
+        "paid_at",
         "on_the_house",
     ]
     assert len(rows) == 2
@@ -394,7 +490,9 @@ def test_the_csv_has_the_header_and_one_row_exactly(served):
     assert row[4] == "1550"
     assert row[5] == "COLLECTED"
     assert row[6] == "QR"
-    assert row[7] == "no"
+    assert row[7] == data.get_order(order_id)["paid_at"]
+    assert row[7] != ""
+    assert row[8] == "no"
 
 
 def test_the_csv_leaves_out_drafts_and_marks_the_house(served):
@@ -406,7 +504,7 @@ def test_the_csv_leaves_out_drafts_and_marks_the_house(served):
     print("rows:", rows)
     assert len(rows) == 2
     assert rows[1][0] == str(house)
-    assert rows[1][7] == "yes"
+    assert rows[1][8] == "yes"
     assert rows[1][6] == ""
 
 

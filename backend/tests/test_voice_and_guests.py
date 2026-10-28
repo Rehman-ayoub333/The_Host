@@ -279,14 +279,26 @@ def test_build_order_takes_the_complimentary_argument(ctx):
     assert result["total"] == "Rs. 650"
 
 
-def test_a_later_build_order_does_not_throw_the_flag_away(ctx):
-    """The same trap 2l item 3 hit with the name: it arrives on a later call."""
+def test_a_later_build_order_decides_the_flag_again(ctx):
+    """16 section 2zf item 1(b): the flag follows this call, not the last one.
+
+    The name still survives a call that does not bring one (2l item 3), but
+    "on the house" does not: a build that does not ask for it clears it, so a
+    draft can never stay free under a name that is not the Vice Chancellor's.
+    """
     first = tools.build_order([BURGER], guest_name="Vice Chancellor", complimentary=True)
     second = tools.build_order([BURGER, {"name": "Blue Lemonade", "quantity": 1}])
 
     assert second["order_id"] == first["order_id"]
-    assert order_row(first["order_id"])["complimentary"] == 1
+    assert order_row(first["order_id"])["complimentary"] == 0
     assert order_row(first["order_id"])["guest_name"] == "Vice Chancellor"
+
+    # Asked for again under the same name, it is on the house again.
+    again = tools.build_order(
+        [BURGER], guest_name="Vice Chancellor", complimentary=True
+    )
+    assert again["order_id"] == first["order_id"]
+    assert order_row(first["order_id"])["complimentary"] == 1
 
 
 @pytest.mark.parametrize(
@@ -393,7 +405,8 @@ def test_the_activity_label_says_on_the_house(ctx):
 
 def test_an_ordinary_order_keeps_the_plain_label(ctx):
     order_id = tools.build_order([BURGER])["order_id"]
-    result = tools.confirm_order(order_id)
+    # 16 section 2zf item 3(b): an ordinary order is placed with a payment.
+    result = tools.confirm_order(order_id, payment_method="CASH")
 
     row = summaries.activity_for_tool("confirm_order", {"order_id": order_id}, result)
     assert row["label"] == f"Order #{order_id} created"
