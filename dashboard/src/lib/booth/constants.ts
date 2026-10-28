@@ -91,6 +91,21 @@ export const C = {
   CAPTION_CLEAR_POLL_MS: 100,
 } as const;
 
+/**
+ * 16 §2zf item 8(b) — the one backoff both of the TV's sockets use.
+ *
+ * `/ws/events` has always reconnected on it. Since Rehman's complaint 2(e)
+ * ("after a connection drop the TV must not need F5") `/ws/session` uses it
+ * too: a conversation whose socket went while a guest was still standing
+ * there is picked up again instead of leaving the screen on an error until
+ * somebody reloads it. The last value repeats, so it is every 10 s after that.
+ */
+export const SOCKET_BACKOFF_MS = [1000, 2000, 4000, 8000, 10_000] as const;
+
+export function backoffAt(attempt: number): number {
+  return SOCKET_BACKOFF_MS[Math.min(attempt, SOCKET_BACKOFF_MS.length - 1)]!;
+}
+
 /** 16 §2i item 3: how long after the wrap-up line is asked for the page waits
  * before it may end the conversation. */
 export const WRAP_UP_SETTLE_MS = 3000;

@@ -8,6 +8,7 @@
  */
 import { toast } from "sonner";
 import { agentStore } from "./store";
+import { SOCKET_BACKOFF_MS } from "@/lib/booth/constants";
 import type { Activity, AgentEvent, Analytics, BoothTime, Earnings, Health, MenuItem, Metrics, OperationalMode, Order, OrderStatus, PaymentMethod, Visitor } from "./types";
 
 const LS_KEY = "thehost.agent.config";
@@ -160,6 +161,23 @@ export const retryConnection = () => operator<{ operational_mode: OperationalMod
 export async function announceAgain(orderId: number): Promise<boolean> {
   try {
     await request("/api/operator/announce", { method: "POST", body: JSON.stringify({ order_id: orderId }) });
+    return true;
+  } catch (err) {
+    report(err);
+    return false;
+  }
+}
+
+/**
+ * 16 §2zf item 8(c) — ask the TV to reload itself.
+ *
+ * The TV is across the stall on a kiosk browser with no keyboard, so when it
+ * looks wrong there is no F5 to press. The backend sends one `display_reload`
+ * to the `smd` role; the dashboard never reloads itself.
+ */
+export async function reloadDisplay(): Promise<boolean> {
+  try {
+    await request("/api/display/reload", { method: "POST" });
     return true;
   } catch (err) {
     report(err);
@@ -434,7 +452,9 @@ let lastEventId = 0;
 let lastBootId: string | null = null;
 let currentRole: "dashboard" | "smd" = "dashboard";
 
-const BACKOFF = [1000, 2000, 4000, 8000, 10_000];
+// 16 §2zf item 8(b): the same backoff the conversation socket now uses, in
+// one place so the two can never drift apart.
+const BACKOFF = SOCKET_BACKOFF_MS;
 
 function armWatchdog() {
   clearTimeout(watchdog);
@@ -485,6 +505,12 @@ function open() {
     if (data.type === "heartbeat") return;
     // capture_request belongs to the display screen; ignored quietly (20 §4 item 5).
     if (data.type === "capture_request") return;
+    // 16 §2zf item 8(c): the operator asked this screen to reload itself. Only
+    // the `smd` role is ever sent it, and only the TV acts on it.
+    if (data.type === "display_reload") {
+      if (currentRole === "smd" && typeof window !== "undefined") window.location.reload();
+      return;
+    }
     // event_id dedup; boot_id change resets the remembered id.
     if (data.type === "state_snapshot") {
       if (data.boot_id !== lastBootId) {

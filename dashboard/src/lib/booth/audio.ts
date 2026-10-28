@@ -33,6 +33,16 @@ export interface AudioPort {
   playPcm(buffer: ArrayBuffer): void;
   flushPlayback(): void;
   isPlaying(): boolean;
+  /**
+   * 16 §2zf item 8(d) — whether the browser really gave this page sound.
+   *
+   * `init()` resumes the contexts, but a browser that wants a gesture first
+   * leaves them `suspended` without raising. The TV's kiosk profile is started
+   * with `--autoplay-policy=no-user-gesture-required`, so there they come up
+   * `running` and the Start screen is never needed; anywhere else this is
+   * false and "Tap to begin" is shown exactly as before.
+   */
+  isRunning(): boolean;
   getMicAmp(): number;
   getPlaybackAmp(): number;
   /**
@@ -268,6 +278,12 @@ export const audio: AudioPort = {
     // 16 §2g item 2: THE HOST's reply arrives far faster than it plays,
     // so "scheduled audio is still to come" is what the idle clock must see.
     return Boolean(playCtx) && nextPlayTime > playCtx!.currentTime;
+  },
+
+  isRunning() {
+    // 16 §2zf item 8(d): both contexts, because the page needs to be able to
+    // speak AND to listen before it can call itself started.
+    return playCtx?.state === "running" && capCtx?.state === "running";
   },
 
   getMicAmp() {

@@ -12,7 +12,7 @@
  *     backend lives on :8000;
  *   - the camera and microphone may be chosen by device id (§2t item 4).
  */
-import { BUSY_REFUSAL, C, LONGTASK_MS, MIC_COUNTER_MS, MIC_DEBUG_PRINT_MS, MIC_DEBUG_WINDOW_MS, WRAP_UP_SETTLE_MS } from "./constants";
+import { backoffAt, BUSY_REFUSAL, C, LONGTASK_MS, MIC_COUNTER_MS, MIC_DEBUG_PRINT_MS, MIC_DEBUG_WINDOW_MS, WRAP_UP_SETTLE_MS } from "./constants";
 import type { AudioPort } from "./audio";
 import type { FaceReading, PresencePort } from "./presence";
 
@@ -163,6 +163,8 @@ export class HostSession {
     // heard -- waiting for the audio to finish, then the 1.5 s after it.
     captionWatch: Timer;
     captionClear: Timer;
+    // 16 §2zf item 8(b): the next retry of the conversation socket.
+    sessionRetry: Timer;
     playCounters: Timer;
   } = {
     tick: null,
@@ -178,10 +180,14 @@ export class HostSession {
     caption: null,
     captionWatch: null,
     captionClear: null,
+    sessionRetry: null,
     playCounters: null,
   };
 
   private vision = { sentPeople: -1, sentAt: 0, warned: false };
+  // 16 §2zf item 8(b): how many times the conversation socket has been
+  // retried since the failure, which is what picks the backoff step.
+  private retry = { attempt: 0 };
   private voice = { onPolls: 0, belowSince: 0, sent: false };
   // 16 §2h item 2: what wake-on-speech is watching.
   private wake: { face: FaceReading | null; speechSince: number; lastEndAt: number; lastFaceAt: number } = {
@@ -788,6 +794,9 @@ export class HostSession {
     if (!retry) this.busy.tries = 0;
     this.lastRole = null;
     this.lastFinal = true;
+    // 16 §2zf item 8(b): a conversation is starting, so a pending retry of the
+    // one that failed is no longer wanted.
+    if (!retry) this.cancelSessionRetry();
     this.clearOneMoment();
     this.clearCaption();
     this.patch({ hostLine: "" });
@@ -860,6 +869,9 @@ export class HostSession {
 
   endSession(reason: "user" | "timeout" | "cap" | "absent" | "error") {
     this.endingByUs = true;
+    // 16 §2zf item 8(b): an end the page meant is not something to retry. A
+    // failure schedules its own retry after this returns.
+    if (reason !== "error") this.cancelSessionRetry();
     if (this.timers.tick) clearInterval(this.timers.tick);
     this.timers.tick = null;
     this.link.reconnecting = false;
@@ -973,6 +985,51 @@ export class HostSession {
     this.timers.recover = setTimeout(() => {
       if (this.view.state === "error") this.setState("idle");
     }, C.ERROR_AUTO_RECOVER_MS);
+    this.scheduleSessionRetry();
+  }
+
+  /**
+   * 16 §2zf item 8(b): the conversation socket comes back by itself.
+   *
+   * Rehman's complaint 2(e) was that after a connection drop the TV needed
+   * F5. Until now a failure left `/display` on its error screen for
+   * ERROR_AUTO_RECOVER_MS and then on the idle screen, and nothing tried the
+   * conversation again -- the guest standing at the counter had to be rescued
+   * by an operator or a reload.
+   *
+   * It now retries `/ws/session` on the same backoff `/ws/events` uses --
+   * 1, 2, 4, 8, 10 s and then every 10 s -- for as long as somebody is still
+   * in front of the camera. The presence test is deliberate: retrying into an
+   * empty room would open a Gemini session to greet nobody, so an empty room
+   * gets the idle screen instead, which is where 8(b) wants the TV anyway.
+   */
+  private scheduleSessionRetry() {
+    if (this.timers.sessionRetry) clearTimeout(this.timers.sessionRetry);
+    const delay = backoffAt(this.retry.attempt++);
+    this.timers.sessionRetry = setTimeout(() => {
+      this.timers.sessionRetry = null;
+      if (this.isSessionActive()) {
+        this.cancelSessionRetry();
+        return;
+      }
+      if (this.deps.presence.state !== "present") {
+        // Nobody there: the posters are the right screen, and presence and
+        // wake are armed for whoever walks up next.
+        this.cancelSessionRetry();
+        if (this.view.state === "error") this.setState("idle");
+        this.armed = true;
+        return;
+      }
+      this.log().info(`session retry n=${this.retry.attempt}`);
+      void this.startSession("presence");
+      this.scheduleSessionRetry();
+    }, delay);
+  }
+
+  private cancelSessionRetry() {
+    if (this.timers.sessionRetry) clearTimeout(this.timers.sessionRetry);
+    this.timers.sessionRetry = null;
+    this.retry.attempt = 0;
   }
 
   /* ------------------------------- presence ----------------------------- */
@@ -1004,6 +1061,19 @@ export class HostSession {
   };
 
   /* -------------------------------- start -------------------------------- */
+
+  /**
+   * 16 §2zf item 8(d): whether the browser really gave this page sound.
+   *
+   * The TV's kiosk profile is started with
+   * `--autoplay-policy=no-user-gesture-required`, so `start()` can be called
+   * on load and the contexts come up `running`: no "Tap to begin" after a
+   * reload. Anywhere else they stay `suspended` and the Start screen is shown
+   * exactly as before.
+   */
+  audioReady(): boolean {
+    return this.deps.audio.isRunning();
+  }
 
   /** The one click a browser needs before the microphone, camera and sound. */
   async start({ video, cameraId, micId }: StartOptions): Promise<void> {

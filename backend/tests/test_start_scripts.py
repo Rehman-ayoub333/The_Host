@@ -186,3 +186,58 @@ def test_the_runbook_carries_the_phase_7k_rules():
     assert "Nobody else is on the house, and the system enforces it" in unwrapped
     for name in ("Rauf", "Azam"):
         assert name not in text, name
+
+
+# ------------- 16 section 2zf item 8(e): the TV's own browser window
+
+
+OPEN_DISPLAY = REPO_ROOT / "scripts" / "open-display.ps1"
+GITIGNORE = REPO_ROOT / ".gitignore"
+
+
+def open_display_text() -> str:
+    return OPEN_DISPLAY.read_text(encoding="utf-8")
+
+
+def test_the_display_script_exists_and_opens_chrome_in_kiosk_mode():
+    """The TV is a full-screen window with nothing a guest could press."""
+    assert OPEN_DISPLAY.is_file()
+    text = open_display_text()
+
+    assert "--kiosk" in text
+    # 2zf item 8(d): this is what lets the page start its own audio, so the TV
+    # never shows "Tap to begin" after a reload.
+    assert "--autoplay-policy=no-user-gesture-required" in text
+    assert "--user-data-dir=$profileDir" in text
+    assert "--window-position=$X,0" in text
+    assert "http://localhost:8080/display" in text
+
+
+def test_the_display_script_uses_a_profile_under_the_repository():
+    text = open_display_text()
+
+    assert '".display-profile"' in text
+    # The permission is granted once, in that profile, and every later start
+    # and reload is silent -- which is what makes the dashboard's button work.
+    assert "allow both" in text
+
+
+def test_the_second_screen_is_the_default_and_can_be_moved():
+    text = open_display_text()
+
+    assert "[int]$X = 1920" in text
+    assert "-X 0" in text
+
+
+def test_the_display_profile_is_git_ignored():
+    """A browser profile is not source, and it holds a permission grant."""
+    assert ".display-profile/" in GITIGNORE.read_text(encoding="utf-8")
+
+
+def test_the_display_script_reads_no_configuration_and_names_no_secret():
+    text = open_display_text()
+    for forbidden in ("AIza", "OPERATOR_TOKEN", "GEMINI_API_KEY"):
+        assert forbidden not in text, forbidden
+    # The only mention of .env is the comment promising never to open it.
+    assert text.count(".env") == 1
+    assert "never prints or echoes any .env file" in text

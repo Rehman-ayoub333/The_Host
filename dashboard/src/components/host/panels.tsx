@@ -38,6 +38,7 @@ import {
   pauseHost,
   reloadVisitors,
   resumeHost,
+  reloadDisplay,
   retryConnection,
   setOrderStatus,
   startTakeover,
@@ -821,6 +822,16 @@ function OperatorControls() {
             className={OP_BTN}
           >
             Retry connection
+          </button>
+          {/* 16 §2zf item 8(c): next to Retry connection, because it is the
+              other half of the same question -- the TV is across the stall on
+              a kiosk browser with no keyboard, so this is its F5. */}
+          <button
+            disabled={busy}
+            onClick={() => void run(reloadDisplay, () => setNote("Display screen asked to reload"))}
+            className={OP_BTN}
+          >
+            Reload display screen
           </button>
         </div>
       )}

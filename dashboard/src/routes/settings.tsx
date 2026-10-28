@@ -7,7 +7,7 @@ import { Panel } from "@/components/host/Panel";
 import { PanelBoundary } from "@/components/host/PanelBoundary";
 import { SystemPanel } from "@/components/host/panels";
 import { startDemo } from "@/lib/agent/demo";
-import { connectAgent, getAgentConfig, saveAgentConfig } from "@/lib/agent/service";
+import { connectAgent, getAgentConfig, reloadDisplay, saveAgentConfig } from "@/lib/agent/service";
 import { useAgent } from "@/lib/agent/store";
 import {
   listDevices,
@@ -53,6 +53,9 @@ function DisplayDevicesPanel({ className }: { className?: string | undefined }) 
   }, []);
 
   const notes = missingDeviceNotes(choice, lists);
+  // 16 §2zf item 8(c): the Reload display screen button's own two bits.
+  const [reloading, setReloading] = useState(false);
+  const [reloadNote, setReloadNote] = useState("");
   const field =
     "mt-1.5 w-full rounded-md border border-line bg-input px-3 py-2.5 font-mono text-sm text-foreground outline-none transition-colors focus:border-gold";
 
@@ -102,6 +105,25 @@ function DisplayDevicesPanel({ className }: { className?: string | undefined }) 
             Saved · reload the display screen to use it
           </p>
         )}
+        {/* 16 §2zf item 8(c): and here is the button that does it. The TV is
+            across the stall on a kiosk browser with no keyboard, so a device
+            change -- or anything that looks wrong on it -- needed somebody to
+            walk over with a mouse until now. */}
+        <div className="border-t border-line pt-4">
+          <button
+            disabled={reloading}
+            onClick={() => {
+              setReloading(true);
+              void reloadDisplay()
+                .then((ok) => setReloadNote(ok ? "Display screen asked to reload" : ""))
+                .finally(() => setReloading(false));
+            }}
+            className="h-9 rounded-md border border-line px-3 text-xs font-semibold uppercase transition-colors hover:border-gold hover:text-gold disabled:opacity-50"
+          >
+            Reload display screen
+          </button>
+          {reloadNote && <p className="mt-2 text-xs text-champagne">{reloadNote}</p>}
+        </div>
       </div>
     </Panel>
   );

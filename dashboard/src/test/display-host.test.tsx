@@ -60,6 +60,8 @@ function sessionHarness(micAmp = { value: 0 }) {
     playPcm: vi.fn(),
     flushPlayback: vi.fn(),
     isPlaying: vi.fn(() => false),
+    // 16 §2zf item 8(d): a test browser has no gesture rule to satisfy.
+    isRunning: vi.fn(() => true),
     getMicAmp: vi.fn(() => micAmp.value),
     getPlaybackAmp: vi.fn(() => 0),
     endPlaybackTurn: vi.fn(),

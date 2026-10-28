@@ -58,7 +58,11 @@ export function useHostSession() {
     async (options: StartOptions) => {
       if (!session) return;
       await session.start(options);
-      setStarted(true);
+      // 16 §2zf item 8(d): a browser that wants a gesture first leaves the
+      // AudioContext suspended without raising, and a TV that cannot be heard
+      // is not started. The Start screen stays up in that case; in the kiosk
+      // profile the contexts come up running and it is never shown.
+      setStarted(session.audioReady());
     },
     [session],
   );

@@ -265,6 +265,25 @@ export function SMDDisplay() {
     [start],
   );
 
+  /**
+   * 16 §2zf item 8(d): no tap after a reload.
+   *
+   * Rehman's complaint 2(e) was that the TV needed F5 *and* "Tap to begin".
+   * A browser needs one gesture before it will give a page sound and the
+   * devices -- but a kiosk started with `--autoplay-policy=
+   * no-user-gesture-required` (scripts/open-display.ps1) does not, and the
+   * permission was granted once in that profile. So the page tries to start
+   * itself on load; if the AudioContext comes up `running`, the Start screen
+   * is never shown. Anywhere else the try fails harmlessly and "Tap to begin"
+   * appears exactly as before.
+   */
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStarted.current || started || starting) return;
+    autoStarted.current = true;
+    void onStart(loadDeviceChoice());
+  }, [started, starting, onStart]);
+
   // 16 §2t item 4: no guest-facing buttons. With this window focused, Space
   // starts a conversation and Escape ends one — the operator's own two keys.
   useEffect(() => {

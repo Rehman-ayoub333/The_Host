@@ -872,6 +872,21 @@ async def post_session_note(request: Request):
     return {"sent": True}
 
 
+@app.post("/api/display/reload", dependencies=[Depends(require_operator_token)])
+async def post_display_reload():
+    """16 section 2zf item 8(c): Rehman's own control for the TV.
+
+    The TV is across the stall on a kiosk browser with no keyboard, so when it
+    looks wrong there is no F5 to press. This publishes one event to the `smd`
+    role only -- the dashboard never reloads itself because the TV was asked to
+    -- and `/display` reloads on it.
+    """
+    event_bus.publish({"type": "display_reload", "session_id": None})
+    _operator_row("reloaded the display screen")
+    await _log_operator_action("display_reload")
+    return {"sent": True}
+
+
 @app.post("/api/operator/announce", dependencies=[Depends(require_operator_token)])
 async def post_operator_announce(request: Request):
     """A deliberate repeat: it bypasses the `announced` guard (04 section 5)."""

@@ -5,6 +5,11 @@
 # 16 section 2t item 7: the backend's own log files.
 backend/logs/
 
+# 16 section 2zf item 8(e): the TV's own browser profile, made by
+# scripts/open-display.ps1. It holds the camera and microphone permission for
+# that one window and nothing else worth keeping.
+.display-profile/
+
 # Python
 .venv/
 __pycache__/

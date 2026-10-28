@@ -53,6 +53,9 @@ function fakeAudio(overrides: Partial<AudioPort> = {}): AudioPort {
     playPcm: vi.fn(),
     flushPlayback: vi.fn(),
     isPlaying: vi.fn(() => false),
+    // 16 §2zf item 8(d): in a test the browser's gesture rule is not in play,
+    // so the contexts are treated as running.
+    isRunning: vi.fn(() => true),
     getMicAmp: vi.fn(() => 0),
     getPlaybackAmp: vi.fn(() => 0),
     endPlaybackTurn: vi.fn(),

@@ -252,6 +252,8 @@ export type AgentEvent =
   // reducer unhandled (16 §2s item 4a).
   | (Envelope & { type: "reconnecting"; active: boolean })
   | (Envelope & { type: "error"; message: string; recoverable?: boolean })
+  // 16 §2zf item 8(c): to the `smd` role only.
+  | (Envelope & { type: "display_reload" })
   | { type: "heartbeat"; timestamp?: BoothTime };
 
 /** Internal (frontend-only) actions */

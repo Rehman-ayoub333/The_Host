@@ -55,8 +55,15 @@ SMD_ALLOWED = frozenset(
         "order_ready",
         "state_snapshot",
         "heartbeat",
+        # 16 section 2zf item 8(c): the operator's "Reload display screen".
+        "display_reload",
     }
 )
+
+# 16 section 2zf item 8(c): the one event that goes to the TV and nowhere else.
+# The dashboard reloading itself because Rehman asked the TV to would be the
+# opposite of a recovery control.
+DASHBOARD_NEVER = frozenset({"display_reload"})
 VISITOR_IDENTIFIED_PUBLIC = ("type", "name", "returning", "event_id", "timestamp", "session_id")
 
 
@@ -93,10 +100,10 @@ def filter_for(role: str, event: dict) -> dict | None:
 
     Always works on a copy; the original event is never changed.
     """
-    if role == "dashboard":
-        return event
-
     event_type = event.get("type")
+    if role == "dashboard":
+        return None if event_type in DASHBOARD_NEVER else event
+
     if event_type in SMD_NEVER or event_type not in SMD_ALLOWED:
         return None
 
