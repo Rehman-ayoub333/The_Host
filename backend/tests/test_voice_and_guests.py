@@ -166,7 +166,10 @@ def test_the_guest_of_honour_rule_is_in_the_prompt_in_full():
     assert "\nGUESTS OF HONOUR: THE VICE CHANCELLOR\n" in text
     for rule in (
         "The Vice Chancellor of GCUF is Dr. Rauf-i-Azam.",
-        'Address him as "Sir"; in Urdu use "aap" and "Sir" or "Janab".',
+        # 16 §2zf item 1(a): the welcome's opening words are now exact.
+        'Your first words to him are exactly: "Welcome, Dr. Rauf-i-Azam." After '
+        'that, address him as "Sir" (in Urdu "aap" and "Sir" or "Janab"), and use '
+        "his name whenever he asks you to.",
         "In one or two sentences: welcome him, thank him on behalf of the Bite & Pour "
         "team for visiting, and say that anything he would like to eat or drink is on "
         "the house, with the team's compliments. Then ask what he would like.",

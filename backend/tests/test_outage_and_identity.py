@@ -571,7 +571,9 @@ def test_an_order_with_no_name_stays_without_one(ctx):
 def test_the_prompt_asks_for_a_name_once_before_confirming():
     built = prompts.build_system_instruction(datetime.now())
     assert "Can I get a first name for the order?" in built
-    assert "before the confirmation question" in built
+    # 16 section 2zf item 3: the confirmation question is now the one final
+    # question, "Shall I place it -- cash or QR?", so the name is asked before it.
+    assert "before the final question" in built
     # 21 Part A: the same rule, shorter, and it also forbids a surname or a phone
     # number being asked for.
     assert "If they would rather not say, go ahead without one and do not ask again." in built

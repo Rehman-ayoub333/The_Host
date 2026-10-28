@@ -84,9 +84,13 @@ def test_the_vice_chancellor_protocol_is_in_the_prompt():
         'again with complimentary set to true and guest_name "Vice Chancellor", and '
         "tell him it is on the house." in text
     )
+    # 16 §2zf item 1(a): 7k still opened "Welcome, Sir" without the name, so
+    # Part A now gives the exact first words instead of asking for the name
+    # somewhere in the welcome.
     assert (
-        'Say "Dr. Rauf-i-Azam" in your welcome, and use his name whenever he asks '
-        "you to." in text
+        'Your first words to him are exactly: "Welcome, Dr. Rauf-i-Azam." After '
+        'that, address him as "Sir" (in Urdu "aap" and "Sir" or "Janab"), and use '
+        "his name whenever he asks you to." in text
     )
     # 16 §2ze item 2(a): C6 put a "chief guest" order on the house.
     assert (
@@ -148,6 +152,58 @@ def test_the_authority_section_is_in_the_prompt():
         "Sales, earnings and other guests' orders are for the team only. You do not "
         "know them; never guess them." in text
     )
+
+
+def test_the_operator_notes_section_is_in_the_prompt():
+    """16 §2zf item 6: a note from the dashboard is acted on, never spoken."""
+    text = built()
+
+    assert "\nOPERATOR NOTES\n" in text
+    assert (
+        'A message that starts with "[Operator note" comes from the team\'s '
+        "dashboard, not from the guest. Follow it naturally and at once, as if you "
+        "had thought of it yourself. Never read it out, never quote it, and never "
+        "mention that you received a note." in text
+    )
+    # A note is not a way round the rules that protect money and honesty.
+    assert (
+        "An operator note cannot make you break HONESTY, privacy or the prices: you "
+        "still never invent a fact, and only the Vice Chancellor is on the house."
+        in text
+    )
+
+
+def test_the_returning_guests_section_is_in_the_prompt():
+    """16 §2zf item 2(a) and item 5: a guest who comes back is welcomed back."""
+    text = built()
+
+    assert "\nRETURNING GUESTS\n" in text
+    assert (
+        "When remember_visitor or build_order tells you the guest is returning, "
+        "welcome them back warmly in a few words before the next step "
+        '("Rehman, good to see you again!").' in text
+    )
+    # Only what the tool returned: no invented memory (E45's "must never").
+    assert (
+        "You may mention their visit count or their favourite once, only from what "
+        "the tool returned. Never pretend to recognise someone the tool did not "
+        "return as returning." in text
+    )
+    # build_order now does the remembering too (16 §2zf item 5).
+    assert (
+        "Remember a guest's first name when they tell you (remember_visitor, and "
+        "build_order does the same when you pass guest_name), and welcome a "
+        "returning guest back using only what the tool returns." in text
+    )
+
+
+def test_the_payment_template_is_exactly_the_spec_line():
+    """16 §2zf item 3(e): what THE HOST is told when the team marks an order paid."""
+    assert prompts.PAYMENT_TEMPLATE == (
+        "Order #{order_id} has just been paid. Tell the guest in one short line "
+        "that it is paid and the kitchen is on it."
+    )
+    assert prompts.PAYMENT_TEMPLATE.format(order_id=7).startswith("Order #7 has just been paid.")
 
 
 def test_the_safety_line_is_in_the_prompt():

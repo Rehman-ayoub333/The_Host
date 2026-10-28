@@ -497,12 +497,19 @@ def test_the_order_and_feedback_rules_no_longer_ask_for_the_signal():
     # ORDERS: the question stays, and confirm_order still waits for a yes.
     # 16 section 2zb item 10 adds the wait, the same-turn ban and what to do
     # when the guard refuses, after E19 confirmed an order without a yes.
+    # 16 section 2zf item 3 makes the question the payment question too, so the
+    # answer "cash" is itself the yes; the wait and the same-turn ban are the
+    # same rules in the same words.
     assert (
-        "Then ask if you should confirm it, and stop talking: wait for the guest's "
-        "answer. Never call confirm_order in the same turn as the question. Only "
-        'call confirm_order after the guest\'s own clear yes ("yes", "haan", "ji", '
-        '"confirm", "go ahead"). Anything unclear: ask once more. If confirm_order '
-        'answers "Please confirm first.", ask the guest to confirm and wait.' in built
+        'Then ask one question and stop talking: "Shall I place it — cash or QR?" '
+        "Wait for the answer. Never call confirm_order in the same turn as the "
+        "question." in built
+    )
+    assert (
+        'If the guest answers with cash or QR (or "online"), that is their yes: '
+        'call confirm_order with payment_method "CASH" or "QR". If they only say '
+        'yes, ask "Cash or QR?" and wait. Anything unclear: ask once more. If '
+        'confirm_order answers "Please confirm first.", ask again and wait.' in built
     )
     # FEEDBACK: the read-back stays, and report_feedback still waits for a yes.
     assert (

@@ -18,48 +18,62 @@ def test_system_instruction_names_the_host_and_the_stall_with_no_braces_left():
     assert config.STALL_NAME == "Bite & Pour"
 
 
-def test_the_system_instruction_covers_the_two_step_order_rule():
+def test_the_system_instruction_covers_the_pay_first_order_rule():
     text = prompts.build_system_instruction(datetime(2026, 10, 10, 18, 42))
 
-    assert "ORDERS: TWO STEPS" in text
-    # 21 Part A spells out what a clear yes sounds like, in both languages, and
-    # 16 section 2zb item 10 adds the wait and the same-turn ban.
+    # 16 section 2zf item 2(b): ORDERS: PAY FIRST replaces ORDERS: TWO STEPS.
+    assert "ORDERS: PAY FIRST" in text
+    assert "ORDERS: TWO STEPS" not in text
     assert (
-        "Then ask if you should confirm it, and stop talking: wait for the guest's "
-        "answer." in text
+        "An order goes to the kitchen only after it is paid. The guest pays at the "
+        "counter, in cash or by scanning the QR code, and the team marks it paid on "
+        "the dashboard." in text
+    )
+    # 16 section 2zb item 10 keeps the wait and the same-turn ban; 2zf item 3
+    # folds the payment question into the one question THE HOST asks.
+    assert (
+        'Then ask one question and stop talking: "Shall I place it — cash or QR?" '
+        "Wait for the answer." in text
     )
     assert "Never call confirm_order in the same turn as the question." in text
     assert (
-        'Only call confirm_order after the guest\'s own clear yes ("yes", "haan", '
-        '"ji", "confirm", "go ahead").' in text
+        'If the guest answers with cash or QR (or "online"), that is their yes: call '
+        'confirm_order with payment_method "CASH" or "QR". If they only say yes, ask '
+        '"Cash or QR?" and wait.' in text
     )
-    # A confirmed order is final: adding is a new, separate order
-    # (09 section 15, reworded again by 16 section 2zc item 2(d)).
+    # A placed order is final: adding is a new, separate order
+    # (09 section 15, reworded again by 16 section 2zc item 2(d) and 2zf item 3).
     assert (
-        "Once confirmed, an order is final. To add something, take a new, separate "
-        'order with only the new items; call it "a new order", never "adding to" '
-        "the confirmed one." in text
+        "Once placed, an order is final. To add something, take a new, separate "
+        'order with only the new items (and its own payment); call it "a new order", '
+        'never "adding to" the placed one.' in text
     )
-    # 16 section 2zc: removing, changing or cancelling is allowed by voice only
-    # while the kitchen has not started, the guest's yes comes first, and a
-    # change is new-first so the guest is never left with nothing.
+    # 16 section 2zf item 3(g): the window for a voice change or cancel is now
+    # "waiting for payment", not "confirmed and queued".
     assert (
-        "To remove an item from a confirmed order, change it, or cancel it: first "
-        "call get_order_status for that order. You may change or cancel it only "
-        "while it is confirmed and queued (the kitchen has not started)." in text
+        "To remove an item, change or cancel a placed order: first call "
+        "get_order_status for that order. You may change or cancel it only while it "
+        "is waiting for payment." in text
     )
     assert (
         'To cancel it: ask "Shall I cancel order number" and the number, then wait '
         "for the guest's yes, and only then call cancel_order." in text
     )
     assert (
-        "After the guest's yes, call confirm_order for the new order first, then "
+        "After the answer, call confirm_order for the new order first, then "
         "cancel_order for the old one, and give the new order number." in text
     )
     assert (
-        "If the order is being prepared, is ready or has been collected, do not "
-        "cancel or change it: say the kitchen has already started on it, and call "
+        "If the order is already paid, being prepared, ready or collected, do not "
+        "cancel or change it: say it is already paid and with the kitchen, and call "
         "request_operator_help with the order number and what the guest wants." in text
+    )
+    # The guests of honour are never asked how they will pay (2zf item 3(b)).
+    assert (
+        "The Vice Chancellor never pays and is never asked how he will pay; the "
+        "chief guest is never asked about payment either (the team handles it at the "
+        'counter): for both, ask only "Shall I place it?" and call confirm_order '
+        "without payment_method after the yes." in text
     )
     assert "You do not recognise anyone by their face." in text
     # Every tool the prompt asks for by name. 16 section 2za item 2 took
