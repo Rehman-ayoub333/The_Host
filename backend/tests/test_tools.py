@@ -156,13 +156,21 @@ def test_a_late_name_on_an_unchanged_draft_publishes_the_name(ctx):
     assert len(_pending_rows(ctx["session_id"])) == 1
 
 
-def test_the_same_name_again_publishes_nothing(ctx):
+def test_the_same_name_again_publishes_no_order_event(ctx):
+    """16 §2o item 11: a call that changes nothing about the order is silent.
+
+    16 §2zf item 5 added the visitor events to `build_order`, which it
+    publishes on every call with a name exactly as `remember_visitor` does.
+    They are not order events, and the draft itself is unchanged, so no
+    `order_created` or `order_updated` goes out.
+    """
     tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")
-    before = len(event_bus.PUBLISHED)
+    before = len(_published("order_created")) + len(_published("order_updated"))
 
     tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")
 
-    assert len(event_bus.PUBLISHED) == before
+    after = len(_published("order_created")) + len(_published("order_updated"))
+    assert after == before
 
 
 def test_a_later_call_with_no_name_publishes_nothing_and_keeps_the_name(ctx):

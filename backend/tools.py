@@ -137,6 +137,80 @@ def _old_favourite(order) -> str | None:
     return (profile or {}).get("favorite_item")
 
 
+def _is_a_title(name) -> bool:
+    """16 section 2zf item 5: a name that is a role, not a guest's own name.
+
+    `21` Part A has never let THE HOST remember a title, and the Vice
+    Chancellor is recognised by his own name as well as by the title, so both
+    spellings are a title here: neither ever becomes a visitor profile.
+    """
+    return _is_the_vice_chancellor(name) or _is_the_chief_guest(name)
+
+
+def _note_visitor(name) -> dict | None:
+    """16 section 2zf item 5: the one place a name becomes a remembered guest.
+
+    Rehman asked to be welcomed back when he returns, and THE HOST only ever
+    learnt a name through `remember_visitor` -- which it often skipped once it
+    had the name for the order. So `build_order` does the same thing with the
+    name it is given, through this helper, and the two can never drift apart.
+
+    It creates the profile or records one visit (one per conversation, however
+    many times the name is given), sets the session's known name, and publishes
+    `visitor_identified` and `memory_updated`. Orders placed in this
+    conversation before the name arrived pick it up on the way.
+
+    None means there was no name to work with.
+    """
+    clean = " ".join(str(name or "").split())[:60]
+    if not clean:
+        return None
+    c, key = _ctx(), clean.lower()
+    # The same name again in this session: do not count another visit.
+    already = (c.get("visitor_name") or "").lower() == key
+    profile = data.get_visitor(key)
+    if profile is None:
+        data.create_visitor(key, clean)
+        returning = False
+    else:
+        if not already:
+            data.record_visit(key)
+        returning = True
+    profile = data.get_visitor(key)
+    c["visitor_name"] = profile["display_name"]
+    # Orders placed this session before a name was given.
+    for order in data.attach_guest_name(c.get("session_id"), profile["display_name"]):
+        _pub({"type": "order_updated", "order": data.order_view(order)})
+        # 16 section 2zf item 3(a): AWAITING_PAYMENT is a placed order, so the
+        # list is read from data rather than written out again here.
+        if order["status"] in data.CONFIRMED_OR_LATER:
+            old_favourite = _old_favourite(order)
+            linked = data.refresh_visitor_after_order(order)
+            if linked:
+                _pub(data.memory_event(linked))
+                _queue_memory_row(order, old_favourite, linked)
+    # Re-read: favourite and last order may have changed.
+    profile = data.get_visitor(key)
+    _pub(
+        {
+            "type": "visitor_identified",
+            "name": profile["display_name"],
+            "returning": returning,
+            "visits": profile["visits"],
+            "favorite_item": profile["favorite_item"],
+            "last_order": profile["last_order"],
+        }
+    )
+    _pub(data.memory_event(profile))
+    return {
+        "returning": returning,
+        "name": profile["display_name"],
+        "visits": profile["visits"],
+        "favorite_item": profile["favorite_item"],
+        "last_order": profile["last_order"],
+    }
+
+
 def check_item_availability(item=None, category=None) -> dict:
     args = {"item": item, "category": category}
     try:
@@ -242,6 +316,13 @@ def build_order(items, guest_name=None, complimentary=None) -> dict:
             validated, who, c.get("session_id"), complimentary=on_the_house
         )
         c["pending_order_id"] = result["order_id"]
+        # 16 section 2zf item 5: the name on an order is a name THE HOST was
+        # given, so it is remembered here exactly as `remember_visitor` would
+        # remember it -- the model no longer has to call both. A title is a
+        # role, not a guest, and never becomes a visitor.
+        visitor = None
+        if given and not _is_a_title(given):
+            visitor = _note_visitor(given)
         order = data.get_order(result["order_id"])
         if result["action"] == "created":
             _pub({"type": "order_created", "order": data.order_view(order)})
@@ -254,6 +335,14 @@ def build_order(items, guest_name=None, complimentary=None) -> dict:
             "total": data.compute_total(validated),
             "status": "PENDING_CONFIRMATION",
         }
+        # 16 section 2zf item 5: what `21` Part A's RETURNING GUESTS section
+        # may be said out loud from, and nothing else.
+        if visitor is not None:
+            drafted["visitor"] = {
+                "returning": visitor["returning"],
+                "visits": visitor["visits"],
+                "favorite_item": visitor["favorite_item"],
+            }
         # Only when it is set: an ordinary order is not told it is not free, and
         # the model has no reason to mention the arrangement to anyone else.
         if order.get("complimentary"):
@@ -519,65 +608,19 @@ def report_feedback(subject, comment, rating=None) -> dict:
 
 
 def remember_visitor(name) -> dict:
+    """09 section 10. 16 section 2zf item 5 moved the work into `_note_visitor`,
+    which `build_order` now shares; what this tool does and returns is
+    unchanged."""
     args = {"name": name}
     try:
-        clean = " ".join(str(name or "").split())[:60]
-        if not clean:
+        noted = _note_visitor(name)
+        if noted is None:
             return _finish(
                 "remember_visitor",
                 args,
                 {"source": "order", "error": "I didn't catch a name."},
             )
-        c, key = _ctx(), clean.lower()
-        # The same name again in this session: do not count another visit.
-        already = (c.get("visitor_name") or "").lower() == key
-        profile = data.get_visitor(key)
-        if profile is None:
-            data.create_visitor(key, clean)
-            returning = False
-        else:
-            if not already:
-                data.record_visit(key)
-            returning = True
-        profile = data.get_visitor(key)
-        c["visitor_name"] = profile["display_name"]
-        # Orders placed this session before a name was given.
-        for order in data.attach_guest_name(c.get("session_id"), profile["display_name"]):
-            _pub({"type": "order_updated", "order": data.order_view(order)})
-            # 16 section 2zf item 3(a): AWAITING_PAYMENT is a placed order, so
-            # the list is read from data rather than written out again here --
-            # it was missed once already when the status was added.
-            if order["status"] in data.CONFIRMED_OR_LATER:
-                old_favourite = _old_favourite(order)
-                linked = data.refresh_visitor_after_order(order)
-                if linked:
-                    _pub(data.memory_event(linked))
-                    _queue_memory_row(order, old_favourite, linked)
-        # Re-read: favourite and last order may have changed.
-        profile = data.get_visitor(key)
-        _pub(
-            {
-                "type": "visitor_identified",
-                "name": profile["display_name"],
-                "returning": returning,
-                "visits": profile["visits"],
-                "favorite_item": profile["favorite_item"],
-                "last_order": profile["last_order"],
-            }
-        )
-        _pub(data.memory_event(profile))
-        return _finish(
-            "remember_visitor",
-            args,
-            {
-                "source": "order",
-                "returning": returning,
-                "name": profile["display_name"],
-                "visits": profile["visits"],
-                "favorite_item": profile["favorite_item"],
-                "last_order": profile["last_order"],
-            },
-        )
+        return _finish("remember_visitor", args, {"source": "order", **noted})
     except Exception:
         log.exception("remember_visitor failed")
         return _finish(
@@ -761,7 +804,7 @@ TOOL_DECLARATIONS = [
     ),
     _decl(
         "build_order",
-        "Put together a draft order as soon as the guest's choice is clear. This does NOT place the order; it must still be confirmed with confirm_order. Calling it again replaces the current draft.",
+        "Put together a draft order as soon as the guest's choice is clear. This does NOT place the order; it must still be confirmed with confirm_order. Calling it again replaces the current draft. If you pass guest_name it also remembers the guest, and the result's \"visitor\" tells you whether they are returning.",
         {
             "items": {
                 "type": "array",
@@ -779,7 +822,7 @@ TOOL_DECLARATIONS = [
                 "type": "string",
                 "description": (
                     "The guest's first name for the order, only if they gave one. "
-                    "Ask once before the confirmation question."
+                    "Ask once before the final question."
                 ),
             },
             "complimentary": {
