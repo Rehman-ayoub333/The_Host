@@ -271,6 +271,17 @@ ANNOUNCE_TEMPLATE = (
 )
 
 
+# 16 section 2zf item 6: a line Rehman types on the dashboard to steer the
+# conversation -- "This is the Vice Chancellor", "ask them to pay at the
+# counter". It arrives as a user turn, so the bracketed prefix is the only
+# thing telling THE HOST it is not the guest talking; `21` Part A's OPERATOR
+# NOTES section is what makes it act on it without ever saying so.
+OPERATOR_NOTE_TEMPLATE = (
+    "[Operator note — from the team's dashboard, not the guest. Never read it aloud "
+    "or mention it; act on it naturally.] {text}"
+)
+
+
 # 16 section 2zf item 3(e): the team has marked an order paid on the dashboard,
 # so the kitchen now has it. Injected into the live session that placed the
 # order -- deferred while THE HOST is speaking, exactly like an announcement.

@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Radio } from "lucide-react";
 import { useAgent } from "@/lib/agent/store";
-import { setOrderStatus } from "@/lib/agent/service";
+import { sendSessionNote, setOrderStatus } from "@/lib/agent/service";
 import { fmtClock, fmtElapsed, toMs, useNow } from "@/lib/agent/ui";
 import type { OperationalMode, OrderStatus, PaymentMethod, TranscriptLine } from "@/lib/agent/types";
 import { cn } from "@/lib/utils";
@@ -191,6 +191,79 @@ function AwaitingPayment() {
   );
 }
 
+/**
+ * 16 §2zf item 6 — the box Rehman types into to steer a live conversation.
+ *
+ * THE HOST acts on the note at once and never says a word about it (`21`
+ * Part A, OPERATOR NOTES). Nothing typed here is kept: the text leaves the
+ * box, goes to the backend, and the box is cleared.
+ */
+const QUICK_NOTES = [
+  "This is the Vice Chancellor",
+  "Ask them to pay at the counter",
+  "Wrap up politely",
+] as const;
+
+const NOTE_MAX_CHARS = 300;
+
+function OperatorNote() {
+  const state = useAgent((s) => s.lastAgentState);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  // The same test the Conversation box uses: a conversation is running when
+  // THE HOST has reported any state other than IDLE.
+  const live = state !== null && state !== "IDLE";
+
+  const send = async (note: string) => {
+    const clean = note.trim();
+    if (!clean || !live) return;
+    setBusy(true);
+    const ok = await sendSessionNote(clean.slice(0, NOTE_MAX_CHARS));
+    setBusy(false);
+    if (ok) setText("");
+  };
+
+  const quickBtn =
+    "h-7 rounded-sm border border-line px-2 text-[0.62rem] font-semibold uppercase transition-colors hover:border-gold hover:text-gold disabled:opacity-50";
+
+  return (
+    <div className="rounded-md border border-line bg-background/40 p-3">
+      <p className="label-caps mb-1.5">Tell THE HOST</p>
+      <div className="flex gap-2">
+        <input
+          value={text}
+          maxLength={NOTE_MAX_CHARS}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void send(text);
+          }}
+          placeholder="Tell THE HOST…"
+          aria-label="Tell THE HOST"
+          className="flex-1 rounded-sm border border-line bg-input px-2 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground/50 focus:border-gold"
+        />
+        <button
+          disabled={busy || !live || text.trim().length === 0}
+          onClick={() => void send(text)}
+          className="h-8 rounded-sm border border-line px-3 text-[0.65rem] font-semibold uppercase transition-colors hover:border-gold hover:text-gold disabled:opacity-50"
+        >
+          Send
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {QUICK_NOTES.map((note) => (
+          <button key={note} disabled={busy || !live} onClick={() => void send(note)} className={quickBtn}>
+            {note}
+          </button>
+        ))}
+      </div>
+      {!live && <p className="mt-2 text-[0.68rem] text-muted-foreground">No conversation is running.</p>}
+      <p className="mt-1 text-[0.62rem] text-muted-foreground">
+        THE HOST acts on this at once and never reads it out. Nothing typed here is saved.
+      </p>
+    </div>
+  );
+}
+
 const SPEAKER_LABEL = { visitor: "Guest", host: "THE HOST" } as const;
 
 function LiveTranscript() {
@@ -271,6 +344,8 @@ export function LivePanel({ className }: { className?: string }) {
         <OpenDraft />
         {/* 16 §2zf item 4: nothing at all when no order is waiting. */}
         <AwaitingPayment />
+        {/* 16 §2zf item 6: Rehman's own line into the conversation. */}
+        <OperatorNote />
         <LiveTranscript />
       </div>
     </Panel>

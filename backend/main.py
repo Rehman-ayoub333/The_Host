@@ -823,6 +823,55 @@ async def post_operator_retry_connection():
     return {"operational_mode": health.mode(), "reachable": reachable}
 
 
+# 16 section 2zf item 6: long enough for a real instruction, short enough that
+# nobody pastes a paragraph into a live conversation.
+NOTE_MIN_CHARS = 1
+NOTE_MAX_CHARS = 300
+
+
+class OperatorNote(BaseModel):
+    text: str = Field(min_length=NOTE_MIN_CHARS, max_length=NOTE_MAX_CHARS)
+
+
+@app.post("/api/session/note", dependencies=[Depends(require_operator_token)])
+async def post_session_note(request: Request):
+    """16 section 2zf item 6: Rehman steers the conversation without speaking.
+
+    The note reaches THE HOST as a user turn carrying the bracketed prefix of
+    `prompts.OPERATOR_NOTE_TEMPLATE`, deferred while THE HOST is speaking, and
+    `21` Part A's OPERATOR NOTES section is what stops it ever being read out.
+
+    The text itself is never logged and never stored: the log line counts its
+    characters and the activity row says only that a note was sent.
+    """
+    try:
+        body = OperatorNote.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid note.")
+    text = " ".join(body.text.split())
+    if not text:
+        raise HTTPException(status_code=400, detail="Invalid note.")
+
+    session = ACTIVE
+    if session is None:
+        raise HTTPException(status_code=409, detail="No conversation is running.")
+
+    log.info(
+        "operator note session %s chars=%s", session.ctx["session_id"], len(text)
+    )
+    try:
+        await session.inject("note", prompts.OPERATOR_NOTE_TEMPLATE.format(text=text))
+    except Exception:
+        log.exception("the operator note could not be sent")
+        raise HTTPException(status_code=503, detail="The note could not be sent.")
+
+    summaries.emit_activity("operator", "Operator note sent", None, session.ctx["session_id"])
+    # The audit row records that a note was sent and how long it was, never
+    # a word of it (12 section 1, and 2zf item 6's "no detail").
+    await _log_operator_action("session_note", chars=len(text))
+    return {"sent": True}
+
+
 @app.post("/api/operator/announce", dependencies=[Depends(require_operator_token)])
 async def post_operator_announce(request: Request):
     """A deliberate repeat: it bypasses the `announced` guard (04 section 5)."""

@@ -167,6 +167,23 @@ export async function announceAgain(orderId: number): Promise<boolean> {
   }
 }
 
+/**
+ * 16 §2zf item 6 — a line for THE HOST, from the team rather than the guest.
+ *
+ * The backend answers 409 "No conversation is running." when nobody is
+ * talking to it, and that text is what the operator reads. The note is never
+ * stored on this side: it leaves the box and is gone.
+ */
+export async function sendSessionNote(text: string): Promise<boolean> {
+  try {
+    await request("/api/session/note", { method: "POST", body: JSON.stringify({ text }) });
+    return true;
+  } catch (err) {
+    report(err);
+    return false;
+  }
+}
+
 /** Only the changed fields are sent; an emptied favourite sends null. */
 export async function updateVisitor(nameKey: string, patch: { display_name?: string; favorite_item?: string | null }): Promise<boolean> {
   try {

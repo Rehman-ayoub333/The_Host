@@ -6,8 +6,13 @@
  *    that take the money (16 §2zf item 4);
  *  - a complimentary order is badged "On the house".
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Collected by the mocked service below, so the assertions are about exactly
+// what the panel asked the backend to send. Nothing is stored anywhere else.
+const { notesSent } = vi.hoisted(() => ({ notesSent: [] as string[] }));
 
 vi.mock("@/lib/agent/service", () => ({
   connectAgent: () => undefined,
@@ -19,6 +24,11 @@ vi.mock("@/lib/agent/service", () => ({
   posterSrc: (path: string) => path,
   setOrderStatus: () => Promise.resolve(true),
   announceAgain: () => Promise.resolve(true),
+  // 16 §2zf item 6: the operator's note into a live conversation.
+  sendSessionNote: (text: string) => {
+    notesSent.push(text);
+    return Promise.resolve(true);
+  },
   updateVisitor: () => Promise.resolve(true),
   forgetVisitor: () => Promise.resolve(true),
   reloadVisitors: () => Promise.resolve(),
@@ -54,6 +64,7 @@ const draft: Order = {
 const dispatchAll = (events: AgentEvent[]) => events.forEach((e) => agentStore.dispatch(e));
 
 beforeEach(() => {
+  notesSent.length = 0;
   agentStore.dispatch({ type: "@reset" });
 });
 
@@ -264,6 +275,91 @@ describe("the Live panel's Waiting for payment card (16 §2zf item 4)", () => {
     render(<LivePanel />);
 
     expect(screen.queryByText("Waiting for payment")).toBeNull();
+  });
+});
+
+describe("the Live panel's note box (16 §2zf item 6)", () => {
+  const listening = [
+    {
+      type: "agent_state_changed",
+      state: "LISTENING",
+      timestamp: "2026-10-28T19:06:10",
+      session_id: "a1b2c3d4",
+    },
+  ] as AgentEvent[];
+
+  it("offers the box, Send and the three quick notes", () => {
+    dispatchAll(listening);
+
+    render(<LivePanel />);
+
+    expect(screen.getByPlaceholderText("Tell THE HOST…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "This is the Vice Chancellor" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ask them to pay at the counter" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Wrap up politely" })).toBeInTheDocument();
+  });
+
+  it("disables Send and every quick note with no live conversation", () => {
+    render(<LivePanel />);
+
+    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Wrap up politely" })).toHaveProperty("disabled", true);
+    expect(screen.getByText("No conversation is running.")).toBeInTheDocument();
+  });
+
+  it("disables Send while the box is empty, even with a conversation running", () => {
+    dispatchAll(listening);
+
+    render(<LivePanel />);
+
+    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
+    // A quick note needs no typing, so it is live.
+    expect(screen.getByRole("button", { name: "Wrap up politely" })).toHaveProperty("disabled", false);
+  });
+
+  it("sends what was typed and clears the box", async () => {
+    dispatchAll(listening);
+    render(<LivePanel />);
+    const box = screen.getByPlaceholderText("Tell THE HOST…") as HTMLInputElement;
+
+    // A controlled input: React only sees the change through its own handler.
+    fireEvent.change(box, { target: { value: "  They are in a hurry  " } });
+    await act(async () => {
+      screen.getByRole("button", { name: "Send" }).click();
+    });
+
+    expect(notesSent.at(-1)).toBe("They are in a hurry");
+    expect(box.value).toBe("");
+  });
+
+  it("sends a quick note word for word", async () => {
+    dispatchAll(listening);
+    render(<LivePanel />);
+
+    await act(async () => {
+      screen.getByRole("button", { name: "This is the Vice Chancellor" }).click();
+    });
+
+    expect(notesSent.at(-1)).toBe("This is the Vice Chancellor");
+  });
+
+  it("says plainly that THE HOST never reads it out, and that nothing is saved", () => {
+    dispatchAll(listening);
+
+    render(<LivePanel />);
+
+    expect(
+      screen.getByText("THE HOST acts on this at once and never reads it out. Nothing typed here is saved."),
+    ).toBeInTheDocument();
+  });
+
+  it("will not take more than 300 characters", () => {
+    dispatchAll(listening);
+
+    render(<LivePanel />);
+
+    expect(screen.getByPlaceholderText("Tell THE HOST…")).toHaveProperty("maxLength", 300);
   });
 });
 
