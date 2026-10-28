@@ -175,9 +175,12 @@ def test_the_runbook_carries_the_phase_7k_rules():
     assert "1920×1080 landscape, one picture per poster" in unwrapped
     assert "shown in file-name order" in unwrapped
     assert "01-burgers.jpg" in text
-    # Cash or QR, and what the operator sees if neither is sent.
-    assert "**Always Cash or QR.**" in unwrapped
-    assert "Choose Cash or QR." in unwrapped
+    # 16 §2zf item 9: the money is still always Cash or QR, but under
+    # pay-first it is recorded when the guest pays rather than at collection,
+    # so the runbook names the two presses that take it.
+    assert "**Paid · Cash** or **Paid · QR**" in unwrapped
+    assert "**Nothing is cooked before this.**" in unwrapped
+    assert "cancelled (unpaid)" in unwrapped
     # The name rule, and the quiet cancel for a prank. 21 Part E item 7, and
     # still without the name itself.
     assert "The name rule" in unwrapped
@@ -241,3 +244,31 @@ def test_the_display_script_reads_no_configuration_and_names_no_secret():
     # The only mention of .env is the comment promising never to open it.
     assert text.count(".env") == 1
     assert "never prints or echoes any .env file" in text
+
+
+def test_the_runbook_carries_the_phase_7l_rules():
+    """16 §2zf item 9: pay-first, the note box, and the TV's own two controls."""
+    unwrapped = " ".join(RUNBOOK.read_text(encoding="utf-8").split())
+
+    # Pay first: the one question, the two presses, and the ten-minute expiry.
+    assert "Shall I place it — cash or QR?" in unwrapped
+    assert "Only this press sends the order to the kitchen" in unwrapped
+    assert "after ten minutes the order cancels itself" in unwrapped
+    # Collection is one button again, because the payment is already recorded.
+    assert "One button now, for every order" in unwrapped
+
+    # The note box, and that nothing typed in it is kept.
+    assert "Tell THE HOST…" in unwrapped
+    for quick in (
+        "This is the Vice Chancellor",
+        "Ask them to pay at the counter",
+        "Wrap up politely",
+    ):
+        assert quick in unwrapped, quick
+    assert "without ever reading it out" in unwrapped
+    assert "Nothing typed there is saved anywhere." in unwrapped
+
+    # The TV: its own script, and the button that reloads it.
+    assert "open-display.ps1" in unwrapped
+    assert "Reload display screen" in unwrapped
+    assert "never shows *Tap to begin*" in unwrapped

@@ -123,7 +123,7 @@ def test_the_readme_carries_the_real_test_counts():
     """16 §2ze item 7: "the real counts after this phase", not a round number."""
     text = readme_text()
 
-    assert "**770 backend tests and 209 dashboard tests pass.**" in text
+    assert "**890 backend tests and 237 dashboard tests pass.**" in text
 
 
 def test_the_readme_describes_the_phase_5f_reliability_work():
@@ -133,3 +133,31 @@ def test_the_readme_describes_the_phase_5f_reliability_work():
     assert "Reconnecting" in text
     assert "number 5 for Rehman is ready!" in text
     assert "cancelled as abandoned" in text
+
+
+def test_the_readme_describes_pay_first_and_the_7l_controls():
+    """16 §2zf item 9: the README is the public record of how the stall runs."""
+    text = readme_text()
+    unwrapped = " ".join(text.split())
+
+    # Pay first, in the order it really happens.
+    assert "Shall I place it — cash or QR?" in unwrapped
+    assert "**Paid · Cash** or **Paid · QR**" in unwrapped
+    assert "Only that press sends it to the kitchen" in unwrapped
+    assert "cancelled by itself after ten minutes" in unwrapped
+    # Collection is one button again.
+    assert "is one **Collected**" in unwrapped
+
+    # The note box, and that it is never spoken or stored.
+    assert "without ever reading it out or mentioning it" in unwrapped
+    assert "Operator note sent" in unwrapped
+
+    # The TV's own script and the dashboard's reload.
+    assert "open-display.ps1" in text
+    assert "Reload display screen" in unwrapped
+    assert "`POST /api/session/note`" in text
+    assert "`POST /api/display/reload`" in text
+    assert "`display_reload`" in text
+
+    # A returning guest.
+    assert "returning guest is welcomed back" in unwrapped

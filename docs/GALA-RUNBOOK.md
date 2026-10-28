@@ -53,10 +53,12 @@ any script here.
    .\scripts\start-all.ps1
    ```
    On the dashboard set **Settings → Display screen devices** (Camera and Microphone), then
-   open `http://localhost:8080/display`, tap **Tap to begin**, order one item out loud,
-   give a first name, confirm, then on the dashboard move the order
-   PREPARING → READY → **Collected · Cash** and watch the TV announce it. Check the posters
-   are rotating on the TV between conversations. Then run `reset-for-gala.ps1` once more so
+   open the TV with `.\scripts\open-display.ps1` and allow the camera and the microphone
+   the one time it asks. Order one item out loud, give a first name, answer *cash*, then on
+   the dashboard press **Paid · Cash** on that order and listen: THE HOST says it is paid
+   and with the kitchen. Move it PREPARING → READY → **Collected** and watch the TV announce
+   it. Press **Reload display screen** and check the TV comes back on its own, with no tap.
+   Check the posters are rotating on the TV between conversations. Then run `reset-for-gala.ps1` once more so
    the gala starts clean.
 
    Doing this tonight also gets the dashboard built. The dashboard runs as a **production
@@ -115,11 +117,17 @@ with one line saying where the display is. If `/display` will not start, see sec
    saved device has been unplugged, this is where it says **Saved camera not found** or
    **Saved microphone not found** — the TV says nothing and quietly falls back to the Windows
    default, so check here rather than on the TV.
-6. **Tap the TV once.** `/display` shows the brand and one line, **Tap to begin** — a browser
-   will not give a page the microphone, the camera or sound until someone clicks. Tap
-   anywhere on the screen. There are no buttons and no drop-downs on the TV at all.
-   **After this one tap the TV never needs touching again** — THE HOST
-   greets guests itself, wakes on speech, and listens.
+6. **Open the TV with its own script.**
+   ```powershell
+   .\scripts\open-display.ps1
+   ```
+   It opens `/display` full screen on the second monitor, with no tabs and no address bar,
+   in a browser profile of its own. **The first time only**, it asks for the camera and the
+   microphone: allow both. After that the TV starts itself every time and never shows
+   *Tap to begin* — which is also what lets **Reload display screen** work from the
+   dashboard. There are no buttons and no drop-downs on the TV at all.
+   **The TV never needs touching again** — THE HOST greets guests itself, wakes on speech,
+   and listens. (Use `-X 0` to open it on the laptop while testing.)
 7. **Leave the TV window focused and on top.** Face detection pauses while the window is
    hidden, which is also what holds the empty-room timer. A partly overlapped window is
    fine; a minimised one is not. The operator's two keys work on this window: **Space**
@@ -157,29 +165,47 @@ loud rather than reaching across to someone else's laptop.
 
 ### The kitchen flow
 
-A guest orders by talking to THE HOST. The order appears on the dashboard as a draft while
-it is being taken, and becomes a real order the moment the guest confirms. From then on it
+**The money comes first.** A guest orders by talking to THE HOST, which asks one question
+— *"Shall I place it — cash or QR?"* — and places the order on their answer. It then
+**waits for payment**, and the kitchen has nothing to do until it is paid. From then on it
 is Saad's:
 
-1. **PREPARING** — the kitchen has started it.
-2. **READY** — it is on the counter. The TV announces
+1. **PAID** — the guest has handed over the cash, or scanned the QR code and shown you the
+   payment. Press **Paid · Cash** or **Paid · QR** on that order. The method the guest told
+   THE HOST is already highlighted, but press what they actually paid with — that is the
+   one that counts. Only this press sends the order to the kitchen, and THE HOST tells the
+   guest in one line that it is paid and on its way. **Nothing is cooked before this.**
+2. **PREPARING** — the kitchen has started it.
+3. **READY** — it is on the counter. The TV announces
    *"Order #27 for Ahmed is ready!"* and speaks it aloud.
-3. **COLLECTED** — the guest has taken it. **Always Cash or QR.** Those are the only two
-   buttons a paying order has, the card then reads *Paid · Cash* or *Paid · QR*, and the
-   Earnings panel counts it under the right heading. If a *Collected* with neither is ever
-   sent — from a browser tab left open since before the day's update, say — the backend
-   refuses it and the dashboard says **Choose Cash or QR.**; press the right button and
-   carry on. An order **on the house** has one plain *Collected* button, because there is
-   nothing to charge.
+4. **COLLECTED** — the guest has taken it. One button now, for every order: how it was paid
+   was recorded at step 1, and the card already reads *Paid · Cash* or *Paid · QR*. An order
+   **on the house** goes straight to the kitchen with nothing to charge.
+
+An order waiting for payment is shown at the top of the Orders panel and again in the Live
+conversation panel, with the total in large figures, and a line counts how many are waiting.
+**A guest who walks away without paying costs nothing**: after ten minutes the order cancels
+itself, the feed reads *Order #27 cancelled (unpaid)*, and the Earnings panel stops counting
+it as money at the counter.
 
 **Announce again** re-plays a ready announcement if the guest missed it.
 
-**A guest who changes their mind.** While an order is still *Confirmed*, THE HOST can
-change or cancel it itself: it asks *"Shall I cancel order number 27?"* and waits for the
+**A guest who changes their mind.** While an order is still *Waiting for payment*, THE HOST
+can change or cancel it itself: it asks *"Shall I cancel order number 27?"* and waits for the
 guest's yes. For a change it places the corrected order first and cancels the old one
-after, so the guest is never left with nothing. Once the kitchen has started, THE HOST says
-so and flags it for the team — that call is the operator's, who can still cancel a
-*Preparing* order from the dashboard.
+after, so the guest is never left with nothing. Once the money has been taken, THE HOST says
+the order is already paid and flags it for the team — that call is the operator's, including
+any refund, and they can still cancel a paid or *Preparing* order from the dashboard.
+
+### Telling THE HOST something, without speaking
+
+The Live conversation panel has a box, **Tell THE HOST…**, and three buttons beside it:
+*This is the Vice Chancellor*, *Ask them to pay at the counter* and *Wrap up politely*. Type
+a short line and press **Send**, and THE HOST acts on it in its next breath — graciously, and
+without ever reading it out or letting the guest know it was told anything. Use it when you
+can see something THE HOST cannot: who the guest is, that the queue is building, that the
+payment has not come. It only works while a conversation is running; the panel says so when
+one is not. Nothing typed there is saved anywhere.
 
 ### The operator buttons (dashboard → System)
 
@@ -189,6 +215,7 @@ so and flags it for the team — that call is the operator's, who can still canc
 | **Take over** | Hands the stall to a person; THE HOST stops | A guest needs a human |
 | **End conversation** | Ends just the conversation running now | Someone is monopolising it, or it has got stuck |
 | **Retry connection** | Tests the AI service once, now | After the internet has been fixed |
+| **Reload display screen** | Reloads the TV from here | The TV looks wrong, is stuck, or has just had its camera or microphone changed |
 
 Pause, Take over and End conversation ask you to confirm first. **Resume THE HOST** puts it
 back to work.
@@ -198,8 +225,13 @@ back to work.
 - **A short outage.** The TV's caption reads *"Reconnecting…"* and the dashboard shows the
   mode in amber. THE HOST recovers by itself, and the conversation carries on where it left
   off. Wait. Do not restart anything.
-- **`/display` will not start.** The TV has been tapped but THE HOST never hears or sees a
-  guest: the orb stays idle, and nothing happens when someone speaks in front of it. Check
+- **The TV looks wrong.** Press **Reload display screen**, on the dashboard's System panel
+  or in **Settings → Display screen devices**. The TV reloads itself and comes straight back
+  to its posters — no walking over, no keyboard, and no *Tap to begin*, because
+  `open-display.ps1` started it in a window that is allowed to begin on its own. Use the same
+  button after changing the camera or the microphone in Settings.
+- **`/display` will not start.** THE HOST never hears or sees a guest: the orb stays idle,
+  and nothing happens when someone speaks in front of it. Check
   **Settings → Display screen devices** on the laptop first — a saved camera or microphone
   that has been unplugged is named there, and the TV itself says nothing about it. If that
   is not it, open `http://localhost:8080/display` on the **laptop** instead, full screen and

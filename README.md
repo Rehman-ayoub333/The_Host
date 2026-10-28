@@ -34,38 +34,55 @@ THE HOST never replaces the team; it hands work to them. A guest who needs a per
    WebSocket as raw audio; the transcript appears live on the operator's screen.
 3. The guest asks what's good. THE HOST checks the real menu, recommends something that is
    actually in stock, and answers questions about the stall, the team and the project.
-4. The guest orders. THE HOST reads the order back, asks, and stops. Nothing is placed until
-   the guest's own clear yes — and that is enforced by the backend, not by good manners.
-5. A guest who changes their mind can change or cancel a confirmed order by talking, for as
-   long as the kitchen has not started it.
-6. If the guest gives a name, THE HOST remembers it. Next time it greets them by name and
-   knows their usual. It never recognises a face.
-7. The guest can hold something up and ask "what is this?" — or THE HOST can ask the page
+4. The guest orders. THE HOST reads the order back and asks one question — *"Shall I place
+   it — cash or QR?"* — and then stops. Nothing is placed until the guest answers, and that
+   is enforced by the backend, not by good manners.
+5. The guest pays at the counter. The team presses **Paid · Cash** or **Paid · QR**, and
+   only then does the order reach the kitchen. THE HOST tells the guest in one line that it
+   is paid and on its way.
+6. A guest who changes their mind can change or cancel the order by talking, for as long as
+   nobody has taken the money for it.
+7. If the guest gives a name, THE HOST remembers it — the name on the order is enough. Next
+   time it welcomes them back by name and knows their usual. It never recognises a face.
+8. The guest can hold something up and ask "what is this?" — or THE HOST can ask the page
    for a picture itself when a question needs eyes.
-8. The operator marks the order ready and records how it was paid. THE HOST waits for a gap
-   in the conversation and then announces it out loud, and the TV shows it.
+9. The operator marks the order ready. THE HOST waits for a gap in the conversation and then
+   announces it out loud, and the TV shows it.
 
 ## Key features
 
 - **Unprompted greeting** from on-device presence detection — no wake word, no button.
 - **Live voice both ways** through the Gemini Live API (16 kHz in, 24 kHz out), with
   barge-in: a guest can talk over THE HOST and it stops.
-- **Orders the code will not let it get wrong.** A two-step order, and a backend guard that
-  refuses `confirm_order` outright unless the guest's own last line was a yes. The same
-  guard protects a cancellation.
-- **Changes to a confirmed order, by voice.** Remove an item, swap it, or cancel it, while
-  the order is still queued. A change places the corrected order *first* and cancels the old
-  one after, so the guest is never left with nothing.
+- **Pay first, then the kitchen.** An order is placed and then waits for the money: THE HOST
+  asks *cash or QR* while placing it, the guest pays at the counter, and the team presses
+  **Paid · Cash** or **Paid · QR** on the dashboard. Only that press sends it to the kitchen,
+  and THE HOST tells the guest in one line that it is paid. An order nobody comes to pay for
+  is cancelled by itself after ten minutes.
+- **Orders the code will not let it get wrong.** A backend guard refuses `confirm_order`
+  outright unless the guest's own last line was a yes — or their answer to *cash or QR*. The
+  same guard protects a cancellation.
+- **Changes to a placed order, by voice.** Remove an item, swap it, or cancel it, for as long
+  as nobody has taken the money. A change places the corrected order *first* and cancels the
+  old one after, so the guest is never left with nothing.
 - **A guest-of-honour protocol.** The Vice Chancellor of the university is the stall's guest:
   no name asked, no price spoken, the order marked *on the house* for the team to see. Who
   qualifies is decided in code, not in a prompt — every other guest, however they introduce
   themselves, is a paying guest.
-- **Earnings you can count against the cash box.** Every collection records Cash or QR, the
-  dashboard totals the two separately, and one button downloads the day's sales as a CSV.
+- **A returning guest is welcomed back.** The name THE HOST is given for an order is the
+  name it remembers, so a guest who comes back a second time is greeted as one.
+- **A line to THE HOST from the team.** A text box on the dashboard tells THE HOST something
+  mid-conversation — *"this is the Vice Chancellor"*, *"ask them to pay at the counter"* — and
+  it acts on it at once, without ever reading it out or mentioning it.
+- **Earnings you can count against the cash box.** Every payment records Cash or QR, the
+  dashboard totals the two separately alongside what is still waiting at the counter and what
+  had to be refunded, and one button downloads the day's sales as a CSV.
 - **The stall's posters on the TV.** Drop pictures into a folder and the idle screen becomes
   a full-screen poster rotation, 8 seconds each, no text over them, no restart needed.
 - **Recovery from a real outage.** A dropped Gemini connection is rebuilt for a full thirty
   seconds, the page says *Reconnecting…*, and the open order is handed back from the database.
+  The TV then finds its own way back to its idle screen without anybody reloading it — and
+  when it does need a reload, there is a button for that on the dashboard.
 - **Privacy by construction.** No face recognition, no stored pictures, no recordings, and no
   guest's words in any log or file.
 - **13 tools** the model can call, each validating its own input and reading live data.
@@ -154,23 +171,30 @@ sentence rather than the screen cutting the conversation off. It waits for a gap
 never mid-order, mid-answer or mid-sentence — and only then ends, so the last thing a guest
 hears is a thank-you and not silence.
 
-**Two-step orders, and a guard that does not take the model's word for it.** `build_order`
-creates a draft in `PENDING_CONFIRMATION`, `signal_confirmation_request` puts the question on
-screen, and `confirm_order` makes it real. What makes it safe is that the backend checks the
-guest's own last line before letting `confirm_order` run at all: no yes, no order, whatever
-the model intended. "Yes", "haan", "ji", "confirm" and "go ahead" all count, in English and
-in Urdu; silence, a new sentence or an answer to a different question do not, and THE HOST is
-told to ask again. A cancellation of a confirmed order has the same guard, in reverse: it
-needs the guest's consent, in this conversation, after the question was asked. A draft that
-is abandoned is cancelled after five minutes. From there the operator moves the order
-`CONFIRMED → PREPARING → READY → COLLECTED`, one step at a time; `CANCELLED`, `FAILED` and
-`REQUIRES_ATTENTION` are the other three statuses, the last two operator-only.
+**Pay first, and a guard that does not take the model's word for it.** `build_order` creates
+a draft in `PENDING_CONFIRMATION`. THE HOST reads it back and asks one question — *"Shall I
+place it — cash or QR?"* — and the answer is both the yes and the payment: `confirm_order`
+carries `CASH` or `QR` and leaves the order in `AWAITING_PAYMENT`. The guest pays at the
+counter, the team presses **Paid · Cash** or **Paid · QR**, and only that press moves the
+order to `CONFIRMED`, stamps when it was paid, and sends it to the kitchen. THE HOST is told,
+and says in one line that it is paid.
 
-**Changing a confirmed order.** Once an order is confirmed it is final — but a guest may
-still change their mind out loud, and THE HOST checks the order's real status before it
-agrees. While the order is still queued it can remove an item, replace the order, or cancel
-it; the kitchen having started it ends the conversation politely and raises it with the team
-instead. A change is done new-first: the corrected order is confirmed *before* the old one is
+What makes it safe is that the backend checks the guest's own last line before letting
+`confirm_order` run at all: no answer, no order, whatever the model intended. "Yes", "haan",
+"ji", "confirm" and "go ahead" all count, in English and in Urdu, and so do "cash", "QR",
+"online" and "scan"; silence, a new sentence or an answer to a different question do not, and
+THE HOST is told to ask again. A cancellation has the same guard, in reverse: it needs the
+guest's consent, in this conversation, after the order was placed. A draft that is abandoned
+is cancelled after five minutes, and an order nobody pays for after ten. From there the
+operator moves the order `CONFIRMED → PREPARING → READY → COLLECTED`, one step at a time;
+`CANCELLED`, `FAILED` and `REQUIRES_ATTENTION` are the other three statuses, the last two
+operator-only.
+
+**Changing a placed order.** Once an order is placed it is final — but a guest may still
+change their mind out loud, and THE HOST checks the order's real status before it agrees.
+While the order is still waiting for payment it can remove an item, replace the order, or
+cancel it; once the money has been taken THE HOST says so plainly and raises it with the team
+instead, refund and all. A change is done new-first: the corrected order is confirmed *before* the old one is
 cancelled, so a failure in the middle leaves the guest with the order they had rather than
 with nothing. Adding something to a confirmed order is always a new, separate order, and THE
 HOST says so.
@@ -195,12 +219,21 @@ conversation and none at all with a guest of honour, and none of the assistant f
 chatbot. It replies in the language of the guest's last line — English, Urdu or Roman Urdu,
 always with the polite *aap*.
 
-**The money.** Every collection records how the guest paid: the dashboard offers
-*Collected · Cash* and *Collected · QR* and nothing else for a paying order, and the backend
-refuses a collection with neither. The Earnings panel then shows the day's total split into
-cash and QR, what is still to collect, what went on the house, and a breakdown by item — and
-**Download today's sales (CSV)** saves one row per order, so the figures can be checked
-against the cash box and the QR account at the end of the night.
+**The money.** Every order records how the guest paid, at the moment they pay: the dashboard
+offers **Paid · Cash** and **Paid · QR** on an order waiting at the counter, and the backend
+refuses the payment with neither. Handing the food over afterwards is one **Collected**
+button, because by then the payment is already on the order. The Earnings panel shows the
+day's total split into cash and QR, what is still waiting for payment, what went on the
+house, and what had to be refunded, with a breakdown by item — and
+**Download today's sales (CSV)** saves one row per order, with the time it was paid, so the
+figures can be checked against the cash box and the QR account at the end of the night.
+
+**A line to THE HOST, from the team.** Rehman can type into the Live conversation panel while
+a guest is still talking — *"this is the Vice Chancellor"*, *"ask them to pay at the
+counter"*, *"wrap up politely"* — and THE HOST acts on it at once as though it had thought of
+it itself. It never reads the note out and never mentions that it got one, and nothing typed
+there is written to the log, the activity feed or the database: the feed says only *Operator
+note sent*.
 
 **The posters on the TV.** When no conversation is running and no announcement is showing,
 the TV shows the stall's own pictures full screen — one at a time, 8 seconds each, with a
@@ -277,11 +310,17 @@ notepad backend\.env
 .\scripts\start-all.ps1
 ```
 
-Then open **http://localhost:8080/display** in Chrome and tap the screen once, which is how
-a browser lets a page use the microphone, camera and sound. The camera and the microphone
-themselves are chosen on the laptop, in the dashboard's Settings. The TV greets a guest on
-its own, so it must be a visible window of its own — presence detection pauses while the tab
-is hidden. A partly overlapped window is fine; a minimised one is not.
+Then open the TV's screen with `.\scripts\open-display.ps1`. It opens
+**http://localhost:8080/display** full screen on the second monitor, in a browser profile of
+its own, and asks once — the first time only — for the camera and the microphone; allow both.
+After that it starts itself every time, with no tap and no keyboard, which is what lets the
+dashboard's **Reload display screen** button work from across the stall. Use `-X 0` to open
+it on the laptop instead while testing, or open the address by hand and tap the screen once.
+
+The camera and the microphone themselves are chosen on the laptop, in the dashboard's
+Settings. The TV greets a guest on its own, so it must be a visible window of its own —
+presence detection pauses while the tab is hidden. A partly overlapped window is fine; a
+minimised one is not.
 
 `http://127.0.0.1:8000/` is the backend, not a screen: it answers with one line saying where
 the display is.
@@ -295,6 +334,7 @@ Everything is a script, run from the repository root:
 | `.\scripts\start-all.ps1` | Starts the backend on `127.0.0.1:8000` and the dashboard on `localhost:8080`, each in its own window |
 | `.\scripts\start-backend.ps1` | The backend only |
 | `.\scripts\start-dashboard.ps1` | The dashboard only — runs `bun install` first if `node_modules` is missing |
+| `.\scripts\open-display.ps1` | Opens the TV's own full-screen browser window on the second screen |
 | `.\scripts\preflight.ps1` | One PASS/FAIL/WARN line per readiness check, for the day of the event |
 | `.\scripts\stop-all.ps1` | Stops both servers, by port. Closing the windows is **not** enough |
 | `.\scripts\reset-for-gala.ps1` | Starts the event with an empty database, keeping the old one as a backup |
@@ -366,9 +406,9 @@ anything requires it.
 | `GET /api/activity` | Recent activity-feed entries | yes |
 | `GET /api/analytics` | Real aggregates for today | yes |
 | `GET /api/metrics` | Today's conversation, order, failed-tool and connection-failure counts | yes |
-| `GET /api/earnings` | Today's money: total, cash, QR, still to collect, on the house, by item | yes |
+| `GET /api/earnings` | Today's money: total, cash, QR, waiting for payment, on the house, refunded, by item | yes |
 | `GET /api/earnings.csv` | The day's sales as a CSV, one row per order | yes |
-| `POST /api/orders/{id}/status` | Advance, cancel, fail or flag an order. A collection must carry `payment_method` of `CASH` or `QR` unless the order is on the house | yes |
+| `POST /api/orders/{id}/status` | Advance, cancel, fail or flag an order. The payment — `CONFIRMED` on an order waiting for one — must carry `payment_method` of `CASH` or `QR` | yes |
 | `POST /api/menu/{name}/availability` | Mark an item sold out or available again | yes |
 | `POST /api/operator/pause` | Pause THE HOST; any running conversation ends cleanly | yes |
 | `POST /api/operator/resume` | Return to the computed mode | yes |
@@ -377,6 +417,8 @@ anything requires it.
 | `POST /api/operator/end-session` | Force-end whatever conversation is running | yes |
 | `POST /api/operator/retry-connection` | Check the AI service right now and update the mode | yes |
 | `POST /api/operator/announce` | Repeat the announcement for a ready order | yes |
+| `POST /api/session/note` | A line for THE HOST from the team, 1–300 characters, while a conversation is running | yes |
+| `POST /api/display/reload` | Ask the TV to reload itself | yes |
 | `PATCH /api/visitors/{name_key}` | Correct a misheard name or a wrong favourite | yes |
 | `DELETE /api/visitors/{name_key}` | Forget a visitor completely. Orders are untouched | yes |
 
@@ -418,6 +460,7 @@ conversation.
 | `system_status_changed` | A component the backend can actually observe changed. Dashboard only |
 | `operational_mode_changed` | `ONLINE`, `OFFLINE`, `PAUSED` or `OPERATOR_TAKEOVER` |
 | `capture_request` | The agent is asking the TV for one picture. Never public |
+| `display_reload` | The operator asked the TV to reload itself. Display only |
 | `error` | A plain, human-readable failure message |
 | `heartbeat` | Every 10 seconds, so a client knows the stream is alive |
 
@@ -435,13 +478,15 @@ cd backend
 ..\.venv\Scripts\python.exe -m pytest -q
 ```
 
-**770 backend tests and 209 dashboard tests pass.** They cover the data model, all 13 tools,
+**890 backend tests and 237 dashboard tests pass.** They cover the data model, all 13 tools,
 the system prompt word for word against its specification, the confirmation and cancellation
-guards, who may be on the house, the event bus and its role filtering, the activity labels,
-the state machine, both WebSockets, every REST endpoint including its error cases, the
-earnings arithmetic and the CSV, the poster endpoint and the TV's poster mode, the operator
-controls, visitor correction, metrics, outage recovery, and the order-ready announcement with
-every condition that defers it. The tools and the live session are tested against fakes, so
+guards, pay-first from the status machine to the ten-minute expiry, who may be on the house,
+returning guests, the operator's note and everything it must never write down, the event bus
+and its role filtering, the activity labels, the state machine, both WebSockets, every REST
+endpoint including its error cases, the earnings arithmetic and the CSV, the poster endpoint
+and the TV's poster mode, the TV's captions clearing and its recovery without a reload, the
+operator controls, visitor correction, metrics, outage recovery, and the order-ready
+announcement with every condition that defers it. The tools and the live session are tested against fakes, so
 the suite needs no API key and makes no network call.
 
 ## Reliability, privacy and security
