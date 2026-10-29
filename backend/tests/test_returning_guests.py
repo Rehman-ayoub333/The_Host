@@ -167,6 +167,78 @@ def test_a_returning_guest_is_published_as_returning(ctx):
     assert identified[0]["visits"] == 2
 
 
+# --------------------- 2zh item 3(d): announced only when the visitor changes
+
+
+def test_the_same_name_again_in_one_conversation_announces_nothing(ctx):
+    """16 §2zh item 3(d). THE HOST rebuilds a draft whenever the guest changes
+    their mind, and passes the same name every time. The guest walked up once,
+    so the screens are told once: anything else is the dashboard announcing
+    "Rehman" three times for one order.
+    """
+    tools.build_order(BURGER, guest_name="Rehman")
+    event_bus.PUBLISHED.clear()
+
+    tools.build_order(BURGER + LEMONADE, guest_name="Rehman")
+    tools.build_order(LEMONADE, guest_name="rehman")
+
+    assert published("visitor_identified") == []
+    assert published("memory_updated") == []
+    # The name is still on the order and still in this session's context.
+    assert ctx["visitor_name"] == "Rehman"
+
+
+def test_the_first_name_of_the_conversation_is_announced(ctx):
+    """The visitor changed: from nobody to Rehman."""
+    event_bus.PUBLISHED.clear()
+
+    tools.build_order(BURGER, guest_name="Rehman")
+
+    assert len(published("visitor_identified")) == 1
+    assert len(published("memory_updated")) == 1
+
+
+def test_a_different_name_in_the_same_conversation_is_announced(ctx):
+    """Two friends at the mic, or a draft renamed: the visitor really changed."""
+    tools.build_order(BURGER, guest_name="Rehman")
+    event_bus.PUBLISHED.clear()
+
+    tools.build_order(LEMONADE, guest_name="Sara")
+
+    identified = published("visitor_identified")
+    assert len(identified) == 1
+    assert identified[0]["name"] == "Sara"
+    assert len(published("memory_updated")) == 1
+
+
+def test_remember_visitor_still_announces_every_time(ctx):
+    """16 §2zh item 3(d) names `build_order` only.
+
+    `remember_visitor` is the model saying "this is who I am talking to", which
+    is always worth telling the screens, and 2zf item 5 left it unchanged.
+    """
+    tools.remember_visitor("Rehman")
+    event_bus.PUBLISHED.clear()
+
+    tools.remember_visitor("Rehman")
+
+    assert len(published("visitor_identified")) == 1
+    assert len(published("memory_updated")) == 1
+
+
+def test_a_build_after_remember_visitor_announces_nothing_new(ctx):
+    """The two share one helper, so the session's visitor is already this one."""
+    tools.remember_visitor("Rehman")
+    event_bus.PUBLISHED.clear()
+
+    drafted = tools.build_order(BURGER, guest_name="Rehman")
+
+    assert published("visitor_identified") == []
+    assert published("memory_updated") == []
+    # The draft still carries what `21` Part A may be said out loud from.
+    assert drafted["visitor"]["returning"] is True
+
+
 # ----------------------------------- remember_visitor itself is unchanged
 
 

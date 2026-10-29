@@ -147,7 +147,7 @@ def _is_a_title(name) -> bool:
     return _is_the_vice_chancellor(name) or _is_the_chief_guest(name)
 
 
-def _note_visitor(name) -> dict | None:
+def _note_visitor(name, announce_only_if_changed: bool = False) -> dict | None:
     """16 section 2zf item 5: the one place a name becomes a remembered guest.
 
     Rehman asked to be welcomed back when he returns, and THE HOST only ever
@@ -159,6 +159,14 @@ def _note_visitor(name) -> dict | None:
     many times the name is given), sets the session's known name, and publishes
     `visitor_identified` and `memory_updated`. Orders placed in this
     conversation before the name arrived pick it up on the way.
+
+    16 section 2zh item 3(d): with `announce_only_if_changed`, the two events
+    are published only when this session's visitor really changes -- the first
+    name of the conversation, or a different one. `build_order` passes it,
+    because a guest who changes their mind three times sends the same name
+    three times and the dashboard should not re-announce them each time.
+    `remember_visitor` does not: it is the model saying "this is who I am
+    talking to", and that is always worth telling the screens.
 
     None means there was no name to work with.
     """
@@ -191,17 +199,20 @@ def _note_visitor(name) -> dict | None:
                 _queue_memory_row(order, old_favourite, linked)
     # Re-read: favourite and last order may have changed.
     profile = data.get_visitor(key)
-    _pub(
-        {
-            "type": "visitor_identified",
-            "name": profile["display_name"],
-            "returning": returning,
-            "visits": profile["visits"],
-            "favorite_item": profile["favorite_item"],
-            "last_order": profile["last_order"],
-        }
-    )
-    _pub(data.memory_event(profile))
+    # 16 section 2zh item 3(d): `already` is exactly "the visitor has not
+    # changed in this session", which is what decides it.
+    if not (announce_only_if_changed and already):
+        _pub(
+            {
+                "type": "visitor_identified",
+                "name": profile["display_name"],
+                "returning": returning,
+                "visits": profile["visits"],
+                "favorite_item": profile["favorite_item"],
+                "last_order": profile["last_order"],
+            }
+        )
+        _pub(data.memory_event(profile))
     return {
         "returning": returning,
         "name": profile["display_name"],
@@ -322,7 +333,9 @@ def build_order(items, guest_name=None, complimentary=None) -> dict:
         # role, not a guest, and never becomes a visitor.
         visitor = None
         if given and not _is_a_title(given):
-            visitor = _note_visitor(given)
+            # 16 section 2zh item 3(d): the name is still recorded on every
+            # call -- only the announcement waits for the visitor to change.
+            visitor = _note_visitor(given, announce_only_if_changed=True)
         order = data.get_order(result["order_id"])
         if result["action"] == "created":
             _pub({"type": "order_created", "order": data.order_view(order)})
