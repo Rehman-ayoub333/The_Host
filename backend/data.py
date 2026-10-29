@@ -76,7 +76,7 @@ MENU_TAGS = ("spicy", "sweet", "vegetarian", "cold", "hot")
 _ORDER_COLUMNS = (
     "id, timestamp, guest_name, items, status, announced, session_id, "
     "cancel_reason, estimated_ready_at, ready_at, orphaned_at, complimentary, "
-    "payment_method, paid_at"
+    "payment_method, placed_at, paid_at"
 )
 
 # 16 section 2z item 2: how the guest paid. Since 2zf item 3 it is recorded
@@ -218,6 +218,7 @@ def init_db() -> list[tuple[str, bool]]:
                 orphaned_at TEXT,
                 complimentary INTEGER NOT NULL DEFAULT 0,
                 payment_method TEXT,
+                placed_at TEXT,
                 paid_at TEXT
             )"""
         )
@@ -245,6 +246,11 @@ def init_db() -> list[tuple[str, bool]]:
         # them from their status instead of inventing a time for them.
         if "paid_at" not in order_columns:
             conn.execute("ALTER TABLE orders ADD COLUMN paid_at TEXT")
+        # 16 section 2zh item 3(a): when the order was placed. It arrives NULL,
+        # and stays NULL on every order placed before this phase: those were
+        # timed from their `timestamp`, and the sweeper still falls back to it.
+        if "placed_at" not in order_columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN placed_at TEXT")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS feedback (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -590,17 +596,22 @@ def expire_unpaid_orders(ttl_seconds: int = None) -> list[int]:
     in "Waiting for payment". One this old is cancelled with the reason
     `unpaid`, by the same sweeper that expires abandoned drafts.
 
-    The age is the order's own `timestamp`, the one column the orders table has
-    for when an order began: a draft is cancelled at `PENDING_ORDER_TTL_S`, so
-    an order that was placed at all was placed well inside that, and the TTL
-    here is twice it. The activity row belongs to the caller (`main`), because
-    `summaries` reads this module and cannot be imported from it.
+    16 section 2zh item 3(a): the age is measured from `placed_at`, the moment
+    the guest was told to go and pay. It used to be measured from `timestamp`,
+    when the draft was first built, so a guest who spent minutes deciding
+    before placing the order got less than the full ten to reach the counter --
+    and a draft rebuilt from an earlier conversation could be swept almost at
+    once. An order placed before this phase has no `placed_at`, so for those
+    `timestamp` is still the only evidence there is and the fallback uses it.
+    The activity row belongs to the caller (`main`), because `summaries` reads
+    this module and cannot be imported from it.
     """
     window = config.PAYMENT_TTL_S if ttl_seconds is None else ttl_seconds
     cutoff = (datetime.now() - timedelta(seconds=window)).isoformat(timespec="seconds")
     with closing(_connect()) as conn:
         stale = conn.execute(
-            "SELECT id FROM orders WHERE status = 'AWAITING_PAYMENT' AND timestamp < ?",
+            "SELECT id FROM orders WHERE status = 'AWAITING_PAYMENT' "
+            "AND COALESCE(placed_at, timestamp) < ?",
             (cutoff,),
         ).fetchall()
         if not stale:
@@ -868,6 +879,13 @@ def update_order_status(order_id, new_status, reason=None, payment_method=None) 
         if method is not None:
             assignments.append("payment_method = ?")
             params.append(method)
+        # 16 section 2zh item 3(a): the moment the order was placed, which is
+        # the step into AWAITING_PAYMENT -- what `confirm_order` does for every
+        # order that has to be paid for. Only once, so a second pass over the
+        # same step could never restart the guest's clock.
+        if status == "AWAITING_PAYMENT" and not order.get("placed_at"):
+            assignments.append("placed_at = ?")
+            params.append(_now())
         # 16 section 2zf item 3(d): the moment the money was taken. Only the
         # step out of AWAITING_PAYMENT is that moment, and only once: an order
         # already carrying a paid_at keeps the time it was really paid.

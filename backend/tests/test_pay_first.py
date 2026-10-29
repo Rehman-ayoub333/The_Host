@@ -58,11 +58,19 @@ def statuses_of(order_id):
     return data.get_order(order_id)["status"]
 
 
-def backdate(order_id, seconds):
-    """Age an order in this test's own throwaway database, as test_data does."""
+def backdate(order_id, seconds, column="placed_at"):
+    """Age an order in this test's own throwaway database, as test_data does.
+
+    16 section 2zh item 3(a): the unpaid sweeper measures from `placed_at`, so
+    ageing an order means ageing that. `column="timestamp"` ages only the draft,
+    which is how the clock used to be read and how a row from an earlier phase
+    still has to be read.
+    """
     stamp = (datetime.now() - timedelta(seconds=seconds)).isoformat(timespec="seconds")
     with closing(sqlite3.connect(config.DB_PATH)) as conn:
-        conn.execute("UPDATE orders SET timestamp = ? WHERE id = ?", (stamp, order_id))
+        conn.execute(
+            f"UPDATE orders SET {column} = ? WHERE id = ?", (stamp, order_id)
+        )
         conn.commit()
 
 
@@ -149,6 +157,9 @@ def test_paid_at_is_added_to_a_database_from_an_earlier_phase(tmp_path, monkeypa
     assert order["status"] == "COLLECTED"
     assert order["payment_method"] == "CASH"
     assert order["paid_at"] is None
+    # 16 §2zh item 3(a): the same for placed_at. Nothing recorded when this
+    # order was placed, so the column arrives NULL and stays NULL.
+    assert order["placed_at"] is None
 
 
 def test_the_order_view_carries_paid_at(ctx):
@@ -405,6 +416,82 @@ def test_an_order_with_no_payment_at_all_still_cannot_be_collected(served):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Choose Cash or QR."
+
+
+# ----------------------------- 2zh item 3(a): the clock starts when it is placed
+
+
+def test_confirm_order_records_when_the_order_was_placed(ctx):
+    order_id = placed(ctx)["order_id"]
+
+    order = data.get_order(order_id)
+
+    assert order["status"] == "AWAITING_PAYMENT"
+    assert order["placed_at"] is not None
+    # The draft was built first, so the order was placed at or after it began.
+    assert order["placed_at"] >= order["timestamp"]
+
+
+def test_an_order_on_the_house_is_never_placed_for_payment(ctx):
+    """It goes straight to the kitchen, so there is no clock to start."""
+    result = placed(ctx, name="Vice Chancellor", complimentary=True)
+
+    order = data.get_order(result["order_id"])
+
+    assert order["status"] == "CONFIRMED"
+    assert order["placed_at"] is None
+
+
+def test_a_draft_still_waiting_on_the_guest_has_not_been_placed(ctx):
+    draft = tools.build_order(BURGER, guest_name="Ali")
+
+    order = data.get_order(draft["order_id"])
+
+    assert order["status"] == "PENDING_CONFIRMATION"
+    assert order["placed_at"] is None
+
+
+def test_marking_it_paid_keeps_the_time_it_was_placed(served, ctx):
+    order_id = placed(ctx, method="cash")["order_id"]
+    was_placed = data.get_order(order_id)["placed_at"]
+
+    served.post(
+        f"/api/orders/{order_id}/status",
+        json={"status": "CONFIRMED", "payment_method": "CASH"},
+        headers=AUTH,
+    )
+
+    order = data.get_order(order_id)
+    assert order["placed_at"] == was_placed
+    assert order["paid_at"] is not None
+
+
+def test_the_unpaid_clock_runs_from_the_placing_not_from_the_draft(ctx):
+    """16 §2zh item 3(a): a guest who took a long time deciding gets the full TTL.
+
+    This is the whole point of the column. The draft here is older than the TTL,
+    which is what used to be measured, and the order was placed a moment ago: it
+    has its ten minutes to reach the counter and must not be swept.
+    """
+    order_id = placed(ctx)["order_id"]
+    backdate(order_id, config.PAYMENT_TTL_S + 300, column="timestamp")
+
+    assert data.expire_unpaid_orders() == []
+    assert statuses_of(order_id) == "AWAITING_PAYMENT"
+
+
+def test_an_order_placed_before_this_phase_falls_back_to_its_timestamp(ctx):
+    """An AWAITING_PAYMENT row from 7l carries no placed_at at all."""
+    order_id = placed(ctx)["order_id"]
+    backdate(order_id, config.PAYMENT_TTL_S + 30, column="timestamp")
+    with closing(sqlite3.connect(config.DB_PATH)) as conn:
+        conn.execute("UPDATE orders SET placed_at = NULL WHERE id = ?", (order_id,))
+        conn.commit()
+
+    assert data.expire_unpaid_orders() == [order_id]
+    order = data.get_order(order_id)
+    assert order["status"] == "CANCELLED"
+    assert order["cancel_reason"] == "unpaid"
 
 
 # ------------------------------------------- item 3(f): nobody came to the counter
