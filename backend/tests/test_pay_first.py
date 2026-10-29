@@ -51,7 +51,7 @@ def served(monkeypatch):
 def placed(ctx, items=BURGER, name="Ali", method="cash", complimentary=None):
     """A draft built and placed the way THE HOST places one."""
     draft = tools.build_order(items, guest_name=name, complimentary=complimentary)
-    return tools.confirm_order(draft["order_id"], payment_method=method)
+    return tools.confirm_order(draft["draft_id"], payment_method=method)
 
 
 def statuses_of(order_id):
@@ -100,7 +100,7 @@ def test_an_unpaid_order_can_only_be_paid_cancelled_or_handed_to_the_team():
 
 
 def test_the_kitchen_cannot_start_on_an_order_that_is_not_paid(ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
 
     refused = data.update_order_status(order_id, "PREPARING")
 
@@ -163,7 +163,7 @@ def test_paid_at_is_added_to_a_database_from_an_earlier_phase(tmp_path, monkeypa
 
 
 def test_the_order_view_carries_paid_at(ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
 
     view = data.order_view(data.get_order(order_id))
 
@@ -182,7 +182,7 @@ def test_confirm_order_with_cash_places_the_order_and_waits_for_the_money(ctx):
     assert result["payment_method"] == "CASH"
     assert result["total"] == "Rs. 650"
     assert "error" not in result
-    stored = data.get_order(result["order_id"])
+    stored = data.get_order(result["draft_id"])
     assert stored["status"] == "AWAITING_PAYMENT"
     assert stored["payment_method"] == "CASH"
     assert stored["paid_at"] is None
@@ -203,55 +203,55 @@ def test_cash_is_read_whatever_the_case(ctx, said):
 def test_an_order_with_no_payment_answer_is_not_placed_at_all(ctx):
     draft = tools.build_order(BURGER, guest_name="Ali")
 
-    result = tools.confirm_order(draft["order_id"])
+    result = tools.confirm_order(draft["draft_id"])
 
     assert result == {"source": "order", "error": "Ask the guest: cash or QR?"}
     # Nothing changed: it is still a draft, and it can still be placed.
-    assert statuses_of(draft["order_id"]) == "PENDING_CONFIRMATION"
-    assert data.get_order(draft["order_id"])["payment_method"] is None
+    assert statuses_of(draft["draft_id"]) == "PENDING_CONFIRMATION"
+    assert data.get_order(draft["draft_id"])["payment_method"] is None
 
 
 def test_a_payment_word_that_is_not_cash_or_qr_is_treated_as_no_answer(ctx):
     draft = tools.build_order(BURGER, guest_name="Ali")
 
-    result = tools.confirm_order(draft["order_id"], payment_method="card")
+    result = tools.confirm_order(draft["draft_id"], payment_method="card")
 
     assert result["error"] == "Ask the guest: cash or QR?"
-    assert statuses_of(draft["order_id"]) == "PENDING_CONFIRMATION"
+    assert statuses_of(draft["draft_id"]) == "PENDING_CONFIRMATION"
 
 
 def test_the_chief_guest_is_placed_without_being_asked_how_they_will_pay(ctx):
     draft = tools.build_order(BURGER, guest_name="Chief Guest")
 
-    result = tools.confirm_order(draft["order_id"])
+    result = tools.confirm_order(draft["draft_id"])
 
     assert result["status"] == "AWAITING_PAYMENT"
     assert result["payment_method"] is None
     assert "error" not in result
     # And never on the house: 2ze item 3 is unchanged by pay-first.
-    assert data.get_order(draft["order_id"])["complimentary"] == 0
+    assert data.get_order(draft["draft_id"])["complimentary"] == 0
 
 
 def test_the_vice_chancellor_goes_straight_to_the_kitchen_and_is_never_asked(ctx):
     """E52: no payment question, CONFIRMED at once, on the house."""
     draft = tools.build_order(BURGER, guest_name="Vice Chancellor", complimentary=True)
 
-    result = tools.confirm_order(draft["order_id"])
+    result = tools.confirm_order(draft["draft_id"])
 
     assert result["status"] == "CONFIRMED"
     assert result["payment_method"] is None
     assert result["complimentary"] is True
-    assert statuses_of(draft["order_id"]) == "CONFIRMED"
+    assert statuses_of(draft["draft_id"]) == "CONFIRMED"
 
 
 def test_a_payment_method_sent_with_a_complimentary_order_is_ignored(ctx):
     draft = tools.build_order(LEMONADE, guest_name="Dr. Rauf-i-Azam", complimentary=True)
 
-    result = tools.confirm_order(draft["order_id"], payment_method="CASH")
+    result = tools.confirm_order(draft["draft_id"], payment_method="CASH")
 
     assert result["status"] == "CONFIRMED"
     assert result["payment_method"] is None
-    assert data.get_order(draft["order_id"])["payment_method"] is None
+    assert data.get_order(draft["draft_id"])["payment_method"] is None
 
 
 def test_the_tool_declaration_offers_cash_or_qr_and_does_not_demand_it():
@@ -261,14 +261,14 @@ def test_the_tool_declaration_offers_cash_or_qr_and_does_not_demand_it():
     field = declaration["parameters"]["properties"]["payment_method"]
 
     assert field["enum"] == ["CASH", "QR"]
-    assert declaration["parameters"]["required"] == ["order_id"]
+    assert declaration["parameters"]["required"] == ["draft_id"]
 
 
 # ------------------------------------------------- item 3(d): marking it paid
 
 
 def test_marking_an_unpaid_order_paid_needs_cash_or_qr(served, ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
 
     response = served.post(
         f"/api/orders/{order_id}/status", json={"status": "CONFIRMED"}, headers=AUTH
@@ -280,7 +280,7 @@ def test_marking_an_unpaid_order_paid_needs_cash_or_qr(served, ctx):
 
 
 def test_marking_it_paid_stores_the_method_and_the_time(served, ctx):
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
 
     response = served.post(
         f"/api/orders/{order_id}/status",
@@ -297,7 +297,7 @@ def test_marking_it_paid_stores_the_method_and_the_time(served, ctx):
 
 def test_the_team_may_take_a_different_payment_from_the_one_the_guest_named(served, ctx):
     """2zf item 3(d): the guest said cash and paid by QR at the counter."""
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
 
     served.post(
         f"/api/orders/{order_id}/status",
@@ -315,7 +315,7 @@ def test_the_payment_gets_its_own_activity_row(served, ctx, monkeypatch):
         "emit_activity",
         lambda kind, label, detail=None, session_id=None: rows.append(label),
     )
-    order_id = placed(ctx, method="qr")["order_id"]
+    order_id = placed(ctx, method="qr")["draft_id"]
 
     served.post(
         f"/api/orders/{order_id}/status",
@@ -333,7 +333,7 @@ def test_a_cash_payment_says_cash_in_the_feed(served, ctx, monkeypatch):
         "emit_activity",
         lambda kind, label, detail=None, session_id=None: rows.append(label),
     )
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
 
     served.post(
         f"/api/orders/{order_id}/status",
@@ -346,10 +346,10 @@ def test_a_cash_payment_says_cash_in_the_feed(served, ctx, monkeypatch):
 
 def test_an_order_on_the_house_never_takes_a_payment(served, ctx):
     draft = tools.build_order(BURGER, guest_name="Vice Chancellor", complimentary=True)
-    tools.confirm_order(draft["order_id"])
+    tools.confirm_order(draft["draft_id"])
 
     response = served.post(
-        f"/api/orders/{draft['order_id']}/status",
+        f"/api/orders/{draft['draft_id']}/status",
         json={"status": "PREPARING", "payment_method": "CASH"},
         headers=AUTH,
     )
@@ -359,7 +359,7 @@ def test_an_order_on_the_house_never_takes_a_payment(served, ctx):
 
 
 def test_a_payment_type_is_refused_on_a_status_that_is_not_a_payment(served, ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
     served.post(
         f"/api/orders/{order_id}/status",
         json={"status": "CONFIRMED", "payment_method": "CASH"},
@@ -380,7 +380,7 @@ def test_a_payment_type_is_refused_on_a_status_that_is_not_a_payment(served, ctx
 
 
 def test_a_paid_order_is_collected_with_one_press(served, ctx):
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
     for body in (
         {"status": "CONFIRMED", "payment_method": "CASH"},
         {"status": "PREPARING"},
@@ -422,7 +422,7 @@ def test_an_order_with_no_payment_at_all_still_cannot_be_collected(served):
 
 
 def test_confirm_order_records_when_the_order_was_placed(ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
 
     order = data.get_order(order_id)
 
@@ -436,7 +436,7 @@ def test_an_order_on_the_house_is_never_placed_for_payment(ctx):
     """It goes straight to the kitchen, so there is no clock to start."""
     result = placed(ctx, name="Vice Chancellor", complimentary=True)
 
-    order = data.get_order(result["order_id"])
+    order = data.get_order(result["draft_id"])
 
     assert order["status"] == "CONFIRMED"
     assert order["placed_at"] is None
@@ -445,14 +445,14 @@ def test_an_order_on_the_house_is_never_placed_for_payment(ctx):
 def test_a_draft_still_waiting_on_the_guest_has_not_been_placed(ctx):
     draft = tools.build_order(BURGER, guest_name="Ali")
 
-    order = data.get_order(draft["order_id"])
+    order = data.get_order(draft["draft_id"])
 
     assert order["status"] == "PENDING_CONFIRMATION"
     assert order["placed_at"] is None
 
 
 def test_marking_it_paid_keeps_the_time_it_was_placed(served, ctx):
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
     was_placed = data.get_order(order_id)["placed_at"]
 
     served.post(
@@ -473,7 +473,7 @@ def test_the_unpaid_clock_runs_from_the_placing_not_from_the_draft(ctx):
     which is what used to be measured, and the order was placed a moment ago: it
     has its ten minutes to reach the counter and must not be swept.
     """
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
     backdate(order_id, config.PAYMENT_TTL_S + 300, column="timestamp")
 
     assert data.expire_unpaid_orders() == []
@@ -482,7 +482,7 @@ def test_the_unpaid_clock_runs_from_the_placing_not_from_the_draft(ctx):
 
 def test_an_order_placed_before_this_phase_falls_back_to_its_timestamp(ctx):
     """An AWAITING_PAYMENT row from 7l carries no placed_at at all."""
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
     backdate(order_id, config.PAYMENT_TTL_S + 30, column="timestamp")
     with closing(sqlite3.connect(config.DB_PATH)) as conn:
         conn.execute("UPDATE orders SET placed_at = NULL WHERE id = ?", (order_id,))
@@ -498,7 +498,7 @@ def test_an_order_placed_before_this_phase_falls_back_to_its_timestamp(ctx):
 
 
 def test_an_order_nobody_paid_for_is_cancelled_as_unpaid(ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
     backdate(order_id, config.PAYMENT_TTL_S + 30)
 
     cancelled = data.expire_unpaid_orders()
@@ -510,14 +510,14 @@ def test_an_order_nobody_paid_for_is_cancelled_as_unpaid(ctx):
 
 
 def test_a_fresh_unpaid_order_is_left_alone(ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
 
     assert data.expire_unpaid_orders() == []
     assert statuses_of(order_id) == "AWAITING_PAYMENT"
 
 
 def test_the_expiry_publishes_the_order_so_both_screens_see_it(ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
     backdate(order_id, config.PAYMENT_TTL_S + 30)
     event_bus.PUBLISHED.clear()
 
@@ -532,7 +532,7 @@ def test_the_expiry_publishes_the_order_so_both_screens_see_it(ctx):
 
 
 def test_a_paid_order_is_never_swept(served, ctx):
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
     served.post(
         f"/api/orders/{order_id}/status",
         json={"status": "CONFIRMED", "payment_method": "CASH"},
@@ -552,23 +552,23 @@ def test_the_ttl_is_ten_minutes():
 
 
 def test_the_guest_can_cancel_an_order_that_is_still_waiting_for_payment(ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
 
-    result = tools.cancel_order(order_id)
+    result = tools.cancel_order(draft_id=order_id)
 
     assert result["status"] == "CANCELLED"
     assert statuses_of(order_id) == "CANCELLED"
 
 
 def test_a_paid_order_is_the_teams_to_undo(ctx, served):
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
     served.post(
         f"/api/orders/{order_id}/status",
         json={"status": "CONFIRMED", "payment_method": "CASH"},
         headers=AUTH,
     )
 
-    result = tools.cancel_order(order_id)
+    result = tools.cancel_order(draft_id=order_id)
 
     assert result == {
         "source": "order",
@@ -579,7 +579,7 @@ def test_a_paid_order_is_the_teams_to_undo(ctx, served):
 
 @pytest.mark.parametrize("status", ["PREPARING", "READY"])
 def test_an_order_in_the_kitchen_gets_the_same_answer(ctx, served, status):
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
     for body in (
         {"status": "CONFIRMED", "payment_method": "CASH"},
         {"status": "PREPARING"},
@@ -589,7 +589,7 @@ def test_an_order_in_the_kitchen_gets_the_same_answer(ctx, served, status):
         if body["status"] == status:
             break
 
-    result = tools.cancel_order(order_id)
+    result = tools.cancel_order(draft_id=order_id)
 
     assert result["error"] == "That order is already paid — the team can help."
     assert statuses_of(order_id) == status
@@ -598,11 +598,11 @@ def test_an_order_in_the_kitchen_gets_the_same_answer(ctx, served, status):
 def test_a_draft_is_still_cancelled_by_voice(ctx):
     draft = tools.build_order(BURGER, guest_name="Ali")
 
-    assert tools.cancel_order(draft["order_id"])["status"] == "CANCELLED"
+    assert tools.cancel_order(draft_id=draft["draft_id"])["status"] == "CANCELLED"
 
 
 def test_the_operator_can_still_cancel_a_paid_order(served, ctx):
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
     served.post(
         f"/api/orders/{order_id}/status",
         json={"status": "CONFIRMED", "payment_method": "CASH"},
@@ -636,7 +636,7 @@ def test_a_confirm_in_the_same_turn_as_the_build_is_still_refused(ctx):
     session.draft_built_id = 7
     session.draft_built_at = live_session._now()
 
-    assert session._confirm_refusal({"order_id": 7}) == "no_new_line"
+    assert session._confirm_refusal({"draft_id": 7}) == "no_new_line"
 
 
 def test_a_cash_answer_after_the_build_lets_the_order_through(ctx):
@@ -646,29 +646,29 @@ def test_a_cash_answer_after_the_build_lets_the_order_through(ctx):
     session.draft_built_at = live_session._now()
     session._note_guest_line("Cash.")
 
-    assert session._confirm_refusal({"order_id": 7}) is None
+    assert session._confirm_refusal({"draft_id": 7}) is None
 
 
 def test_the_cancel_guard_now_watches_an_order_waiting_for_payment(ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
     session, _ = new_session()
     session.ctx = dict(ctx)
     session.confirmed_at[order_id] = live_session._now()
 
-    assert asyncio.run(session._cancel_refusal({"order_id": order_id})) == "no_new_line"
+    assert asyncio.run(session._cancel_refusal({"draft_id": order_id})) == "no_new_line"
 
     session._note_guest_line("Cancel it.")
-    assert asyncio.run(session._cancel_refusal({"order_id": order_id})) is None
+    assert asyncio.run(session._cancel_refusal({"draft_id": order_id})) is None
 
 
 def test_a_line_with_no_consent_still_refuses_a_cancel(ctx):
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
     session, _ = new_session()
     session.ctx = dict(ctx)
     session.confirmed_at[order_id] = live_session._now()
     session._note_guest_line("What is in it?")
 
-    assert asyncio.run(session._cancel_refusal({"order_id": order_id})) == "no_consent"
+    assert asyncio.run(session._cancel_refusal({"draft_id": order_id})) == "no_consent"
 
 
 # ------------------------------------ item 3(e): THE HOST is told it is paid
@@ -758,7 +758,7 @@ def test_marking_it_paid_speaks_to_the_guest_whose_order_it_is(served, ctx, monk
         async def inject(self, kind, text):
             spoken.append((kind, text))
 
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
     monkeypatch.setattr(main, "ACTIVE", Listening())
 
     served.post(
@@ -782,7 +782,7 @@ def test_another_guests_order_is_never_spoken_about(served, ctx, monkeypatch):
         async def inject(self, kind, text):
             spoken.append(text)
 
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
     monkeypatch.setattr(main, "ACTIVE", Listening())
 
     served.post(
@@ -796,7 +796,7 @@ def test_another_guests_order_is_never_spoken_about(served, ctx, monkeypatch):
 
 def test_nothing_is_spoken_when_no_conversation_is_running(served, ctx, monkeypatch):
     monkeypatch.setattr(main, "ACTIVE", None)
-    order_id = placed(ctx, method="cash")["order_id"]
+    order_id = placed(ctx, method="cash")["draft_id"]
 
     response = served.post(
         f"/api/orders/{order_id}/status",
@@ -809,7 +809,7 @@ def test_nothing_is_spoken_when_no_conversation_is_running(served, ctx, monkeypa
 
 def test_no_guest_words_reach_the_log(ctx, caplog):
     """The guard logs a reason and an order number, never a line of speech."""
-    order_id = placed(ctx)["order_id"]
+    order_id = placed(ctx)["draft_id"]
     backdate(order_id, config.PAYMENT_TTL_S + 30)
     with caplog.at_level("INFO"):
         data.expire_unpaid_orders()
@@ -824,12 +824,12 @@ def test_no_guest_words_reach_the_log(ctx, caplog):
 def test_a_renamed_draft_loses_the_house(ctx):
     """16 §2zf item 1(b), amending 2m item 5: every build decides it again."""
     first = tools.build_order(BURGER, guest_name="Vice Chancellor", complimentary=True)
-    assert data.get_order(first["order_id"])["complimentary"] == 1
+    assert data.get_order(first["draft_id"])["complimentary"] == 1
 
     again = tools.build_order(LEMONADE, guest_name="Ali", complimentary=True)
 
-    assert again["order_id"] == first["order_id"]
-    assert data.get_order(first["order_id"])["complimentary"] == 0
+    assert again["draft_id"] == first["draft_id"]
+    assert data.get_order(first["draft_id"])["complimentary"] == 0
     assert again["complimentary"] is False
     assert again["note"] == tools.COMPLIMENTARY_NOTE
 
@@ -839,7 +839,7 @@ def test_a_draft_rebuilt_without_the_flag_is_no_longer_on_the_house(ctx):
 
     tools.build_order(LEMONADE, guest_name="Vice Chancellor")
 
-    assert data.get_order(first["order_id"])["complimentary"] == 0
+    assert data.get_order(first["draft_id"])["complimentary"] == 0
 
 
 def test_the_vice_chancellors_draft_stays_on_the_house_while_it_is_asked_for(ctx):
@@ -849,8 +849,8 @@ def test_the_vice_chancellors_draft_stays_on_the_house_while_it_is_asked_for(ctx
         BURGER + LEMONADE, guest_name="Vice Chancellor", complimentary=True
     )
 
-    assert again["order_id"] == first["order_id"]
-    assert data.get_order(first["order_id"])["complimentary"] == 1
+    assert again["draft_id"] == first["draft_id"]
+    assert data.get_order(first["draft_id"])["complimentary"] == 1
     assert again["complimentary"] is True
 
 
@@ -862,5 +862,5 @@ def test_a_draft_renamed_to_the_vice_chancellor_becomes_on_the_house(ctx):
         LEMONADE, guest_name="Dr. Rauf-i-Azam", complimentary=True
     )
 
-    assert again["order_id"] == first["order_id"]
-    assert data.get_order(first["order_id"])["complimentary"] == 1
+    assert again["draft_id"] == first["draft_id"]
+    assert data.get_order(first["draft_id"])["complimentary"] == 1

@@ -63,7 +63,7 @@ async def fake_conversation():
     )
     order_id = session.ctx["pending_order_id"]
     await session._handle_message(
-        message(tool_call=call("confirm_order", {"order_id": order_id}))
+        message(tool_call=call("confirm_order", {"draft_id": order_id}))
     )
     await session._handle_message(message(content(visitor="I want")))
     await session._handle_message(message(content(turn_complete=True)))

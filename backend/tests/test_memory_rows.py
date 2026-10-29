@@ -19,7 +19,7 @@ def queued(ctx):
 
 
 def confirm(items, guest_name="Ahmed"):
-    order_id = tools.build_order(list(items), guest_name=guest_name)["order_id"]
+    order_id = tools.build_order(list(items), guest_name=guest_name)["draft_id"]
     # 16 section 2zf item 3(b): an ordinary order is placed with a payment.
     return tools.confirm_order(order_id, payment_method="CASH")
 
@@ -95,7 +95,7 @@ def test_a_visit_with_no_order_linked_produces_no_memory_row(ctx):
 
 def test_a_name_given_after_a_confirmed_order_queues_the_row(ctx):
     """09 section 10: the attach loop links the order, so the row belongs there."""
-    order_id = tools.build_order([{"name": "Club Sandwich"}])["order_id"]
+    order_id = tools.build_order([{"name": "Club Sandwich"}])["draft_id"]
     tools.confirm_order(order_id, payment_method="CASH")
     assert queued(ctx) == []
 
@@ -136,7 +136,7 @@ def test_live_session_publishes_each_queued_row_after_the_tool():
             doubles.message(
                 tool_call=doubles.call(
                     "confirm_order",
-                    {"order_id": order_id, "payment_method": "CASH"},
+                    {"draft_id": order_id, "payment_method": "CASH"},
                     "call-confirm",
                 )
             )
@@ -147,8 +147,9 @@ def test_live_session_publishes_each_queued_row_after_the_tool():
 
     print("published activity rows:", activity_rows())
     assert activity_rows() == [
-        ("order", f"Order draft #{order_id} prepared", None),
-        ("order", f"Order #{order_id} created", "Chicken Burger"),
+        # 16 §2zi item 3(b): a draft has no number to show.
+        ("order", "Draft prepared", None),
+        ("order", f"Order #{data.get_order(order_id)['order_no']} created", "Chicken Burger"),
         ("memory", "Memory updated", "Ahmed: new favourite, Chicken Burger"),
     ]
     # Drained, and stamped with the session that caused it.
@@ -177,7 +178,7 @@ def test_the_queue_is_drained_even_when_the_tool_returned_an_error():
         await session._handle_message(doubles.message(doubles.content(turn_complete=True)))
         await session._handle_message(doubles.message(doubles.content(visitor="Yes.")))
         await session._handle_message(
-            doubles.message(tool_call=doubles.call("confirm_order", {"order_id": 999}, "call-x"))
+            doubles.message(tool_call=doubles.call("confirm_order", {"draft_id": 999}, "call-x"))
         )
 
     asyncio.run(go())
@@ -209,7 +210,7 @@ def test_the_system_events_history_keeps_the_memory_row():
                 tool_call=doubles.call(
                     "confirm_order",
                     {
-                        "order_id": session.ctx["pending_order_id"],
+                        "draft_id": session.ctx["pending_order_id"],
                         "payment_method": "CASH",
                     },
                     "call-confirm",

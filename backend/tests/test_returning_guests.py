@@ -55,7 +55,7 @@ def test_a_new_name_is_remembered_and_is_not_returning(ctx):
 def test_a_second_session_with_the_same_name_is_welcomed_back(ctx):
     """E45: the order is placed and paid, then Rehman comes back."""
     first = tools.build_order(BURGER, guest_name="Rehman")
-    tools.confirm_order(first["order_id"], payment_method="CASH")
+    tools.confirm_order(first["draft_id"], payment_method="CASH")
 
     later, token = in_session()
     try:
@@ -124,7 +124,7 @@ def test_a_title_never_becomes_a_visitor(ctx, title):
     assert data.get_visitor(title.lower()) is None
     assert ctx["visitor_name"] is None
     # And the name still goes on the order itself.
-    assert data.get_order(result["order_id"])["guest_name"] == title
+    assert data.get_order(result["draft_id"])["guest_name"] == title
 
 
 def test_a_title_publishes_no_visitor_event(ctx):
@@ -258,7 +258,7 @@ def test_remember_visitor_still_returns_exactly_what_it_did(ctx):
 
 
 def test_remember_visitor_still_attaches_the_name_to_an_unnamed_order(ctx):
-    order_id = tools.build_order(BURGER)["order_id"]
+    order_id = tools.build_order(BURGER)["draft_id"]
     assert data.get_order(order_id)["guest_name"] is None
 
     tools.remember_visitor("Sara")
@@ -268,7 +268,7 @@ def test_remember_visitor_still_attaches_the_name_to_an_unnamed_order(ctx):
 
 def test_build_order_attaches_the_name_to_an_earlier_unnamed_order(ctx):
     """The same helper, so the name reaches the same places."""
-    first = tools.build_order(BURGER)["order_id"]
+    first = tools.build_order(BURGER)["draft_id"]
     tools.confirm_order(first, payment_method="CASH")
 
     tools.build_order(LEMONADE, guest_name="Sara")

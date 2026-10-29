@@ -35,10 +35,16 @@ ERROR_ROWS = {
 }
 
 
-def _order_id(args, result):
+def _order_number(args, result):
+    """16 section 2zi item 3(b): the guest's number, or None while it is a draft.
+
+    The feed is read by the team beside the guest, so it has to say the number
+    the guest was given. A draft has none, and `None` here is what makes the
+    label read "Draft prepared" rather than "Order #None".
+    """
     for source in (result, args):
-        if isinstance(source, dict) and source.get("order_id") is not None:
-            return source["order_id"]
+        if isinstance(source, dict) and source.get("order_number") is not None:
+            return source["order_number"]
     return None
 
 
@@ -68,11 +74,9 @@ def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
         return {"kind": "order", "label": "Checked menu", "detail": None}
 
     if name == "build_order":
-        return {
-            "kind": "order",
-            "label": f"Order draft #{_order_id(args, result)} prepared",
-            "detail": None,
-        }
+        # 16 section 2zi item 3(b): nothing is placed, so there is no number to
+        # show -- and the id it used to show was never the guest's number.
+        return {"kind": "order", "label": "Draft prepared", "detail": None}
 
     if name == "confirm_order":
         # 16 section 2m item 5: an order on the house says so in the feed, so
@@ -80,24 +84,23 @@ def activity_for_tool(name: str, args: dict, result: dict) -> dict | None:
         on_the_house = " (on the house)" if result.get("complimentary") else ""
         return {
             "kind": "order",
-            "label": f"Order #{_order_id(args, result)} created{on_the_house}",
+            "label": f"Order #{_order_number(args, result)} created{on_the_house}",
             "detail": _item_names(result.get("items")),
         }
 
     if name == "cancel_order":
+        # 16 section 2zi item 3(b): a draft never had a number to cancel.
+        number = _order_number(args, result)
         return {
             "kind": "order",
-            "label": f"Order #{_order_id(args, result)} cancelled",
+            "label": "Draft cancelled" if number is None else f"Order #{number} cancelled",
             "detail": None,
         }
 
     if name == "get_order_status":
         orders = result.get("orders") or []
-        label = (
-            f"Order #{orders[0]['order_id']} checked"
-            if len(orders) == 1
-            else "Order status checked"
-        )
+        number = orders[0].get("order_number") if len(orders) == 1 else None
+        label = f"Order #{number} checked" if number is not None else "Order status checked"
         return {"kind": "order", "label": label, "detail": None}
 
     if name == "report_feedback":

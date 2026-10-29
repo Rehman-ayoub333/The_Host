@@ -104,20 +104,23 @@ def test_recommend_item_validates_against_the_menu_and_is_not_logged(ctx, monkey
 
 def test_build_order_keeps_one_draft_and_publishes_created_then_updated(ctx):
     first = tools.build_order([{"name": "chicken burger", "quantity": 1}])
+    # 16 §2zi item 3(c): a draft has no order number, so what comes back is the
+    # draft_id, flagged as a draft.
     assert first == {
         "source": "order",
-        "order_id": first["order_id"],
+        "draft_id": first["draft_id"],
+        "draft": True,
         "items": [{"name": "Chicken Burger", "quantity": 1, "price": "Rs. 650"}],
         "total": "Rs. 650",
         "status": "PENDING_CONFIRMATION",
     }
-    assert ctx["pending_order_id"] == first["order_id"]
-    assert _published("order_created")[0]["order"]["id"] == first["order_id"]
+    assert ctx["pending_order_id"] == first["draft_id"]
+    assert _published("order_created")[0]["order"]["id"] == first["draft_id"]
 
     second = tools.build_order(
         [{"name": "Chicken Burger", "quantity": 2}, {"name": "Blue Lemonade"}]
     )
-    assert second["order_id"] == first["order_id"]
+    assert second["draft_id"] == first["draft_id"]
     assert second["total"] == "Rs. 1,550"
     assert len(_pending_rows(ctx["session_id"])) == 1
     assert _published("order_updated")[0]["order"]["items"] == [
@@ -130,7 +133,7 @@ def test_build_order_keeps_one_draft_and_publishes_created_then_updated(ctx):
     third = tools.build_order(
         [{"name": "Chicken Burger", "quantity": 2}, {"name": "Blue Lemonade"}]
     )
-    assert third["order_id"] == first["order_id"]
+    assert third["draft_id"] == first["draft_id"]
     assert len(event_bus.PUBLISHED) == before
 
 
@@ -147,10 +150,10 @@ def test_a_late_name_on_an_unchanged_draft_publishes_the_name(ctx):
 
     second = tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")
 
-    assert second["order_id"] == first["order_id"]
+    assert second["draft_id"] == first["draft_id"]
     updates = _published("order_updated")
     assert len(updates) == 1
-    assert updates[0]["order"]["id"] == first["order_id"]
+    assert updates[0]["order"]["id"] == first["draft_id"]
     assert updates[0]["order"]["guest_name"] == "Ahmed"
     assert updates[0]["order"]["status"] == "PENDING_CONFIRMATION"
     assert len(_pending_rows(ctx["session_id"])) == 1
@@ -174,7 +177,7 @@ def test_the_same_name_again_publishes_no_order_event(ctx):
 
 
 def test_a_later_call_with_no_name_publishes_nothing_and_keeps_the_name(ctx):
-    order_id = tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")["order_id"]
+    order_id = tools.build_order([{"name": "Chicken Burger"}], guest_name="Ahmed")["draft_id"]
     before = len(event_bus.PUBLISHED)
 
     tools.build_order([{"name": "Chicken Burger"}])
@@ -196,7 +199,7 @@ def test_a_late_on_the_house_publishes_the_flag(ctx):
 
     updates = _published("order_updated")
     assert len(updates) == 1
-    assert updates[0]["order"]["id"] == first["order_id"]
+    assert updates[0]["order"]["id"] == first["draft_id"]
     assert updates[0]["order"]["complimentary"] is True
     assert updates[0]["order"]["guest_name"] == "Vice Chancellor"
 
@@ -221,18 +224,20 @@ def test_build_order_clamps_quantity_and_takes_a_name(ctx):
         guest_name="  Ahmed  ",
     )
     assert [item["quantity"] for item in result["items"]] == [20, 1]
-    assert data.get_order(result["order_id"])["guest_name"] == "Ahmed"
+    assert data.get_order(result["draft_id"])["guest_name"] == "Ahmed"
 
 
 def test_confirm_order_is_idempotent(ctx):
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
 
     # 16 section 2zf item 3(b): placing an ordinary order says how it will be
     # paid, and leaves it waiting for the money.
     placed = tools.confirm_order(order_id, payment_method="CASH")
+    # 16 §2zi item 3(c): the guest's own number, created by this call.
     assert placed == {
         "source": "order",
-        "order_id": order_id,
+        "order_number": data.get_order(order_id)["order_no"],
+        "draft_id": order_id,
         "status": "AWAITING_PAYMENT",
         "items": [{"name": "Chicken Burger", "quantity": 1, "price": "Rs. 650"}],
         "total": "Rs. 650",
@@ -267,7 +272,7 @@ def test_confirm_order_rejects_bad_numbers_and_other_guests_orders(ctx):
 
 
 def test_an_expired_draft_is_cancelled_and_cannot_be_confirmed(ctx):
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
     _backdate(order_id, config.PENDING_ORDER_TTL_S + 30)
     event_bus.PUBLISHED.clear()
 
@@ -288,29 +293,31 @@ def test_an_expired_draft_is_cancelled_and_cannot_be_confirmed(ctx):
 
 
 def test_cancel_order_before_ready_only(ctx):
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
-    assert tools.cancel_order(order_id, reason="  changed  mind ") == {
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
+    assert tools.cancel_order(draft_id=order_id, reason="  changed  mind ") == {
         "source": "order",
-        "order_id": order_id,
         "status": "CANCELLED",
+        # 16 §2zi item 3(c): never placed, so it never had a number.
+        "draft": True,
+        "draft_id": order_id,
     }
     assert data.get_order(order_id)["cancel_reason"] == "changed mind"
     assert ctx["pending_order_id"] is None
 
-    ready_id = tools.build_order([{"name": "Club Sandwich"}])["order_id"]
+    ready_id = tools.build_order([{"name": "Club Sandwich"}])["draft_id"]
     tools.confirm_order(ready_id, payment_method="CASH")
     data.update_order_status(ready_id, "CONFIRMED", payment_method="CASH")
     data.update_order_status(ready_id, "PREPARING")
     data.update_order_status(ready_id, "READY")
     # 16 section 2zf item 3(g): past the payment it is the team's, and the
     # guest is told why rather than being told the number is wrong.
-    assert tools.cancel_order(ready_id) == {
+    assert tools.cancel_order(draft_id=ready_id) == {
         "source": "order",
         "error": "That order is already paid — the team can help.",
     }
     assert data.get_order(ready_id)["status"] == "READY"
-    assert tools.cancel_order(9999) == {"source": "order", "error": "I couldn't find that order."}
-    assert tools.cancel_order("abc") == {
+    assert tools.cancel_order(draft_id=9999) == {"source": "order", "error": "I couldn't find that order."}
+    assert tools.cancel_order(draft_id="abc") == {
         "source": "order",
         "error": "I couldn't understand that order number.",
     }
@@ -318,16 +325,16 @@ def test_cancel_order_before_ready_only(ctx):
 
 def test_cancel_order_without_a_reason_stores_null(ctx):
     """09 section 6: no reason given means NULL, never an empty string."""
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
-    tools.cancel_order(order_id)
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
+    tools.cancel_order(draft_id=order_id)
     assert data.get_order(order_id)["cancel_reason"] is None
 
-    blank = tools.build_order([{"name": "Club Sandwich"}])["order_id"]
-    tools.cancel_order(blank, reason="   ")
+    blank = tools.build_order([{"name": "Club Sandwich"}])["draft_id"]
+    tools.cancel_order(draft_id=blank, reason="   ")
     assert data.get_order(blank)["cancel_reason"] is None
 
-    given = tools.build_order([{"name": "Patty Burger"}])["order_id"]
-    tools.cancel_order(given, reason="changed mind")
+    given = tools.build_order([{"name": "Patty Burger"}])["draft_id"]
+    tools.cancel_order(draft_id=given, reason="changed mind")
     assert data.get_order(given)["cancel_reason"] == "changed mind"
 
 
@@ -339,12 +346,12 @@ def test_a_voice_cancel_of_a_preparing_order_is_refused(ctx):
     is about the money rather than the pan -- it has been paid for, and any
     refund is the team's call. The order is left exactly as it was.
     """
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
     tools.confirm_order(order_id, payment_method="CASH")
     data.update_order_status(order_id, "CONFIRMED", payment_method="CASH")
     data.update_order_status(order_id, "PREPARING")
 
-    result = tools.cancel_order(order_id)
+    result = tools.cancel_order(draft_id=order_id)
 
     print("the refusal:", result)
     assert result == {
@@ -357,29 +364,32 @@ def test_a_voice_cancel_of_a_preparing_order_is_refused(ctx):
 
 def test_a_voice_cancel_still_works_while_the_order_is_only_placed(ctx):
     """The other half: not yet paid for means still the guest's to change."""
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
     tools.confirm_order(order_id, payment_method="CASH")
 
-    assert tools.cancel_order(order_id, reason="guest changed their mind") == {
+    assert tools.cancel_order(draft_id=order_id, reason="guest changed their mind") == {
         "source": "order",
-        "order_id": order_id,
         "status": "CANCELLED",
+        # 16 §2zi item 3(c): it was placed, so the answer names its number.
+        "order_number": data.get_order(order_id)["order_no"],
     }
     assert data.get_order(order_id)["status"] == "CANCELLED"
 
 
-def test_get_order_status_with_an_id_is_scoped_to_the_owner(ctx):
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
-    tools.confirm_order(order_id, payment_method="CASH")
+def test_get_order_status_by_its_number_is_scoped_to_the_owner(ctx):
+    """16 §2zi item 3(c): the guest asks by the number they were given."""
+    draft_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
+    number = tools.confirm_order(draft_id, payment_method="CASH")["order_number"]
 
-    mine = tools.get_order_status(order_id)
+    mine = tools.get_order_status(number)
     assert mine["found"] is True
     # 16 section 2l item 5 added status_text, the name and the total. 2zf item
     # 3(a) gives the new status its own words, so THE HOST can tell the guest
-    # that the order is placed but not yet with the kitchen.
+    # that the order is placed but not yet with the kitchen. 2zi item 3(c)
+    # replaces the internal id with the guest's own number.
     assert mine["orders"] == [
         {
-            "order_id": order_id,
+            "order_number": number,
             "status": "AWAITING_PAYMENT",
             "status_text": "waiting for payment at the counter",
             "items": [{"name": "Chicken Burger", "quantity": 1, "price": "Rs. 650"}],
@@ -393,7 +403,10 @@ def test_get_order_status_with_an_id_is_scoped_to_the_owner(ctx):
         [{"name": "Blue Lemonade", "quantity": 1, "price": "Rs. 250"}], None, "someone-else"
     )["order_id"]
     data.update_order_status(stranger, "AWAITING_PAYMENT", payment_method="CASH")
-    assert tools.get_order_status(stranger) == {
+    stranger_number = data.get_order(stranger)["order_no"]
+    # Their number is a real number, and it still tells this guest nothing.
+    assert stranger_number is not None and stranger_number != number
+    assert tools.get_order_status(stranger_number) == {
         "source": "order",
         "found": False,
         "orders": [],
@@ -402,22 +415,22 @@ def test_get_order_status_with_an_id_is_scoped_to_the_owner(ctx):
 
 
 def test_get_order_status_without_an_id_finds_this_sessions_orders(ctx):
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
-    tools.confirm_order(order_id, payment_method="CASH")
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
+    number = tools.confirm_order(order_id, payment_method="CASH")["order_number"]
     data.update_order_status(order_id, "CONFIRMED", payment_method="CASH")
     data.update_order_status(order_id, "PREPARING")
 
     result = tools.get_order_status()
 
     assert result["found"] is True
-    assert result["orders"][0]["order_id"] == order_id
+    assert result["orders"][0]["order_number"] == number
     assert result["orders"][0]["estimated_minutes_left"] == 5
 
 
 def test_get_order_status_finds_an_earlier_order_by_name_in_a_new_session(ctx):
     tools.remember_visitor("Ahmed")
-    first = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
-    tools.confirm_order(first, payment_method="CASH")
+    first = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
+    first_number = tools.confirm_order(first, payment_method="CASH")["order_number"]
 
     later = {
         "session_id": "ffffffff",
@@ -435,7 +448,7 @@ def test_get_order_status_finds_an_earlier_order_by_name_in_a_new_session(ctx):
         tools.SESSION_CTX.reset(token)
 
     assert found["found"] is True
-    assert found["orders"][0]["order_id"] == first
+    assert found["orders"][0]["order_number"] == first_number
 
 
 def test_report_feedback_stores_only_a_real_rating(ctx):
@@ -504,7 +517,7 @@ def test_remember_visitor_in_a_new_session_counts_a_return(ctx):
 
 
 def test_a_name_given_after_ordering_reaches_the_draft_and_the_profile(ctx):
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
     assert data.get_order(order_id)["guest_name"] is None
 
     tools.remember_visitor("Sara")
@@ -533,7 +546,7 @@ def test_signal_confirmation_request_is_a_pure_signal(ctx, monkeypatch):
 
 
 def test_tools_never_touch_awaiting_confirmation(ctx):
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
     tools.signal_confirmation_request("Confirm it?")
     tools.confirm_order(order_id)
     tools.remember_visitor("Ahmed")
@@ -601,7 +614,7 @@ def test_web_search_parses_an_instant_answer_and_handles_failure(ctx, monkeypatc
 
 
 def test_every_published_event_carries_the_envelope_the_bus_owns(ctx):
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    order_id = tools.build_order([{"name": "Chicken Burger"}])["draft_id"]
     tools.confirm_order(order_id, payment_method="CASH")
 
     assert [event["type"] for event in event_bus.PUBLISHED] == [

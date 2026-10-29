@@ -85,7 +85,7 @@ def placed_order(session, items=(BURGER,)):
         session,
         doubles.message(
             tool_call=doubles.call(
-                "confirm_order", {"order_id": order_id, "payment_method": "CASH"}
+                "confirm_order", {"draft_id": order_id, "payment_method": "CASH"}
             )
         ),
     )
@@ -103,7 +103,7 @@ def paid(order_id):
 def cancel(session, order_id, call_id="call-cancel"):
     feed(
         session,
-        doubles.message(tool_call=doubles.call("cancel_order", {"order_id": order_id}, call_id)),
+        doubles.message(tool_call=doubles.call("cancel_order", {"draft_id": order_id}, call_id)),
     )
 
 
@@ -328,7 +328,7 @@ def test_a_change_confirms_the_new_order_before_cancelling_the_old():
 
     guest_said(session, "Cash.")
     feed(session, doubles.message(tool_call=doubles.call(
-        "confirm_order", {"order_id": new_id, "payment_method": "CASH"}, "call-confirm-new"
+        "confirm_order", {"draft_id": new_id, "payment_method": "CASH"}, "call-confirm-new"
     )))
     assert data.get_order(new_id)["status"] == "AWAITING_PAYMENT"
     cancel(session, old_id)
@@ -352,7 +352,7 @@ def test_when_the_new_confirm_fails_the_old_order_is_untouched():
     data.update_order_status(new_id, "CANCELLED", reason="expired")
     guest_said(session, "Cash.")
     feed(session, doubles.message(tool_call=doubles.call(
-        "confirm_order", {"order_id": new_id, "payment_method": "CASH"}, "call-confirm-new"
+        "confirm_order", {"draft_id": new_id, "payment_method": "CASH"}, "call-confirm-new"
     )))
 
     response = last_response(session).response

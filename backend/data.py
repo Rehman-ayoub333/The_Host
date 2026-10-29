@@ -76,7 +76,7 @@ MENU_TAGS = ("spicy", "sweet", "vegetarian", "cold", "hot")
 _ORDER_COLUMNS = (
     "id, timestamp, guest_name, items, status, announced, session_id, "
     "cancel_reason, estimated_ready_at, ready_at, orphaned_at, complimentary, "
-    "payment_method, placed_at, paid_at"
+    "payment_method, placed_at, paid_at, order_no"
 )
 
 # 16 section 2z item 2: how the guest paid. Since 2zf item 3 it is recorded
@@ -219,7 +219,8 @@ def init_db() -> list[tuple[str, bool]]:
                 complimentary INTEGER NOT NULL DEFAULT 0,
                 payment_method TEXT,
                 placed_at TEXT,
-                paid_at TEXT
+                paid_at TEXT,
+                order_no INTEGER
             )"""
         )
         # 16 section 2l item 4: when a conversation broke and left this draft
@@ -251,6 +252,11 @@ def init_db() -> list[tuple[str, bool]]:
         # timed from their `timestamp`, and the sweeper still falls back to it.
         if "placed_at" not in order_columns:
             conn.execute("ALTER TABLE orders ADD COLUMN placed_at TEXT")
+        # 16 section 2zi item 3(a): the number the guest is given, 1, 2, 3 and so
+        # on through the day. Existing rows stay NULL: they were never numbered,
+        # and the only number anyone knew them by was their id.
+        if "order_no" not in order_columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN order_no INTEGER")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS feedback (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -523,6 +529,10 @@ def order_view(order) -> dict:
     ]
     return {
         "id": order["id"],
+        # 16 section 2zi item 3(b): the guest-facing number, null while the
+        # order is still a draft. The id stays, because the operator API and the
+        # dashboard key on it (item 3(d)); `number` is the only thing shown.
+        "number": order.get("order_no"),
         "items": items,
         "status": order["status"],
         "guest_name": order.get("guest_name"),
@@ -830,6 +840,22 @@ def get_order(order_id) -> dict | None:
     return _order_from_row(row) if row else None
 
 
+def get_order_by_number(order_no) -> dict | None:
+    """16 section 2zi item 3(c): the order a guest means by "order three".
+
+    Today's only. Numbers restart at 1 each morning, so without the date a
+    guest asking about order 3 could be handed yesterday's.
+    """
+    expire_pending_orders()
+    with closing(_connect()) as conn:
+        row = conn.execute(
+            f"SELECT {_ORDER_COLUMNS} FROM orders "
+            "WHERE order_no = ? AND substr(timestamp, 1, 10) = ?",
+            (int(order_no), _today()),
+        ).fetchone()
+    return _order_from_row(row) if row else None
+
+
 def _refusal(current: str, new_status: str) -> str:
     if current == new_status:
         return f"Order is already {current}."
@@ -841,6 +867,22 @@ def _refusal(current: str, new_status: str) -> str:
             needed = _STATUS_CHAIN[current_step + 1]
             return f"Order is {current}; mark it {needed} before {new_status}."
     return f"Order is {current}; it can't be marked {new_status}."
+
+
+def _next_order_no(conn) -> int:
+    """16 section 2zi item 3(a): 1 + the highest number given out today.
+
+    Today's orders only, so the stall starts at 1 each morning. `max` ignores
+    the NULLs, which is every draft and every order from before the column
+    existed, so neither can push the count along. A number is never reused: it
+    comes from the maximum, not from a count of rows, so cancelling order 3
+    leaves the next order as 4.
+    """
+    row = conn.execute(
+        "SELECT MAX(order_no) AS highest FROM orders WHERE substr(timestamp, 1, 10) = ?",
+        (_today(),),
+    ).fetchone()
+    return int((row["highest"] or 0)) + 1
 
 
 def update_order_status(order_id, new_status, reason=None, payment_method=None) -> dict:
@@ -886,6 +928,21 @@ def update_order_status(order_id, new_status, reason=None, payment_method=None) 
         if status == "AWAITING_PAYMENT" and not order.get("placed_at"):
             assignments.append("placed_at = ?")
             params.append(_now())
+        # 16 section 2zi item 3(a): the guest's order number, given out the
+        # moment the order is placed -- which is the step out of
+        # PENDING_CONFIRMATION, to AWAITING_PAYMENT, or straight to CONFIRMED
+        # when the order is on the house and never waits for money. Drafts are
+        # deliberately skipped: every draft used to consume an id, which is why
+        # a fresh database still showed 1, 2, 5. Read and written inside this
+        # same connection and commit, so two orders placed at once cannot be
+        # handed the same number.
+        if (
+            current == "PENDING_CONFIRMATION"
+            and status in ("AWAITING_PAYMENT", "CONFIRMED")
+            and order.get("order_no") is None
+        ):
+            assignments.append("order_no = ?")
+            params.append(_next_order_no(conn))
         # 16 section 2zf item 3(d): the moment the money was taken. Only the
         # step out of AWAITING_PAYMENT is that moment, and only once: an order
         # already carrying a paid_at keeps the time it was really paid.

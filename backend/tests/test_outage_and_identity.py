@@ -523,19 +523,19 @@ def test_presence_and_the_button_share_the_greeting_and_voice_keeps_its_own():
 def test_build_order_stores_the_name(ctx):
     result = tools.build_order([{"name": "Chicken Burger"}], guest_name="Rehman")
     assert "error" not in result
-    assert data.get_order(result["order_id"])["guest_name"] == "Rehman"
+    assert data.get_order(result["draft_id"])["guest_name"] == "Rehman"
 
 
 def test_the_name_is_trimmed_and_capped_at_thirty(ctx):
     result = tools.build_order([{"name": "Chicken Burger"}], guest_name="   Rehman   ")
-    assert data.get_order(result["order_id"])["guest_name"] == "Rehman"
+    assert data.get_order(result["draft_id"])["guest_name"] == "Rehman"
     # A second build_order in the same conversation replaces that draft and
     # keeps its name, so this one needs a draft of its own.
-    tools.cancel_order(result["order_id"])
+    tools.cancel_order(draft_id=result["draft_id"])
 
     long_name = "R" * 50
     second = tools.build_order([{"name": "Club Sandwich"}], guest_name=long_name)
-    stored = data.get_order(second["order_id"])["guest_name"]
+    stored = data.get_order(second["draft_id"])["guest_name"]
     assert stored == "R" * 30
     assert len(stored) == 30
 
@@ -549,23 +549,23 @@ def test_a_name_given_after_the_items_still_lands_on_the_order(ctx):
     say it.
     """
     first = tools.build_order([{"name": "Chicken Burger"}])
-    assert data.get_order(first["order_id"])["guest_name"] is None
+    assert data.get_order(first["draft_id"])["guest_name"] is None
 
     # Same draft, same items, now with the name the guest just gave.
     again = tools.build_order([{"name": "Chicken Burger"}], guest_name="Rehman")
-    assert again["order_id"] == first["order_id"]
-    assert data.get_order(first["order_id"])["guest_name"] == "Rehman"
+    assert again["draft_id"] == first["draft_id"]
+    assert data.get_order(first["draft_id"])["guest_name"] == "Rehman"
 
     # And a later call with no name does not wipe it.
     tools.build_order(
         [{"name": "Chicken Burger"}, {"name": "Blue Lemonade"}]
     )
-    assert data.get_order(first["order_id"])["guest_name"] == "Rehman"
+    assert data.get_order(first["draft_id"])["guest_name"] == "Rehman"
 
 
 def test_an_order_with_no_name_stays_without_one(ctx):
     result = tools.build_order([{"name": "Chicken Burger"}])
-    assert data.get_order(result["order_id"])["guest_name"] is None
+    assert data.get_order(result["draft_id"])["guest_name"] is None
 
 
 def test_the_prompt_asks_for_a_name_once_before_confirming():
@@ -742,15 +742,21 @@ def test_the_voice_trigger_also_offers_the_draft(host_data):
 
 
 def test_get_order_status_by_number_covers_every_status(ctx, host_data):
-    order_id = tools.build_order([{"name": "Chicken Burger"}])["order_id"]
+    order_id = tools.build_order(
+        [{"name": "Chicken Burger"}], guest_name="Rehman"
+    )["draft_id"]
 
-    waiting = tools.get_order_status(order_id)["orders"][0]
+    # 16 §2zi item 3(c): a draft has no number, so it is found by the name it
+    # was built under, and says so.
+    waiting = tools.get_order_status(guest_name="Rehman")["orders"][0]
     assert waiting["status"] == "PENDING_CONFIRMATION"
     assert waiting["status_text"] == "waiting for your confirmation"
+    assert waiting["draft"] is True
+    assert waiting["draft_id"] == order_id
 
     # 16 section 2zf item 3: placed, then paid, then through the kitchen.
-    tools.confirm_order(order_id, payment_method="CASH")
-    placed = tools.get_order_status(order_id)["orders"][0]
+    number = tools.confirm_order(order_id, payment_method="CASH")["order_number"]
+    placed = tools.get_order_status(number)["orders"][0]
     assert placed["status"] == "AWAITING_PAYMENT"
     assert placed["status_text"] == "waiting for payment at the counter"
 
@@ -761,31 +767,34 @@ def test_get_order_status_by_number_covers_every_status(ctx, host_data):
         ("COLLECTED", "collected"),
     ):
         host_data.update_order_status(order_id, status)
-        found = tools.get_order_status(order_id)["orders"][0]
+        found = tools.get_order_status(number)["orders"][0]
         assert found["status"] == status
         assert found["status_text"] == text
 
 
 def test_get_order_status_by_name_finds_todays_orders(ctx, host_data):
-    first = tools.build_order([{"name": "Chicken Burger"}], guest_name="Rehman")["order_id"]
+    first = tools.build_order([{"name": "Chicken Burger"}], guest_name="Rehman")["draft_id"]
     tools.confirm_order(first, payment_method="CASH")
-    second = tools.build_order([{"name": "Blue Lemonade"}], guest_name="Rehman")["order_id"]
+    second = tools.build_order([{"name": "Blue Lemonade"}], guest_name="Rehman")["draft_id"]
 
     result = tools.get_order_status(guest_name="Rehman")
 
     assert result["found"] is True
-    ids = [order["order_id"] for order in result["orders"]]
-    assert sorted(ids) == sorted([first, second])
-    # Both statuses, including the one still waiting.
-    texts_by_id = {order["order_id"]: order["status_text"] for order in result["orders"]}
-    assert texts_by_id[first] == "waiting for payment at the counter"
-    assert texts_by_id[second] == "waiting for your confirmation"
+    # 16 §2zi item 3(c): the placed one by its number, the draft by its id.
+    placed_rows = [row for row in result["orders"] if not row.get("draft")]
+    draft_rows = [row for row in result["orders"] if row.get("draft")]
+    assert len(placed_rows) == 1 and len(draft_rows) == 1
+    assert placed_rows[0]["order_number"] == data.get_order(first)["order_no"]
+    assert placed_rows[0]["status_text"] == "waiting for payment at the counter"
+    assert draft_rows[0]["draft_id"] == second
+    assert draft_rows[0]["status_text"] == "waiting for your confirmation"
 
 
 def test_get_order_status_by_name_is_case_and_space_insensitive(ctx):
-    order_id = tools.build_order([{"name": "Chicken Burger"}], guest_name="Rehman")["order_id"]
+    order_id = tools.build_order([{"name": "Chicken Burger"}], guest_name="Rehman")["draft_id"]
     found = tools.get_order_status(guest_name="  rehman ")["orders"]
-    assert [order["order_id"] for order in found] == [order_id]
+    assert [order["draft_id"] for order in found] == [order_id]
+    assert found[0]["draft"] is True
 
 
 def test_get_order_status_by_an_unknown_name_finds_nothing(ctx):

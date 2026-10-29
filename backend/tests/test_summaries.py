@@ -24,8 +24,9 @@ def test_the_label_table_for_every_tool():
             {"kind": "order", "label": "Checked menu", "detail": None},
         ),
         (
-            "build_order", {}, {"order_id": 27, "status": "PENDING_CONFIRMATION"},
-            {"kind": "order", "label": "Order draft #27 prepared", "detail": None},
+            # 16 §2zi item 3(b): nothing is placed, so there is no number yet.
+            "build_order", {}, {"draft_id": 27, "draft": True, "status": "PENDING_CONFIRMATION"},
+            {"kind": "order", "label": "Draft prepared", "detail": None},
         ),
         (
             "build_order", {}, {"error": "'Pizza' isn't on the menu."},
@@ -34,11 +35,11 @@ def test_the_label_table_for_every_tool():
         (
             "confirm_order", {},
             {
-                "order_id": 27, "status": "CONFIRMED",
+                "order_number": 3, "draft_id": 27, "status": "CONFIRMED",
                 "items": [{"name": "Chicken Burger"}, {"name": "Blue Lemonade"}],
             },
             {
-                "kind": "order", "label": "Order #27 created",
+                "kind": "order", "label": "Order #3 created",
                 "detail": "Chicken Burger, Blue Lemonade",
             },
         ),
@@ -47,12 +48,17 @@ def test_the_label_table_for_every_tool():
             {"kind": "order", "label": "Order could not be confirmed", "detail": None},
         ),
         (
-            "cancel_order", {"order_id": 27}, {"order_id": 27, "status": "CANCELLED"},
-            {"kind": "order", "label": "Order #27 cancelled", "detail": None},
+            # A placed order names its number; a draft never had one.
+            "cancel_order", {}, {"order_number": 3, "status": "CANCELLED"},
+            {"kind": "order", "label": "Order #3 cancelled", "detail": None},
         ),
         (
-            "get_order_status", {}, {"found": True, "orders": [{"order_id": 27}]},
-            {"kind": "order", "label": "Order #27 checked", "detail": None},
+            "cancel_order", {}, {"draft": True, "draft_id": 27, "status": "CANCELLED"},
+            {"kind": "order", "label": "Draft cancelled", "detail": None},
+        ),
+        (
+            "get_order_status", {}, {"found": True, "orders": [{"order_number": 3}]},
+            {"kind": "order", "label": "Order #3 checked", "detail": None},
         ),
         (
             "get_order_status", {}, {"found": False, "orders": []},
@@ -60,7 +66,7 @@ def test_the_label_table_for_every_tool():
         ),
         (
             "get_order_status", {},
-            {"found": True, "orders": [{"order_id": 27}, {"order_id": 28}]},
+            {"found": True, "orders": [{"order_number": 3}, {"order_number": 4}]},
             {"kind": "order", "label": "Order status checked", "detail": None},
         ),
         (
@@ -123,9 +129,9 @@ def test_the_error_label_table_for_every_tool():
 def test_an_erroring_tool_keeps_the_kind_of_its_success_row():
     for name, result in (
         ("check_item_availability", {"source": "menu", "total": 1, "items": []}),
-        ("build_order", {"order_id": 27, "status": "PENDING_CONFIRMATION"}),
-        ("confirm_order", {"order_id": 27, "status": "CONFIRMED", "items": []}),
-        ("cancel_order", {"order_id": 27, "status": "CANCELLED"}),
+        ("build_order", {"draft_id": 27, "status": "PENDING_CONFIRMATION"}),
+        ("confirm_order", {"draft_id": 27, "status": "CONFIRMED", "items": []}),
+        ("cancel_order", {"draft_id": 27, "status": "CANCELLED"}),
         ("get_order_status", {"found": False, "orders": []}),
         ("report_feedback", {"feedback_id": 3, "subject": "chicken burger"}),
         ("remember_visitor", {"returning": False, "name": "Sara", "visits": 1}),

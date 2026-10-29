@@ -184,7 +184,7 @@ def test_the_migration_adds_session_id_and_old_rows_read_null():
 
 
 def test_log_action_stores_the_session_id():
-    data.log_action("confirm_order", {"order_id": 1}, {"status": "CONFIRMED"}, session_id="09c90c15")
+    data.log_action("confirm_order", {"draft_id": 1}, {"status": "CONFIRMED"}, session_id="09c90c15")
 
     assert _rows() == [{"tool": "confirm_order", "session_id": "09c90c15"}]
 

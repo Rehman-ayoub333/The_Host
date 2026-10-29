@@ -256,7 +256,7 @@ def test_no_banned_filler_appears_in_any_greeting_or_template():
 def test_the_complimentary_flag_is_stored_and_defaults_to_off(ctx):
     ordinary = tools.build_order([BURGER])
     assert "complimentary" not in ordinary
-    assert order_row(ordinary["order_id"])["complimentary"] == 0
+    assert order_row(ordinary["draft_id"])["complimentary"] == 0
 
     free = data.create_order_draft(
         [{"name": "Mixed Fruit Shake", "quantity": 1, "price": "Rs. 350"}],
@@ -273,8 +273,8 @@ def test_build_order_takes_the_complimentary_argument(ctx):
 
     assert result["complimentary"] is True
     assert "note" not in result
-    assert order_row(result["order_id"])["complimentary"] == 1
-    assert data.order_view(data.get_order(result["order_id"]))["complimentary"] is True
+    assert order_row(result["draft_id"])["complimentary"] == 1
+    assert data.order_view(data.get_order(result["draft_id"]))["complimentary"] is True
     # The stored prices and the total are untouched, for the record.
     assert result["total"] == "Rs. 650"
 
@@ -289,16 +289,16 @@ def test_a_later_build_order_decides_the_flag_again(ctx):
     first = tools.build_order([BURGER], guest_name="Vice Chancellor", complimentary=True)
     second = tools.build_order([BURGER, {"name": "Blue Lemonade", "quantity": 1}])
 
-    assert second["order_id"] == first["order_id"]
-    assert order_row(first["order_id"])["complimentary"] == 0
-    assert order_row(first["order_id"])["guest_name"] == "Vice Chancellor"
+    assert second["draft_id"] == first["draft_id"]
+    assert order_row(first["draft_id"])["complimentary"] == 0
+    assert order_row(first["draft_id"])["guest_name"] == "Vice Chancellor"
 
     # Asked for again under the same name, it is on the house again.
     again = tools.build_order(
         [BURGER], guest_name="Vice Chancellor", complimentary=True
     )
-    assert again["order_id"] == first["order_id"]
-    assert order_row(first["order_id"])["complimentary"] == 1
+    assert again["draft_id"] == first["draft_id"]
+    assert order_row(first["draft_id"])["complimentary"] == 1
 
 
 @pytest.mark.parametrize(
@@ -311,7 +311,7 @@ def test_a_boolean_the_model_spells_out_is_read_correctly(ctx, sent, stored):
     # not the 2ze item 3 name check.
     result = tools.build_order([BURGER], guest_name="Vice Chancellor", complimentary=sent)
 
-    assert order_row(result["order_id"])["complimentary"] == stored
+    assert order_row(result["draft_id"])["complimentary"] == stored
 
 
 def test_the_complimentary_column_is_migrated_with_a_default_of_zero(tmp_path, monkeypatch):
@@ -359,7 +359,7 @@ def test_the_complimentary_column_is_migrated_with_a_default_of_zero(tmp_path, m
 def test_every_order_event_carries_the_flag(ctx):
     order_id = tools.build_order(
         [BURGER], guest_name="Vice Chancellor", complimentary=True
-    )["order_id"]
+    )["draft_id"]
     tools.confirm_order(order_id)
 
     carried = order_events()
@@ -381,7 +381,7 @@ def test_every_order_event_carries_the_flag(ctx):
 
 
 def test_an_ordinary_order_says_so_in_its_events(ctx):
-    tools.confirm_order(tools.build_order([BURGER])["order_id"])
+    tools.confirm_order(tools.build_order([BURGER])["draft_id"])
 
     assert order_events()
     for event in order_events():
@@ -391,10 +391,10 @@ def test_an_ordinary_order_says_so_in_its_events(ctx):
 def test_the_activity_label_says_on_the_house(ctx):
     order_id = tools.build_order(
         [BURGER], guest_name="Vice Chancellor", complimentary=True
-    )["order_id"]
+    )["draft_id"]
     result = tools.confirm_order(order_id)
 
-    row = summaries.activity_for_tool("confirm_order", {"order_id": order_id}, result)
+    row = summaries.activity_for_tool("confirm_order", {"draft_id": order_id}, result)
     print("the activity row:", row)
     assert row == {
         "kind": "order",
@@ -404,11 +404,11 @@ def test_the_activity_label_says_on_the_house(ctx):
 
 
 def test_an_ordinary_order_keeps_the_plain_label(ctx):
-    order_id = tools.build_order([BURGER])["order_id"]
+    order_id = tools.build_order([BURGER])["draft_id"]
     # 16 section 2zf item 3(b): an ordinary order is placed with a payment.
     result = tools.confirm_order(order_id, payment_method="CASH")
 
-    row = summaries.activity_for_tool("confirm_order", {"order_id": order_id}, result)
+    row = summaries.activity_for_tool("confirm_order", {"draft_id": order_id}, result)
     assert row["label"] == f"Order #{order_id} created"
 
 

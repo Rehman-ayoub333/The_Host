@@ -35,6 +35,33 @@ def _owns_order(order) -> bool:
     return bool(name and (order.get("guest_name") or "").strip().lower() == name)
 
 
+# 16 section 2zi item 3(c): "the model sent something that is not a number" is
+# a different answer from "there is no such order", so the lookup below needs a
+# third result and None cannot carry both.
+_UNREADABLE = object()
+
+
+def order_by_number_or_draft(order_number, draft_id):
+    """The order a tool was asked about: by today's guest number, or by draft_id.
+
+    16 section 2zi item 3(c). The guest says "order three", which is
+    `order_no` 3 among today's orders; a draft has no number, so the model
+    passes the draft_id it was handed. Returns None when nothing matches and
+    `_UNREADABLE` when what arrived was not a number at all.
+    """
+    if draft_id not in (None, ""):
+        try:
+            return data.get_order(int(float(draft_id)))
+        except (TypeError, ValueError):
+            return _UNREADABLE
+    if order_number not in (None, ""):
+        try:
+            return data.get_order_by_number(int(float(order_number)))
+        except (TypeError, ValueError):
+            return _UNREADABLE
+    return None
+
+
 def _finish(tool: str, args: dict, result: dict) -> dict:
     # 16 section 2t item 7: every tool call carries the conversation it came from.
     data.log_action(tool, args, result, session_id=_ctx().get("session_id"))
@@ -341,9 +368,13 @@ def build_order(items, guest_name=None, complimentary=None) -> dict:
             _pub({"type": "order_created", "order": data.order_view(order)})
         elif result["action"] == "updated":
             _pub({"type": "order_updated", "order": data.order_view(order)})
+        # 16 section 2zi item 3(c): a draft has no order number yet, so what
+        # comes back is the internal draft_id -- for confirm_order and
+        # cancel_order, never for the guest's ears (`21` Part A).
         drafted = {
             "source": "order",
-            "order_id": result["order_id"],
+            "draft_id": result["order_id"],
+            "draft": True,
             "items": validated,
             "total": data.compute_total(validated),
             "status": "PENDING_CONFIRMATION",
@@ -376,7 +407,7 @@ def build_order(items, guest_name=None, complimentary=None) -> dict:
         )
 
 
-def confirm_order(order_id, payment_method=None) -> dict:
+def confirm_order(draft_id, payment_method=None) -> dict:
     """16 section 2zf item 3(b): place the order, and say how it will be paid.
 
     An order on the house is placed exactly as before: it goes straight to
@@ -384,11 +415,15 @@ def confirm_order(order_id, payment_method=None) -> dict:
     ignored -- the Vice Chancellor is never asked. Every other order stops at
     AWAITING_PAYMENT carrying the method the guest named, and reaches the
     kitchen only when the team marks the money taken.
+
+    16 section 2zi item 3(c): it takes the draft_id build_order returned, and
+    gives back the order_number the guest is told -- the number is created by
+    this call, because it is this call that places the order.
     """
-    args = {"order_id": order_id, "payment_method": payment_method}
+    args = {"draft_id": draft_id, "payment_method": payment_method}
     try:
         try:
-            oid = int(float(order_id))
+            oid = int(float(draft_id))
         except (TypeError, ValueError):
             return _finish(
                 "confirm_order",
@@ -448,7 +483,11 @@ def confirm_order(order_id, payment_method=None) -> dict:
                 _queue_memory_row(order, old_favourite, profile)
         placed = {
             "source": "order",
-            "order_id": oid,
+            # 16 section 2zi item 3(c): the guest's number, which this call just
+            # created. The draft_id goes back too, because a change to a placed
+            # order still has to name it internally.
+            "order_number": order.get("order_no"),
+            "draft_id": oid,
             "status": order["status"],
             "items": order["items"],
             "total": data.compute_total(order["items"]),
@@ -470,18 +509,23 @@ def confirm_order(order_id, payment_method=None) -> dict:
         )
 
 
-def cancel_order(order_id, reason=None) -> dict:
-    args = {"order_id": order_id, "reason": reason}
+def cancel_order(order_number=None, draft_id=None, reason=None) -> dict:
+    """16 section 2zi item 3(c): a placed order by its number, a draft by its id.
+
+    A guest says "cancel order three"; a draft has no number to say, so the
+    model passes back the draft_id it was given. Internally both become the one
+    internal id everything else keys on.
+    """
+    args = {"order_number": order_number, "draft_id": draft_id, "reason": reason}
     try:
-        try:
-            oid = int(float(order_id))
-        except (TypeError, ValueError):
+        order = order_by_number_or_draft(order_number, draft_id)
+        if order is _UNREADABLE:
             return _finish(
                 "cancel_order",
                 args,
                 {"source": "order", "error": "I couldn't understand that order number."},
             )
-        order = data.get_order(oid)
+        oid = None if order is None else order["id"]
         if order is None or not _owns_order(order):
             return _finish(
                 "cancel_order",
@@ -516,11 +560,15 @@ def cancel_order(order_id, reason=None) -> dict:
         if c.get("pending_order_id") == oid:
             c["pending_order_id"] = None
         _pub({"type": "order_updated", "order": data.order_view(result["order"])})
-        return _finish(
-            "cancel_order",
-            args,
-            {"source": "order", "order_id": oid, "status": "CANCELLED"},
-        )
+        cancelled = {"source": "order", "status": "CANCELLED"}
+        # 16 section 2zi item 3(c): the number when it had one, and `draft: true`
+        # when it never did, so the model knows which to say.
+        if result["order"].get("order_no") is None:
+            cancelled["draft"] = True
+            cancelled["draft_id"] = oid
+        else:
+            cancelled["order_number"] = result["order"]["order_no"]
+        return _finish("cancel_order", args, cancelled)
     except Exception:
         log.exception("cancel_order failed")
         return _finish(
@@ -530,22 +578,24 @@ def cancel_order(order_id, reason=None) -> dict:
         )
 
 
-def get_order_status(order_id=None, guest_name=None) -> dict:
-    """16 section 2l item 5: by number or by name, every status, from the database."""
-    args = {"order_id": order_id, "guest_name": guest_name}
+def get_order_status(order_number=None, guest_name=None) -> dict:
+    """16 section 2l item 5: by number or by name, every status, from the database.
+
+    16 section 2zi item 3(c): the number is the guest-facing one. A draft has
+    none, so it is only ever found by name or by this session's own orders.
+    """
+    args = {"order_number": order_number, "guest_name": guest_name}
     try:
         c = _ctx()
         name = " ".join(str(guest_name or "").split())[:30]
-        if order_id not in (None, ""):
-            try:
-                oid = int(float(order_id))
-            except (TypeError, ValueError):
+        if order_number not in (None, ""):
+            order = order_by_number_or_draft(order_number, None)
+            if order is _UNREADABLE:
                 return _finish(
                     "get_order_status",
                     args,
                     {"source": "order", "error": "I couldn't understand that order number."},
                 )
-            order = data.get_order(oid)
             found = [order] if (order is not None and _owns_order(order)) else []
         elif name:
             found = data.find_orders_today(name)
@@ -553,7 +603,13 @@ def get_order_status(order_id=None, guest_name=None) -> dict:
             found = data.find_orders_for(c.get("session_id"), c.get("visitor_name"))[:3]
         orders = [
             {
-                "order_id": order["id"],
+                # 16 section 2zi item 3(c): the number for a placed order, and
+                # `draft: true` with its draft_id for one still being built.
+                **(
+                    {"order_number": order["order_no"]}
+                    if order.get("order_no") is not None
+                    else {"draft": True, "draft_id": order["id"]}
+                ),
                 "status": order["status"],
                 # A draft is not a placed order, and the model must not imply it is.
                 "status_text": data.STATUS_TEXT.get(order["status"], order["status"]),
@@ -853,9 +909,9 @@ TOOL_DECLARATIONS = [
         "confirm_order",
         "Place the draft order for real, with how the guest will pay. The order then waits for payment at the counter; the kitchen gets it when the team marks it paid. Only call this after the guest's own clear answer.",
         {
-            "order_id": {
+            "draft_id": {
                 "type": "integer",
-                "description": "The order_id returned by build_order.",
+                "description": "The draft_id returned by build_order.",
             },
             # 16 section 2zf item 3(b): optional, because the Vice Chancellor
             # and the chief guest are never asked how they will pay.
@@ -869,22 +925,33 @@ TOOL_DECLARATIONS = [
                 ),
             },
         },
-        ("order_id",),
+        ("draft_id",),
     ),
     _decl(
         "cancel_order",
         "Cancel one of this guest's orders: a draft, or one still waiting for payment. Not possible once it is paid.",
         {
-            "order_id": {"type": "integer", "description": "The order number."},
+            # 16 section 2zi item 3(c): a placed order has a number the guest can
+            # say; a draft has only the draft_id build_order returned.
+            "order_number": {
+                "type": "integer",
+                "description": "The order number of a placed order.",
+            },
+            "draft_id": {
+                "type": "integer",
+                "description": "The draft_id from build_order, for a draft that was never placed.",
+            },
             "reason": {"type": "string", "description": "Short reason, optional."},
         },
-        ("order_id",),
     ),
     _decl(
         "get_order_status",
         "Check this guest's orders in the database: status, what is in them, and estimated time. Give the order number if the guest knows it, or the name the order was placed under; omit both to find their own active orders. Always call this before answering any question about an order.",
         {
-            "order_id": {"type": "integer", "description": "The order number, if known."},
+            "order_number": {
+                "type": "integer",
+                "description": "The order number, if the guest knows it.",
+            },
             "guest_name": {
                 "type": "string",
                 "description": "The first name the order was placed under, if that is all the guest has.",

@@ -521,6 +521,8 @@ def test_the_csv_has_the_header_and_one_row_exactly(served):
     assert f'bite-and-pour-sales-{data._today()}.csv' in response.headers["content-disposition"]
     rows = list(csv.reader(io.StringIO(response.text)))
     assert rows[0] == [
+        # 16 §2zi item 3(b): the guest's number first, the internal id beside it.
+        "order_no",
         "order_id",
         "time",
         "guest_name",
@@ -534,16 +536,17 @@ def test_the_csv_has_the_header_and_one_row_exactly(served):
     ]
     assert len(rows) == 2
     row = rows[1]
-    assert row[0] == str(order_id)
-    assert len(row[1]) == 8 and row[1].count(":") == 2
-    assert row[2] == "Ali"
-    assert row[3] == "2x Chicken Burger; 1x Blue Lemonade"
-    assert row[4] == "1550"
-    assert row[5] == "COLLECTED"
-    assert row[6] == "QR"
-    assert row[7] == data.get_order(order_id)["paid_at"]
-    assert row[7] != ""
-    assert row[8] == "no"
+    assert row[0] == str(data.get_order(order_id)["order_no"])
+    assert row[1] == str(order_id)
+    assert len(row[2]) == 8 and row[2].count(":") == 2
+    assert row[3] == "Ali"
+    assert row[4] == "2x Chicken Burger; 1x Blue Lemonade"
+    assert row[5] == "1550"
+    assert row[6] == "COLLECTED"
+    assert row[7] == "QR"
+    assert row[8] == data.get_order(order_id)["paid_at"]
+    assert row[8] != ""
+    assert row[9] == "no"
 
 
 def test_the_csv_leaves_out_drafts_and_marks_the_house(served):
@@ -554,9 +557,11 @@ def test_the_csv_leaves_out_drafts_and_marks_the_house(served):
 
     print("rows:", rows)
     assert len(rows) == 2
-    assert rows[1][0] == str(house)
-    assert rows[1][8] == "yes"
-    assert rows[1][6] == ""
+    # Column 0 is now order_no, so the internal id has moved to column 1.
+    assert rows[1][1] == str(house)
+    assert rows[1][0] == str(data.get_order(house)["order_no"] or "")
+    assert rows[1][9] == "yes"
+    assert rows[1][7] == ""
 
 
 def test_the_csv_endpoint_needs_the_token(served):

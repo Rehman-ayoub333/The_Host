@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import config
+import data
 import event_bus
 import main
 import prompts
@@ -262,7 +263,7 @@ def test_an_order_turn_holds_taking_order_throughout():
     # 2zf item 3(b): the answer is the payment, and it goes with the call.
     feed(session, [message(content(visitor="Cash."))])
     feed(session, [message(tool_call=call(
-        "confirm_order", {"order_id": order_id, "payment_method": "CASH"}
+        "confirm_order", {"draft_id": order_id, "payment_method": "CASH"}
     ))])
     assert session.ctx["pending_order_id"] is None
     assert session.ctx["awaiting_confirmation"] is False
@@ -301,7 +302,7 @@ def test_cancelling_a_draft_returns_to_listening():
     feed(session, [message(tool_call=call("build_order", {"items": [BURGER]}))])
     order_id = session.ctx["pending_order_id"]
     feed(session, [message(tool_call=call("signal_confirmation_request", {"summary": "One burger?"}))])
-    feed(session, [message(tool_call=call("cancel_order", {"order_id": order_id}))])
+    feed(session, [message(tool_call=call("cancel_order", {"draft_id": order_id}))])
 
     assert session.ctx["pending_order_id"] is None
     assert session.ctx["awaiting_confirmation"] is False
@@ -997,7 +998,7 @@ def test_a_confirmed_order_survives_the_session_ending():
     order_id = session.ctx["pending_order_id"]
     feed(session, [message(content(visitor="Cash."))])
     feed(session, [message(tool_call=call(
-        "confirm_order", {"order_id": order_id, "payment_method": "CASH"}
+        "confirm_order", {"draft_id": order_id, "payment_method": "CASH"}
     ))])
 
     asyncio.run(session.stop())
@@ -1098,7 +1099,7 @@ def test_a_tool_call_publishes_its_activity():
     order_id = session.ctx["pending_order_id"]
     feed(session, [message(content(visitor="Cash."))])
     feed(session, [message(tool_call=call(
-        "confirm_order", {"order_id": order_id, "payment_method": "CASH"}
+        "confirm_order", {"draft_id": order_id, "payment_method": "CASH"}
     ))])
 
     activity = [
@@ -1108,8 +1109,9 @@ def test_a_tool_call_publishes_its_activity():
     ]
     print("activity published:", activity)
     assert activity == [
-        ("order", f"Order draft #{order_id} prepared", None),
-        ("order", f"Order #{order_id} created", "Chicken Burger"),
+        # 16 §2zi item 3(b): a draft has no number to show.
+        ("order", "Draft prepared", None),
+        ("order", f"Order #{data.get_order(order_id)['order_no']} created", "Chicken Burger"),
     ]
 
 

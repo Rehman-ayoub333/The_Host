@@ -59,8 +59,8 @@ def test_the_vice_chancellors_own_name_is_on_the_house(ctx, caplog, name):
 
     assert result["complimentary"] is True
     assert "note" not in result
-    assert order_row(result["order_id"])["complimentary"] == 1
-    assert order_row(result["order_id"])["guest_name"] == name
+    assert order_row(result["draft_id"])["complimentary"] == 1
+    assert order_row(result["draft_id"])["guest_name"] == name
     assert refusals(caplog) == []
 
 
@@ -75,7 +75,7 @@ def test_any_other_name_is_stored_as_a_paid_order(ctx, caplog, name):
 
     assert result["complimentary"] is False
     assert result["note"] == NOTE
-    assert order_row(result["order_id"])["complimentary"] == 0
+    assert order_row(result["draft_id"])["complimentary"] == 0
     # 16 section 2ze item 3: the reason and the session, and no text at all.
     assert refusals(caplog) == ["complimentary refused session a1b2c3d4"]
     for line in refusals(caplog):
@@ -91,7 +91,7 @@ def test_no_name_at_all_is_stored_as_a_paid_order(ctx, caplog):
 
     assert result["complimentary"] is False
     assert result["note"] == NOTE
-    assert order_row(result["order_id"])["complimentary"] == 0
+    assert order_row(result["draft_id"])["complimentary"] == 0
     assert refusals(caplog) == ["complimentary refused session a1b2c3d4"]
 
 
@@ -108,7 +108,7 @@ def test_the_name_tested_is_the_one_that_goes_on_the_order(ctx, caplog):
     remembered = tools.build_order([BURGER], complimentary=True)
 
     assert remembered["complimentary"] is True
-    assert order_row(remembered["order_id"])["complimentary"] == 1
+    assert order_row(remembered["draft_id"])["complimentary"] == 1
     assert refusals(caplog) == []
 
     # A name given on the call wins over the remembered one, in both directions.
@@ -132,7 +132,7 @@ def test_an_order_that_never_asked_is_told_nothing(ctx, caplog, sent):
 
     assert "complimentary" not in result
     assert "note" not in result
-    assert order_row(result["order_id"])["complimentary"] == 0
+    assert order_row(result["draft_id"])["complimentary"] == 0
     assert refusals(caplog) == []
 
 
@@ -141,18 +141,20 @@ def test_an_order_that_never_asked_is_told_nothing(ctx, caplog, sent):
 
 def test_the_on_the_house_label_appears_only_for_a_stored_flag(ctx):
     free = tools.build_order([BURGER], guest_name="Vice Chancellor", complimentary=True)
-    confirmed = tools.confirm_order(free["order_id"])
+    confirmed = tools.confirm_order(free["draft_id"])
     row = summaries.activity_for_tool("confirm_order", {}, confirmed)
 
-    assert row["label"] == f"Order #{free['order_id']} created (on the house)"
+    assert row["label"] == (
+        f"Order #{confirmed['order_number']} created (on the house)"
+    )
 
     ctx["session_id"] = "b2c3d4e5"
     ctx["pending_order_id"] = None
     refused = tools.build_order([BURGER], guest_name="Chief Guest", complimentary=True)
-    placed = tools.confirm_order(refused["order_id"])
+    placed = tools.confirm_order(refused["draft_id"])
     plain = summaries.activity_for_tool("confirm_order", {}, placed)
 
-    assert plain["label"] == f"Order #{refused['order_id']} created"
+    assert plain["label"] == f"Order #{placed['order_number']} created"
     assert "on the house" not in plain["label"]
 
 

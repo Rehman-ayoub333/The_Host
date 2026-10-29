@@ -47,6 +47,8 @@ def test_orders_endpoint_shape_and_counts(served):
     assert [order["id"] for order in body["orders"]] == [draft, done, active]
     first = body["orders"][-1]
     assert set(first) == {
+        # 16 section 2zi item 3(b): the guest-facing number
+        "number",
         "id", "items", "status", "guest_name", "total", "timestamp",
         "estimated_ready_at", "ready_at",
         # 16 section 2m item 5

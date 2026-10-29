@@ -460,6 +460,8 @@ def test_order_view_and_get_order_parse_items():
     view = data.order_view(order)
     assert view == {
         "id": order_id,
+        # 16 §2zi item 3(b): null while it is a draft.
+        "number": None,
         "items": [BURGER, LEMONADE],
         "status": "PENDING_CONFIRMATION",
         "guest_name": "Ahmed",

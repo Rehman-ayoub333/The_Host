@@ -151,8 +151,15 @@ async def _sweep_loop() -> None:
             log.exception("unpaid-order sweep failed")
         else:
             for order_id in unpaid:
+                # 16 section 2zi item 3(b): by its number -- an unpaid order was
+                # placed, so it has one.
+                swept = await asyncio.to_thread(data.get_order, order_id)
                 summaries.emit_activity(
-                    "order", f"Order #{order_id} cancelled (unpaid)", None, None
+                    "order",
+                    f"Order #{(swept or {}).get('order_no') or order_id} "
+                    "cancelled (unpaid)",
+                    None,
+                    None,
                 )
 
 
@@ -367,6 +374,10 @@ def get_earnings_csv():
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(
         [
+            # 16 section 2zi item 3(b): the number the guest was given comes
+            # first, because that is what a receipt or a query names. The
+            # internal id stays beside it: the operator API keys on it.
+            "order_no",
             "order_id",
             "time",
             "guest_name",
@@ -390,6 +401,7 @@ def get_earnings_csv():
         amount = data.order_rupees(order["items"])
         writer.writerow(
             [
+                order.get("order_no") or "",
                 order["id"],
                 (order.get("timestamp") or "")[11:19],
                 order.get("guest_name") or "",
@@ -474,6 +486,7 @@ async def _run_announcement(order: dict) -> None:
         {
             "type": "order_ready",
             "order_id": order["id"],
+            "order_number": order.get("order_no"),
             "customer_name": order.get("guest_name"),
             "session_id": None,
         }
@@ -573,12 +586,16 @@ async def post_order_status(order_id: int, request: Request):
 
     # 16 section 2zf item 3(d): the payment gets a row of its own, so the feed
     # reads as what happened at the counter rather than "updated".
+    # 16 section 2zi item 3(b): the feed names the order the way the team and the
+    # guest both know it. An order from before the column has no number, and its
+    # id is the only name it ever had.
+    shown = result["order"].get("order_no") or order_id
     label = (
-        f"Order #{order_id} paid ({'cash' if method == 'CASH' else 'QR'})"
+        f"Order #{shown} paid ({'cash' if method == 'CASH' else 'QR'})"
         if paying
-        else f"Order #{order_id} ready"
+        else f"Order #{shown} ready"
         if body.status == "READY"
-        else f"Order #{order_id} updated"
+        else f"Order #{shown} updated"
     )
     summaries.emit_activity("order", label, body.status.lower(), None)
     await asyncio.to_thread(
@@ -914,6 +931,7 @@ async def post_operator_announce(request: Request):
         {
             "type": "order_ready",
             "order_id": order["id"],
+            "order_number": order.get("order_no"),
             "customer_name": order.get("guest_name"),
             "session_id": None,
         }

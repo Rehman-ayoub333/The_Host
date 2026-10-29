@@ -1872,6 +1872,7 @@ class LiveSession:
                 {
                     "type": "order_ready",
                     "order_id": order["id"],
+                    "order_number": order.get("order_no"),
                     "customer_name": order.get("guest_name"),
                     "session_id": None,
                 }
@@ -1933,7 +1934,10 @@ class LiveSession:
         (b) that latest line must contain the guest's own yes.
         """
         try:
-            order_id = int(float(args.get("order_id")))
+            # 16 section 2zi item 3(c): confirm_order places a draft, so what it
+            # is given is the draft_id -- the same internal id the guard has
+            # recorded all along.
+            order_id = int(float(args.get("draft_id")))
         except (TypeError, ValueError):
             # Not a number: let the tool itself answer, as 09 section 5 has it.
             return None
@@ -1961,15 +1965,23 @@ class LiveSession:
         tool's own business -- it refuses a paid order outright. For a placed
         order the guest must have spoken after it was placed, and that line must
         carry their consent -- a yes, or the cancellation in their own words.
+
+        16 section 2zi item 3(c): the guest names a placed order by its number
+        and a draft by its draft_id, so the order is looked up either way and
+        the guard still measures against the internal id it recorded.
         """
-        try:
-            order_id = int(float(args.get("order_id")))
-        except (TypeError, ValueError):
-            # Not a number: let the tool itself answer, as 09 section 6 has it.
+        order = await asyncio.to_thread(
+            tools.order_by_number_or_draft,
+            args.get("order_number"),
+            args.get("draft_id"),
+        )
+        if not isinstance(order, dict):
+            # Not a number, or no such order: let the tool itself answer, as
+            # 09 section 6 has it.
             return None
-        order = await asyncio.to_thread(data.get_order, order_id)
-        if order is None or order["status"] != "AWAITING_PAYMENT":
+        if order["status"] != "AWAITING_PAYMENT":
             return None
+        order_id = order["id"]
         since = self.confirmed_at.get(order_id, self.session_started_at)
         if self.last_guest_line_at is None or self.last_guest_line_at <= since:
             return "no_new_line"
@@ -2010,7 +2022,9 @@ class LiveSession:
                     "%s refused session %s order %s reason=%s",
                     verb,
                     self.ctx["session_id"],
-                    args.get("order_id"),
+                    # 16 section 2zi item 3(c): whichever the model named it by.
+                    # Still only an identifier -- never a word that was said.
+                    args.get("draft_id", args.get("order_number")),
                     refusal,
                 )
                 function_responses.append(
@@ -2043,15 +2057,21 @@ class LiveSession:
                         # 16 section 2zb item 3: the draft changed, so the guest
                         # has to speak again before it can be confirmed.
                         self.draft_built_at = _now()
-                        self.draft_built_id = result.get("order_id")
+                        # 16 section 2zi item 3(c): build_order returns the
+                        # draft_id now, and the guard keys on that same id.
+                        self.draft_built_id = result.get("draft_id")
                         await self._send_state("TAKING_ORDER")
                     elif name in ("confirm_order", "cancel_order", "report_feedback"):
                         self.ctx["awaiting_confirmation"] = False
-                        if name == "confirm_order" and result.get("order_id"):
+                        if name == "confirm_order" and result.get("draft_id"):
                             # 16 section 2zc item 2(b), as 2zf item 3(g) reads
                             # it: the order is placed, so from here a cancel of
                             # it needs the guest to speak again.
-                            self.confirmed_at[result["order_id"]] = _now()
+                            #
+                            # 16 section 2zi item 3(c): keyed on the internal id,
+                            # which confirm_order gives back as draft_id -- the
+                            # guard looks the order up and compares that same id.
+                            self.confirmed_at[result["draft_id"]] = _now()
             log.info(
                 "tool %s session %s error=%s",
                 name,

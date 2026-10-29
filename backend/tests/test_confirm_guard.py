@@ -77,7 +77,7 @@ def confirm(session, order_id, call_id="call-confirm", payment="CASH"):
         doubles.message(
             tool_call=doubles.call(
                 "confirm_order",
-                {"order_id": order_id, "payment_method": payment},
+                {"draft_id": order_id, "payment_method": payment},
                 call_id,
             )
         ),
@@ -354,7 +354,7 @@ def test_a_cancel_is_never_guarded():
 
     feed(
         session,
-        doubles.message(tool_call=doubles.call("cancel_order", {"order_id": order_id}, "call-c")),
+        doubles.message(tool_call=doubles.call("cancel_order", {"draft_id": order_id}, "call-c")),
     )
 
     assert data.get_order(order_id)["status"] == "CANCELLED"
