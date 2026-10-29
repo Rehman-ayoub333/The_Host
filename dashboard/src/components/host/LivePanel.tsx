@@ -92,7 +92,9 @@ function OpenDraft() {
       ) : (
         <>
           <div className="flex items-baseline justify-between gap-2">
-            <p className="font-mono text-sm text-foreground">Order #{draft.id}</p>
+            {/* 16 §2zi item 3(b): numbers are given out at placing, so a draft is
+                shown as a draft rather than by an id no guest was told. */}
+            <p className="font-mono text-sm text-foreground">Draft</p>
             {draft.guest_name && <p className="truncate text-xs text-champagne">{draft.guest_name}</p>}
           </div>
           <ul className="mt-1 space-y-0.5">
@@ -146,7 +148,7 @@ function AwaitingPayment() {
     <div className="rounded-md border border-warning/40 bg-warning/5 p-3">
       <p className="label-caps mb-1.5 text-warning">Waiting for payment</p>
       <div className="flex items-baseline justify-between gap-2">
-        <p className="font-mono text-sm text-foreground">Order #{order.id}</p>
+        <p className="font-mono text-sm text-foreground">Order #{order.number ?? "—"}</p>
         {order.guest_name && <p className="truncate text-xs text-champagne">{order.guest_name}</p>}
       </div>
       <ul className="mt-1 space-y-0.5">

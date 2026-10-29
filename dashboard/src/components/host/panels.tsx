@@ -294,7 +294,7 @@ function OrderActions({ order }: { order: Order }) {
   if (confirmFail) {
     return (
       <div className="mt-2.5 flex items-center gap-2 rounded-sm border border-destructive/40 bg-destructive/5 p-2">
-        <p className="flex-1 text-[0.68rem] text-destructive">Mark order #{order.id} as failed?</p>
+        <p className="flex-1 text-[0.68rem] text-destructive">Mark order #{order.number ?? order.id} as failed?</p>
         <button disabled={busy} onClick={() => void act("FAILED")} className="text-[0.65rem] font-semibold uppercase text-destructive hover:underline">Yes</button>
         <button onClick={() => setConfirmFail(false)} className="text-[0.65rem] font-semibold uppercase text-muted-foreground hover:underline">No</button>
       </div>
@@ -407,7 +407,8 @@ export function OrderCard({ order, now }: { order: Order; now: number }) {
     <div className="animate-rise rounded-md border border-line bg-background/40 p-3 transition-colors hover:border-line-strong">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-mono text-[0.62rem] uppercase tracking-widest text-muted-foreground">Order #{order.id}</p>
+          {/* 16 §2zi item 3(b): the guest's number, or "Draft" before it is placed. */}
+          <p className="font-mono text-[0.62rem] uppercase tracking-widest text-muted-foreground">{order.number == null ? "Draft" : `Order #${order.number}`}</p>
           <p className="truncate text-sm font-semibold">{order.guest_name ?? "Guest"}</p>
         </div>
         <div className="text-right">

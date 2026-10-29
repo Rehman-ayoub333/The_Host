@@ -75,8 +75,15 @@ export type OrderStatus =
   | "REQUIRES_ATTENTION";
 
 export interface Order {
-  /** An integer, e.g. 27 — never a string. */
+  /** An integer, e.g. 27 — never a string. The internal id: the operator API
+   * keys on it (16 §2zi item 3(d)), and nothing a person reads uses it. */
   id: number;
+  /**
+   * 16 §2zi item 3(b) — the number the guest was given, 1, 2, 3 through the
+   * day. null while the order is still a draft, because numbers are handed out
+   * when an order is placed. Everything shown or spoken uses this.
+   */
+  number?: number | null | undefined;
   items: OrderItem[];
   status: OrderStatus;
   guest_name?: string | null | undefined;
@@ -175,7 +182,10 @@ export interface Activity {
  * Several are shown one after another, 15 s each, and none is ever dropped.
  */
 export interface ReadyAnnouncement {
+  /** The internal id, used only to tell one announcement from another. */
   order_id: number;
+  /** 16 §2zi item 3(b) — the number the banner shows and THE HOST calls out. */
+  order_number?: number | null | undefined;
   customer_name?: string | null | undefined;
 }
 
@@ -230,7 +240,7 @@ interface Envelope {
 export type AgentEvent =
   | (Envelope & { type: "state_snapshot"; boot_id: string; operational_mode: OperationalMode; conversation_state: BackendState; present: boolean; active_orders: Order[] })
   | (Envelope & { type: "agent_state_changed"; state: BackendState })
-  | (Envelope & { type: "order_ready"; order_id: number; customer_name?: string | null })
+  | (Envelope & { type: "order_ready"; order_id: number; order_number?: number | null; customer_name?: string | null })
   | (Envelope & { type: "operational_mode_changed"; mode: OperationalMode; reason?: string })
   | (Envelope & { type: "speech_transcript"; role: "visitor" | "agent"; text: string; final?: boolean })
   | (Envelope & { type: "order_created"; order: Order })
@@ -301,7 +311,7 @@ export interface AgentSnapshot {
   /** True while GET /api/menu is failing, so the display shows "Menu loading…". */
   menuFailed: boolean;
   recommendation: { item: string; reason: string; until: number } | null;
-  orderReady: { order_id: number; customer_name?: string | null | undefined; until: number } | null;
+  orderReady: { order_id: number; order_number?: number | null | undefined; customer_name?: string | null | undefined; until: number } | null;
   /** FIFO of announcements still to show on the display; never dropped. */
   readyQueue: ReadyAnnouncement[];
   system: Record<SystemComponent, ComponentStatus>;

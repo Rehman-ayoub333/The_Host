@@ -160,12 +160,13 @@ describe("the public display renders no spoken line from the event stream", () =
 });
 
 describe("the Live panel's open draft", () => {
-  it("shows the order number, the items with quantities, the total as sent and the name", () => {
+  it("shows it as a draft, the items with quantities, the total as sent and the name", () => {
     dispatchAll([{ type: "order_created", order: draft }] as AgentEvent[]);
 
     render(<LivePanel />);
 
-    expect(screen.getByText("Order #27")).toBeInTheDocument();
+    // 16 §2zi item 3(b): numbers are given out at placing, so a draft has none.
+    expect(screen.getByText("Draft")).toBeInTheDocument();
     expect(screen.getByText("Chicken Burger")).toBeInTheDocument();
     expect(screen.getByText("2× Blue Lemonade")).toBeInTheDocument();
     expect(screen.getByText("Rs. 950")).toBeInTheDocument();
@@ -183,7 +184,7 @@ describe("the Live panel's open draft", () => {
 
     render(<LivePanel />);
 
-    expect(screen.getByText("Order #27")).toBeInTheDocument();
+    expect(screen.getByText("Draft")).toBeInTheDocument();
     expect(screen.getByText("Ahmed")).toBeInTheDocument();
   });
 
@@ -196,7 +197,7 @@ describe("the Live panel's open draft", () => {
     render(<LivePanel />);
 
     expect(screen.getByText("No open order")).toBeInTheDocument();
-    expect(screen.queryByText("Order #27")).toBeNull();
+    expect(screen.queryByText("Draft")).toBeNull();
   });
 
   it("says No open order when none is being taken", () => {
@@ -219,6 +220,8 @@ describe("the Live panel's Waiting for payment card (16 §2zf item 4)", () => {
     ...draft,
     status: "AWAITING_PAYMENT",
     payment_method: "CASH",
+    // 16 §2zi item 3(b): placed, so the guest has been given a number.
+    number: 3,
   };
 
   it("shows nothing at all when no order is waiting for payment", () => {
@@ -236,7 +239,7 @@ describe("the Live panel's Waiting for payment card (16 §2zf item 4)", () => {
     render(<LivePanel />);
 
     expect(screen.getByText("Waiting for payment")).toBeInTheDocument();
-    expect(screen.getByText("Order #27")).toBeInTheDocument();
+    expect(screen.getByText("Order #3")).toBeInTheDocument();
     expect(screen.getByText("Chicken Burger")).toBeInTheDocument();
     expect(screen.getByText("2× Blue Lemonade")).toBeInTheDocument();
     expect(screen.getByText("Rs. 950")).toBeInTheDocument();

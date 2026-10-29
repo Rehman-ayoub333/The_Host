@@ -39,10 +39,18 @@ const READY_MS = 15_000;
  * Nothing is dropped: the head is removed only after its 15 s have passed,
  * and the next one takes its place.
  */
-export function readyHeadline(a: { order_id: number; customer_name?: string | null | undefined }): string {
+export function readyHeadline(a: {
+  order_id: number;
+  order_number?: number | null | undefined;
+  customer_name?: string | null | undefined;
+}): string {
+  // 16 §2zi item 3(b): the room is listening for the number the guest was
+  // given. An order announced before the column existed has none, and its id
+  // is the only number anyone ever knew it by.
+  const shown = a.order_number ?? a.order_id;
   return a.customer_name
-    ? `Order #${a.order_id} for ${a.customer_name} is ready!`
-    : `Order #${a.order_id} is ready!`;
+    ? `Order #${shown} for ${a.customer_name} is ready!`
+    : `Order #${shown} is ready!`;
 }
 
 function useReadyQueue() {
@@ -431,7 +439,7 @@ export function SMDDisplay() {
           {orderStates && order && (
             <div key={order.id} className="animate-rise w-full max-w-[460px] border-t border-line-strong pt-5 text-center lg:w-[min(32vw,460px)] lg:border-l lg:border-t-0 lg:pl-8">
               <div className="p-4 text-center sm:p-7">
-                <p className="font-mono text-sm uppercase tracking-[0.3em] text-muted-foreground">Order #{order.id}</p>
+                <p className="font-mono text-sm uppercase tracking-[0.3em] text-muted-foreground">{order.number == null ? "Draft" : `Order #${order.number}`}</p>
                 <p className="mt-2 text-[clamp(1.2rem,2vw,2rem)] font-semibold text-gold">{order.items.map((i) => i.name).join(" + ")}</p>
                 {order.status === "READY" ? (
                   <p className="mt-4 flex items-center justify-center gap-2 text-2xl font-semibold text-success">

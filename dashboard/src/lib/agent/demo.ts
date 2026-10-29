@@ -61,9 +61,9 @@ const script = (): Step[] => [
       },
     }),
   },
-  { at: 20800, ev: () => ({ type: "agent_activity", kind: "order", label: "Order #27 created", detail: "Chicken Burger, Blue Lemonade", timestamp: iso(Date.now()) }) },
+  { at: 20800, ev: () => ({ type: "agent_activity", kind: "order", label: "Order #3 created", detail: "Chicken Burger, Blue Lemonade", timestamp: iso(Date.now()) }) },
   { at: 22600, ev: () => ({ type: "order_updated", order: { id: 27, items: [{ name: "Chicken Burger", quantity: 1 }, { name: "Blue Lemonade", quantity: 1 }], status: "PREPARING", guest_name: "Ahmed", total: "Rs. 500", estimated_ready_at: iso(Date.now() + 36_000) } }) },
-  { at: 22800, ev: () => ({ type: "agent_activity", kind: "order", label: "Order #27 updated", detail: "preparing", timestamp: iso(Date.now()) }) },
+  { at: 22800, ev: () => ({ type: "agent_activity", kind: "order", label: "Order #3 updated", detail: "preparing", timestamp: iso(Date.now()) }) },
 
   { at: 24800, step: 5, ev: () => ({ type: "visitor_identified", name: "Ahmed", returning: true, visits: 3, favorite_item: "Blue Lemonade", last_order: "Chicken Burger" }) },
   { at: 25000, ev: () => ({ type: "agent_activity", kind: "visitor", label: "Visitor identified", detail: "Ahmed · visit 3", timestamp: iso(Date.now()) }) },
@@ -76,8 +76,8 @@ const script = (): Step[] => [
   { at: 33200, ev: () => ({ type: "agent_activity", kind: "speech", label: "Recommended: Loaded Fries", timestamp: iso(Date.now()) }) },
 
   { at: 35000, step: 7, ev: () => ({ type: "agent_state_changed", state: "IDLE" }) },
-  { at: 59000, ev: () => ({ type: "order_ready", order_id: 27, customer_name: "Ahmed" }) },
-  { at: 59200, ev: () => ({ type: "agent_activity", kind: "order", label: "Order #27 ready", detail: "ready", timestamp: iso(Date.now()) }) },
+  { at: 59000, ev: () => ({ type: "order_ready", order_id: 27, order_number: 3, customer_name: "Ahmed" }) },
+  { at: 59200, ev: () => ({ type: "agent_activity", kind: "order", label: "Order #3 ready", detail: "ready", timestamp: iso(Date.now()) }) },
   { at: 59800, ev: () => ({ type: "agent_state_changed", state: "ANNOUNCING" }) },
   { at: 60000, ev: () => ({ type: "speech_transcript", role: "agent", text: "Ahmed, your order #27 is ready. Enjoy!", final: true }) },
   { at: 64000, ev: () => ({ type: "@demo_step", step: DEMO_STEPS.length }) },

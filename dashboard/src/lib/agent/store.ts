@@ -149,8 +149,8 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       // Appended, never replaced: two orders becoming ready together must both
       // be shown on the display (16 §2o item 6).
       return n({
-        orderReady: { order_id: e.order_id, customer_name: e.customer_name, until: now + 8000 },
-        readyQueue: [...s.readyQueue, { order_id: e.order_id, customer_name: e.customer_name }],
+        orderReady: { order_id: e.order_id, order_number: e.order_number, customer_name: e.customer_name, until: now + 8000 },
+        readyQueue: [...s.readyQueue, { order_id: e.order_id, order_number: e.order_number, customer_name: e.customer_name }],
       });
     case "operational_mode_changed":
       return n({ opMode: { mode: e.mode, reason: e.reason } });
