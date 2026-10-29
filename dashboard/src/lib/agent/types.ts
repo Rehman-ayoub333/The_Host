@@ -189,6 +189,62 @@ export interface ReadyAnnouncement {
   customer_name?: string | null | undefined;
 }
 
+/**
+ * 16 §2zi item 4(c) — one row of the guests' own feedback form, as Rehman's
+ * Netlify page posts it. Every field is optional: a guest may answer only the
+ * parts they want to, and a missing answer is shown as nothing rather than as
+ * a zero or an empty star.
+ */
+export interface FormFeedback {
+  id: number;
+  netlify_id: string;
+  created_at?: string | null | undefined;
+  item?: string | null | undefined;
+  overall_rating?: number | null | undefined;
+  taste_rating?: number | null | undefined;
+  presentation_rating?: number | null | undefined;
+  value_rating?: string | null | undefined;
+  liked_most?: string | null | undefined;
+  improvement?: string | null | undefined;
+  buy_again?: string | null | undefined;
+  one_word?: string | null | undefined;
+}
+
+/** 16 §2zi item 4(c) — what a guest asked THE HOST to pass on. */
+export interface SpokenFeedback {
+  id: number;
+  timestamp?: BoothTime | null | undefined;
+  subject: string;
+  comment: string;
+  rating?: number | null | undefined;
+  guest_name?: string | null | undefined;
+}
+
+/**
+ * 16 §2zi item 4(c) — the tiles above the two tabs. An average over no
+ * ratings is null, never 0: nobody has answered is not everybody said zero.
+ */
+export interface FeedbackSummary {
+  count: number;
+  avg_overall: number | null;
+  avg_taste: number | null;
+  avg_presentation: number | null;
+  buy_again_yes_pct: number | null;
+}
+
+/** GET /api/feedback (16 §2zi item 4(c)). Operator only; never on /display. */
+export interface FeedbackPayload {
+  form: FormFeedback[];
+  spoken: SpokenFeedback[];
+  summary: FeedbackSummary;
+  import_status?: {
+    state: "off" | "ok" | "failing";
+    last_ok?: string | null;
+    last_error?: string | null;
+    imported?: number;
+  };
+}
+
 /** GET /api/metrics (20 §4 item 4). Every value is an integer. */
 export interface Metrics {
   date: string;

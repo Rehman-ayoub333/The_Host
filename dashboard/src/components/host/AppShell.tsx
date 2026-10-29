@@ -7,6 +7,7 @@ import {
   Eye,
   Home,
   Menu,
+  MessageSquareQuote,
   MonitorPlay,
   Settings,
   ShoppingBag,
@@ -25,7 +26,7 @@ import { DemoStepper } from "./DemoMode";
 const NAV = [
   { label: "Core", items: [{ to: "/", label: "Command Center", icon: Home }, { to: "/vision", label: "Live Vision", icon: Eye }] },
   { label: "Experience", items: [{ to: "/orders", label: "Orders", icon: ShoppingBag }, { to: "/menu", label: "Menu", icon: UtensilsCrossed }, { to: "/visitors", label: "Visitors", icon: Users }, { to: "/memory", label: "Memory", icon: Bookmark }] },
-  { label: "Insight", items: [{ to: "/activity", label: "AI Activity", icon: Activity }, { to: "/analytics", label: "Analytics", icon: ChartNoAxesColumn }] },
+  { label: "Insight", items: [{ to: "/activity", label: "AI Activity", icon: Activity }, { to: "/analytics", label: "Analytics", icon: ChartNoAxesColumn }, { to: "/feedback", label: "Feedback", icon: MessageSquareQuote }] },
   { label: "System", items: [{ to: "/settings", label: "Settings", icon: Settings }] },
 ] as const;
 

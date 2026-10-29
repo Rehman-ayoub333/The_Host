@@ -7,7 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // 16 §2z item 7 adds the two earnings endpoints: the money is the operator's,
 // never the public display's.
-const TOKEN_PROTECTED = ["/api/orders", "/api/visitors", "/api/activity", "/api/analytics", "/api/metrics", "/api/operator", "/api/earnings", "/api/earnings.csv"];
+// 16 §2zi item 4(d) adds the two feedback endpoints: the Feedback page is
+// operator only, and nothing on /display renders it.
+const TOKEN_PROTECTED = ["/api/orders", "/api/visitors", "/api/activity", "/api/analytics", "/api/metrics", "/api/operator", "/api/earnings", "/api/earnings.csv", "/api/feedback", "/api/feedback.csv"];
 
 type Call = { url: string; hasToken: boolean };
 

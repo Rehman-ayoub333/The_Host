@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as DisplayRouteImport } from './routes/display'
+import { Route as FeedbackRouteImport } from './routes/feedback'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as MenuRouteImport } from './routes/menu'
 import { Route as OrdersRouteImport } from './routes/orders'
@@ -38,6 +39,11 @@ const AnalyticsRoute = AnalyticsRouteImport.update({
 const DisplayRoute = DisplayRouteImport.update({
   id: '/display',
   path: '/display',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FeedbackRoute = FeedbackRouteImport.update({
+  id: '/feedback',
+  path: '/feedback',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MemoryRoute = MemoryRouteImport.update({
@@ -76,6 +82,7 @@ export interface FileRoutesByFullPath {
   '/activity': typeof ActivityRoute
   '/analytics': typeof AnalyticsRoute
   '/display': typeof DisplayRoute
+  '/feedback': typeof FeedbackRoute
   '/memory': typeof MemoryRoute
   '/menu': typeof MenuRoute
   '/orders': typeof OrdersRoute
@@ -88,6 +95,7 @@ export interface FileRoutesByTo {
   '/activity': typeof ActivityRoute
   '/analytics': typeof AnalyticsRoute
   '/display': typeof DisplayRoute
+  '/feedback': typeof FeedbackRoute
   '/memory': typeof MemoryRoute
   '/menu': typeof MenuRoute
   '/orders': typeof OrdersRoute
@@ -101,6 +109,7 @@ export interface FileRoutesById {
   '/activity': typeof ActivityRoute
   '/analytics': typeof AnalyticsRoute
   '/display': typeof DisplayRoute
+  '/feedback': typeof FeedbackRoute
   '/memory': typeof MemoryRoute
   '/menu': typeof MenuRoute
   '/orders': typeof OrdersRoute
@@ -115,6 +124,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/analytics'
     | '/display'
+    | '/feedback'
     | '/memory'
     | '/menu'
     | '/orders'
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/analytics'
     | '/display'
+    | '/feedback'
     | '/memory'
     | '/menu'
     | '/orders'
@@ -139,6 +150,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/analytics'
     | '/display'
+    | '/feedback'
     | '/memory'
     | '/menu'
     | '/orders'
@@ -152,6 +164,7 @@ export interface RootRouteChildren {
   ActivityRoute: typeof ActivityRoute
   AnalyticsRoute: typeof AnalyticsRoute
   DisplayRoute: typeof DisplayRoute
+  FeedbackRoute: typeof FeedbackRoute
   MemoryRoute: typeof MemoryRoute
   MenuRoute: typeof MenuRoute
   OrdersRoute: typeof OrdersRoute
@@ -188,6 +201,13 @@ declare module '@tanstack/react-router' {
       path: '/display'
       fullPath: '/display'
       preLoaderRoute: typeof DisplayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/feedback': {
+      id: '/feedback'
+      path: '/feedback'
+      fullPath: '/feedback'
+      preLoaderRoute: typeof FeedbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/memory': {
@@ -240,6 +260,7 @@ const rootRouteChildren: RootRouteChildren = {
   ActivityRoute: ActivityRoute,
   AnalyticsRoute: AnalyticsRoute,
   DisplayRoute: DisplayRoute,
+  FeedbackRoute: FeedbackRoute,
   MemoryRoute: MemoryRoute,
   MenuRoute: MenuRoute,
   OrdersRoute: OrdersRoute,

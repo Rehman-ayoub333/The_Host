@@ -9,7 +9,7 @@
 import { toast } from "sonner";
 import { agentStore } from "./store";
 import { SOCKET_BACKOFF_MS } from "@/lib/booth/constants";
-import type { Activity, AgentEvent, Analytics, BoothTime, Earnings, Health, MenuItem, Metrics, OperationalMode, Order, OrderStatus, PaymentMethod, Visitor } from "./types";
+import type { Activity, AgentEvent, Analytics, BoothTime, Earnings, FeedbackPayload, Health, MenuItem, Metrics, OperationalMode, Order, OrderStatus, PaymentMethod, Visitor } from "./types";
 
 const LS_KEY = "thehost.agent.config";
 const DEFAULT_AGENT_URL = "http://localhost:8000";
@@ -113,6 +113,12 @@ export const getAnalytics = () => request<Analytics>("/api/analytics");
 export const getMetrics = () => request<Metrics>("/api/metrics");
 // 16 §2z item 4: operator only, like the metrics.
 export const getEarnings = () => request<Earnings>("/api/earnings");
+/**
+ * 16 §2zi item 4(c)/(d) — the guests' forms and the feedback spoken to THE
+ * HOST. Operator only: the Feedback page calls it, and the public display
+ * never does.
+ */
+export const getFeedback = () => request<FeedbackPayload>("/api/feedback");
 
 /** Order ids are integers (20 §4 item 1). */
 export async function setOrderStatus(id: number, status: OrderStatus, reason?: string, paymentMethod?: PaymentMethod): Promise<boolean> {
@@ -344,6 +350,32 @@ export async function downloadEarningsCsv(): Promise<boolean> {
     const link = document.createElement("a");
     link.href = url;
     link.download = `bite-and-pour-sales-${date}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (err) {
+    report(err instanceof ApiError ? err : new ApiError("Backend unavailable", 0));
+    return false;
+  }
+}
+
+/** 16 §2zi item 4(d) — the form rows, for Rehman to keep. */
+export async function downloadFeedbackCsv(): Promise<boolean> {
+  const { agentUrl, token } = getAgentConfig();
+  try {
+    const res = await fetch(`${agentUrl.replace(/\/$/, "")}/api/feedback.csv`, {
+      headers: { "X-Operator-Token": token },
+    });
+    if (res.status === 401) throw new ApiError("Operator token missing or wrong", 401);
+    if (!res.ok) throw new ApiError(`Request failed (${res.status})`, res.status);
+    const text = await res.text();
+    const date = new Date().toISOString().slice(0, 10);
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `bite-and-pour-feedback-${date}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();
