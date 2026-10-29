@@ -25,6 +25,12 @@ dashboard/dist
 .vscode/
 .claude/
 
+# 16 section 2zi item 5: Rehman's original PHP version of the feedback form.
+# It is kept locally for reference and never deployed -- Netlify does not run
+# PHP, so it would serve these as downloadable files, and auth.php carries a
+# hard-coded fallback login. The Netlify build is feedback-site/netlify-deploy/.
+feedback-site/BITE&POUR/
+
 # Internal planning documents, not part of the public repository.
 host-spec/
 Claude outputs/

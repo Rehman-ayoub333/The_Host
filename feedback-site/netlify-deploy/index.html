@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>BITE and POUR — Customer Feedback</title>
+  <meta name="description" content="Share your honest experience with BITE and POUR. Premium feedback, under 60 seconds.">
+  <meta name="theme-color" content="#0A0D12">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👑</text></svg>">
+</head>
+<body>
+
+  <!-- Gold Gradient (SVG defs for star fill fallback) -->
+  <svg style="width:0;height:0;position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="gGold" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#F0D060"/>
+        <stop offset="50%" stop-color="#D4AF37"/>
+        <stop offset="100%" stop-color="#A8870E"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <!-- Ambient particles -->
+  <div class="particle-field" id="ptField" aria-hidden="true"></div>
+
+  <main class="app">
+
+    <!-- ═══════════════ BRAND HEADER ═══════════════ -->
+    <header class="brand-header">
+      
+      <!-- Premium Logo Crest Emblem -->
+      <div class="brand-logo-emblem" aria-label="BITE and POUR Crest">
+        <div class="crest-ring-outer"></div>
+        <div class="crest-badge">
+          <svg class="crest-svg" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="30" cy="30" r="28" stroke="url(#gGold)" stroke-width="1.5" stroke-dasharray="3 3"/>
+            <circle cx="30" cy="30" r="23" stroke="url(#gGold)" stroke-width="1" opacity="0.6"/>
+            <!-- Crown / Star motif -->
+            <path d="M30 11L32.5 17.5L39 18.5L34 23.5L35.5 30L30 26.5L24.5 30L26 23.5L21 18.5L27.5 17.5L30 11Z" fill="url(#gGold)"/>
+            <!-- Monogram -->
+            <text x="30" y="44" font-family="'Cinzel', Georgia, serif" font-size="11" font-weight="700" fill="url(#gGold)" text-anchor="middle" letter-spacing="1.5">B&amp;P</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Balanced Luxury Brand Wordmark -->
+      <div class="brand-wordmark" aria-label="BITE and POUR">
+        <span class="wm-word">BITE</span>
+        <span class="wm-amp">and</span>
+        <span class="wm-word">POUR</span>
+      </div>
+
+      <p class="brand-tagline">FOR MOMENTS WORTH TASTING</p>
+
+      <div class="header-gold-divider" aria-hidden="true">
+        <span class="hgd-line"></span>
+        <span class="hgd-star">✦</span>
+        <span class="hgd-line"></span>
+      </div>
+
+      <h1 class="page-headline">HOW WAS YOUR BITE?</h1>
+      <p class="page-subline">We'd love to hear what you think. Takes under 60 seconds.</p>
+    </header>
+
+    <!-- ═══════════════ PROGRESS ═══════════════ -->
+    <div class="progress-wrap fade-up d4" aria-label="Feedback progress">
+      <div class="progress-label">
+        <span id="stepLabel">Step 1 of 4</span>
+        <span id="stepName">Menu Selection</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="pFill"></div>
+      </div>
+      <div class="progress-dots">
+        <div class="pdot active" id="pd1">
+          <div class="pdot-ring"><span>1</span></div>
+          <div class="pdot-lbl">Taste</div>
+        </div>
+        <div class="pdot" id="pd2">
+          <div class="pdot-ring"><span>2</span></div>
+          <div class="pdot-lbl">Ratings</div>
+        </div>
+        <div class="pdot" id="pd3">
+          <div class="pdot-ring"><span>3</span></div>
+          <div class="pdot-lbl">Insights</div>
+        </div>
+        <div class="pdot" id="pd4">
+          <div class="pdot-ring"><span>4</span></div>
+          <div class="pdot-lbl">Wrap-Up</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error banner -->
+    <div class="err-banner" id="errBanner" role="alert">
+      <span>⚠️</span>
+      <span id="errText">Please complete all required fields.</span>
+    </div>
+
+    <!-- ═══════════════ FEEDBACK FORM ═══════════════ -->
+    <form id="feedbackForm" name="feedback" method="POST" data-netlify="true" netlify-honeypot="website_hp" novalidate autocomplete="off">
+      <input type="hidden" name="form-name" value="feedback">
+
+      <!-- Honeypot -->
+      <div class="hp" aria-hidden="true">
+        <input type="text" name="website_hp" id="website_hp" tabindex="-1" autocomplete="nope">
+      </div>
+
+      <!-- ── STEP 1: MENU SELECTION ── -->
+      <div class="form-step active card" id="step-1">
+        <div class="step-label">Step 01 / Menu Selection</div>
+        <h2 class="q-title">What did you try today? <span class="q-required">*</span></h2>
+        <p class="q-sub">Select the item you ordered from BITE and POUR</p>
+
+        <!-- Category filter -->
+        <div class="cat-bar" role="group" aria-label="Filter items">
+          <button type="button" class="cat-btn on" data-cat="all">All Items</button>
+          <button type="button" class="cat-btn" data-cat="burgers">Burgers</button>
+          <button type="button" class="cat-btn" data-cat="sandwiches">Sandwiches</button>
+          <button type="button" class="cat-btn" data-cat="fries">Fries</button>
+          <button type="button" class="cat-btn" data-cat="drinks">Drinks</button>
+        </div>
+
+        <div class="product-grid" role="radiogroup" aria-label="Select menu item">
+
+          <label class="pchip" data-cat="burgers">
+            <input type="radio" name="item" value="Fire Burger">
+            <div class="picon"><span class="picon-emoji">🍔</span></div>
+            <div class="pinfo">
+              <div class="pname">Fire Burger</div>
+              <div class="pcat">Burgers</div>
+            </div>
+            <div class="pcheck">✓</div>
+          </label>
+
+          <label class="pchip" data-cat="burgers">
+            <input type="radio" name="item" value="Patty Burger">
+            <div class="picon"><span class="picon-emoji">🥩</span></div>
+            <div class="pinfo">
+              <div class="pname">Patty Burger</div>
+              <div class="pcat">Burgers</div>
+            </div>
+            <div class="pcheck">✓</div>
+          </label>
+
+          <label class="pchip" data-cat="sandwiches">
+            <input type="radio" name="item" value="Chicken Sandwich">
+            <div class="picon"><span class="picon-emoji">🥪</span></div>
+            <div class="pinfo">
+              <div class="pname">Chicken Sandwich</div>
+              <div class="pcat">Sandwiches</div>
+            </div>
+            <div class="pcheck">✓</div>
+          </label>
+
+          <label class="pchip" data-cat="sandwiches">
+            <input type="radio" name="item" value="Club Sandwich">
+            <div class="picon"><span class="picon-emoji">🥖</span></div>
+            <div class="pinfo">
+              <div class="pname">Club Sandwich</div>
+              <div class="pcat">Sandwiches</div>
+            </div>
+            <div class="pcheck">✓</div>
+          </label>
+
+          <label class="pchip" data-cat="fries">
+            <input type="radio" name="item" value="Fries">
+            <div class="picon"><span class="picon-emoji">🍟</span></div>
+            <div class="pinfo">
+              <div class="pname">Fries</div>
+              <div class="pcat">Fries</div>
+            </div>
+            <div class="pcheck">✓</div>
+          </label>
+
+          <label class="pchip" data-cat="drinks">
+            <input type="radio" name="item" value="Mixed Fruit Milkshake">
+            <div class="picon"><span class="picon-emoji">🥤</span></div>
+            <div class="pinfo">
+              <div class="pname">Mixed Fruit Milkshake</div>
+              <div class="pcat">Drinks</div>
+            </div>
+            <div class="pcheck">✓</div>
+          </label>
+
+          <label class="pchip" data-cat="drinks">
+            <input type="radio" name="item" value="Mint Lemonade">
+            <div class="picon"><span class="picon-emoji">🍃</span></div>
+            <div class="pinfo">
+              <div class="pname">Mint Lemonade</div>
+              <div class="pcat">Drinks</div>
+            </div>
+            <div class="pcheck">✓</div>
+          </label>
+
+          <label class="pchip" data-cat="drinks">
+            <input type="radio" name="item" value="Blue Lemonade">
+            <div class="picon"><span class="picon-emoji">🫐</span></div>
+            <div class="pinfo">
+              <div class="pname">Blue Lemonade</div>
+              <div class="pcat">Drinks</div>
+            </div>
+            <div class="pcheck">✓</div>
+          </label>
+
+          <label class="pchip" data-cat="drinks">
+            <input type="radio" name="item" value="Strawberry Lemonade">
+            <div class="picon"><span class="picon-emoji">🍓</span></div>
+            <div class="pinfo">
+              <div class="pname">Strawberry Lemonade</div>
+              <div class="pcat">Drinks</div>
+            </div>
+            <div class="pcheck">✓</div>
+          </label>
+
+          <label class="pchip" data-cat="all">
+            <input type="radio" name="item" value="More than one item">
+            <div class="picon"><span class="picon-emoji">🌟</span></div>
+            <div class="pinfo">
+              <div class="pname">More than one item</div>
+              <div class="pcat">Combo / Multiple</div>
+            </div>
+            <div class="pcheck">✓</div>
+          </label>
+
+        </div>
+
+        <div class="nav-row">
+          <button type="button" class="btn-next" id="next1">
+            CONTINUE <span class="btn-arrow">→</span>
+          </button>
+        </div>
+      </div><!-- /step-1 -->
+
+      <!-- ── STEP 2: RATINGS ── -->
+      <div class="form-step card" id="step-2">
+        <div class="step-label">Step 02 / Quality Ratings</div>
+        <h2 class="q-title">Rate your experience</h2>
+        <p class="q-sub">Be honest — we use this to improve.</p>
+
+        <!-- Overall -->
+        <div class="rating-group">
+          <div class="rq-title">Overall Experience <span class="q-required">*</span></div>
+          <div class="stars" role="radiogroup" aria-label="Overall rating" data-field="overall_rating">
+            <button type="button" class="star-btn" data-v="1" aria-label="1 star"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="2" aria-label="2 stars"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="3" aria-label="3 stars"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="4" aria-label="4 stars"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="5" aria-label="5 stars"><span class="star-glyph">★</span></button>
+          </div>
+          <div style="text-align:center"><span class="star-pill" id="overall_rating_pill">Tap a star to rate</span></div>
+          <input type="hidden" name="overall_rating" id="overall_rating">
+        </div>
+
+        <!-- Taste -->
+        <div class="rating-group">
+          <div class="rq-title">Taste <span class="q-required">*</span></div>
+          <div class="stars" role="radiogroup" aria-label="Taste rating" data-field="taste_rating">
+            <button type="button" class="star-btn" data-v="1" aria-label="1 star"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="2" aria-label="2 stars"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="3" aria-label="3 stars"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="4" aria-label="4 stars"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="5" aria-label="5 stars"><span class="star-glyph">★</span></button>
+          </div>
+          <div style="text-align:center"><span class="star-pill" id="taste_rating_pill">Tap a star to rate</span></div>
+          <input type="hidden" name="taste_rating" id="taste_rating">
+        </div>
+
+        <!-- Presentation -->
+        <div class="rating-group">
+          <div class="rq-title">Presentation <span class="q-required">*</span></div>
+          <div class="stars" role="radiogroup" aria-label="Presentation rating" data-field="presentation_rating">
+            <button type="button" class="star-btn" data-v="1" aria-label="1 star"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="2" aria-label="2 stars"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="3" aria-label="3 stars"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="4" aria-label="4 stars"><span class="star-glyph">★</span></button>
+            <button type="button" class="star-btn" data-v="5" aria-label="5 stars"><span class="star-glyph">★</span></button>
+          </div>
+          <div style="text-align:center"><span class="star-pill" id="presentation_rating_pill">Tap a star to rate</span></div>
+          <input type="hidden" name="presentation_rating" id="presentation_rating">
+        </div>
+
+        <div class="nav-row">
+          <button type="button" class="btn-back" id="back2">← BACK</button>
+          <button type="button" class="btn-next" id="next2">
+            CONTINUE <span class="btn-arrow">→</span>
+          </button>
+        </div>
+      </div><!-- /step-2 -->
+
+      <!-- ── STEP 3: VALUE & INSIGHTS ── -->
+      <div class="form-step card" id="step-3">
+        <div class="step-label">Step 03 / Value &amp; Insights</div>
+        <h2 class="q-title">Tell us a little more</h2>
+
+        <div class="gap-md">
+          <div class="mini-q">Was it worth the price? <span class="req">*</span></div>
+          <div class="opts" role="radiogroup" aria-label="Price value">
+            <label class="opt"><input type="radio" name="value_rating" value="Absolutely"><span>Absolutely</span></label>
+            <label class="opt"><input type="radio" name="value_rating" value="Yes"><span>Yes</span></label>
+            <label class="opt"><input type="radio" name="value_rating" value="It was okay"><span>It was okay</span></label>
+            <label class="opt"><input type="radio" name="value_rating" value="Could be better"><span>Could be better</span></label>
+            <label class="opt"><input type="radio" name="value_rating" value="Not really"><span>Not really</span></label>
+          </div>
+        </div>
+
+        <div class="gap-md">
+          <div class="mini-q">What did you like the most?</div>
+          <input type="text" name="liked_most" class="field" placeholder="Tell us what stood out..." maxlength="255">
+        </div>
+
+        <div>
+          <div class="mini-q">What should we improve?</div>
+          <textarea name="improvement" class="field" placeholder="Be honest — we want to get better." maxlength="1000"></textarea>
+        </div>
+
+        <div class="nav-row">
+          <button type="button" class="btn-back" id="back3">← BACK</button>
+          <button type="button" class="btn-next" id="next3">
+            CONTINUE <span class="btn-arrow">→</span>
+          </button>
+        </div>
+      </div><!-- /step-3 -->
+
+      <!-- ── STEP 4: FINAL THOUGHT ── -->
+      <div class="form-step card" id="step-4">
+        <div class="step-label">Step 04 / Final Thought</div>
+        <h2 class="q-title">One last thing...</h2>
+
+        <div class="gap-md">
+          <div class="mini-q">Would you buy from BITE and POUR again? <span class="req">*</span></div>
+          <div class="opts" role="radiogroup" aria-label="Buy again?">
+            <label class="opt"><input type="radio" name="buy_again" value="Definitely"><span>Definitely 🔥</span></label>
+            <label class="opt"><input type="radio" name="buy_again" value="Probably"><span>Probably</span></label>
+            <label class="opt"><input type="radio" name="buy_again" value="Maybe"><span>Maybe</span></label>
+            <label class="opt"><input type="radio" name="buy_again" value="Probably not"><span>Probably not</span></label>
+          </div>
+        </div>
+
+        <div>
+          <div class="mini-q">Describe BITE and POUR in one word.</div>
+          <input type="text" name="one_word" class="field" placeholder="Your one word..." maxlength="50">
+        </div>
+
+        <div class="nav-row">
+          <button type="button" class="btn-back" id="back4">← BACK</button>
+          <button type="submit" class="btn-submit" id="submitBtn">
+            <span class="spinner" id="spinner"></span>
+            <span id="submitText">SUBMIT MY REVIEW</span>
+            <span class="btn-arrow">→</span>
+          </button>
+        </div>
+      </div><!-- /step-4 -->
+
+    </form>
+
+    <!-- ═══════════════ THANK YOU ═══════════════ -->
+    <div class="thankyou" id="thankyou" role="region" aria-live="polite">
+      <div class="check-wrap">
+        <svg class="check-svg" viewBox="0 0 52 52" aria-hidden="true">
+          <circle class="check-circle" cx="26" cy="26" r="23"
+            fill="none" stroke="rgba(124,139,90,0.45)" stroke-width="3"/>
+          <path class="check-path"
+            fill="none" stroke="#D4AF37" stroke-width="4"
+            stroke-linecap="round" stroke-linejoin="round"
+            d="M14 27l7 7 16-16"/>
+        </svg>
+      </div>
+
+      <h2 class="ty-title">THANK YOU! ❤️</h2>
+      <div class="ty-sub">Your feedback has been served.</div>
+      <p class="ty-msg">
+        We appreciate you taking a moment to rate BITE and POUR.<br>
+        <strong>See you at the next bite. 🔥</strong>
+      </p>
+      <div class="ty-quote">"Good Food, Good Mood"</div>
+      <div class="ty-brand">BITE and POUR</div>
+      <div class="ty-foot">For Moments Worth Tasting.</div>
+    </div>
+
+    <footer class="app-footer">
+      <p>&copy; 2026 BITE and POUR &nbsp;·&nbsp; Customer Feedback System</p>
+    </footer>
+
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
