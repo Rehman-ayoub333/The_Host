@@ -152,6 +152,22 @@ def test_a_line_without_consent_does_not_count(line):
     assert has_cancel_consent(line) is False
 
 
+# ------------------------- 2zh item 3(b): payment is consent to place, not to cancel
+
+
+@pytest.mark.parametrize("word", ls.PAYMENT_WORDS)
+def test_a_payment_word_places_an_order_but_never_cancels_one(word):
+    """16 §2zh item 3(b). "Cash" answers "Shall I place it?", nothing else.
+
+    A guest reaching for their money is not asking for the order to go away, so
+    the same word must open one guard and not the other.
+    """
+    line = f"{word}, please."
+
+    assert ls.has_affirmative(line) is True
+    assert has_cancel_consent(line) is False
+
+
 # ------------------------------------------------- the guard, through a session
 
 
@@ -385,3 +401,54 @@ def test_the_cancel_phrases_are_the_ones_the_spec_names():
         "cancel", "remove", "don't want", "do not want", "nahi chahiye",
         "nahin chahiye", "cancel kar do", "hata do",
     )
+
+
+def test_the_cancel_guard_reads_the_affirmatives_without_the_payment_words():
+    """16 §2zh item 3(b): the 2zb item 3(b) list plus the cancel phrases only."""
+    assert ls.CANCEL_WORDS == ls.AFFIRMATIVES + ls.CANCEL_PHRASES
+    assert not set(ls.PAYMENT_WORDS) & set(ls.CANCEL_WORDS)
+    # The confirm guard still counts them: 2zf item 3(c) is not undone.
+    assert set(ls.PAYMENT_WORDS) <= set(ls.CONFIRM_WORDS)
+
+
+def test_a_cancel_after_a_payment_answer_is_refused(caplog):
+    """16 §2zh item 3(b), through a real session.
+
+    The guest says "Cash" again after the order is placed -- a repeat, a
+    mishearing, or them telling a friend how they paid. It is a new line, so the
+    first half of the guard is satisfied and only the word list stands between a
+    placed order and a cancellation it never asked for.
+    """
+    session, ws = listening()
+    order_id = placed_order(session)
+
+    guest_said(session, "Cash.")
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        cancel(session, order_id)
+
+    assert data.get_order(order_id)["status"] == "AWAITING_PAYMENT"
+    assert last_response(session).response == dict(CANCEL_REFUSAL)
+    assert (
+        f"cancel refused session {session.ctx['session_id']} order {order_id} "
+        "reason=no_consent" in [record.getMessage() for record in caplog.records]
+    )
+    doubles.validate(ws)
+
+
+def test_a_payment_answer_still_places_the_order(caplog):
+    """The other half of 3(b): the confirm guard is untouched.
+
+    `placed_order` places it on "Cash." alone, so this asserts what that proved
+    and that the confirm guard refused nothing on the way.
+    """
+    session, ws = listening()
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        order_id = placed_order(session)
+
+    assert data.get_order(order_id)["status"] == "AWAITING_PAYMENT"
+    assert not [
+        record.getMessage()
+        for record in caplog.records
+        if "confirm refused" in record.getMessage()
+    ]
+    doubles.validate(ws)

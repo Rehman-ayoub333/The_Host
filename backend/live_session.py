@@ -49,26 +49,25 @@ HELD_WHILE_ORDERING = frozenset({"THINKING", "SPEAKING", "GREETING", "RECOMMENDI
 # "mhm" is here because it was a real, accepted confirmation in the 8 Oct voice
 # test. The list is exactly 2zb item 3(b)'s.
 #
-# 16 section 2zf item 3(c): under pay-first the question is "Shall I place it --
-# cash or QR?", and the guest answers it with the payment rather than with a
-# yes. Those four words are the guest's own consent to placing the order, so
-# the guard has to count them or it would refuse every real order.
 AFFIRMATIVES = (
     "yes", "yeah", "yep", "yup", "sure", "confirm", "confirmed", "okay", "ok",
     "alright", "go ahead", "please do", "place it", "mhm", "mm-hmm", "uh-huh",
     "haan", "han", "ji", "jee", "theek hai", "thik hai", "bilkul", "kar do",
     "kardo", "ہاں", "جی", "ٹھیک ہے",
-    "cash", "qr", "online", "scan",
 )
 
-# Whole word, case-insensitive: "yes" in "yesterday" is not a yes, and the
-# hyphens in "mm-hmm" and "uh-huh" are not word characters, so the guards hold
-# at both ends. Urdu letters are word characters to `re`, so the same rule works
-# for ہاں, جی and ٹھیک ہے.
-_AFFIRMATIVE_RE = re.compile(
-    r"(?<!\w)(?:" + "|".join(re.escape(word) for word in AFFIRMATIVES) + r")(?!\w)",
-    re.IGNORECASE | re.UNICODE,
-)
+# 16 section 2zf item 3(c): under pay-first the question is "Shall I place it --
+# cash or QR?", and the guest answers it with the payment rather than with a
+# yes. Those four words are the guest's own consent to placing the order, so
+# the confirm guard has to count them or it would refuse every real order.
+#
+# 16 section 2zh item 3(b): and only the confirm guard. A payment word is
+# consent to place an order and never consent to cancel one -- a guest who
+# answers "cash" is reaching for their money, not asking for the order to go
+# away. The cancel guard keeps the list above and the cancel phrases below.
+PAYMENT_WORDS = ("cash", "qr", "online", "scan")
+
+CONFIRM_WORDS = AFFIRMATIVES + PAYMENT_WORDS
 
 # 16 section 2zc item 2(b): the cancel guard takes the affirmatives above and
 # these as well, because a guest asked "Shall I cancel order number 12?" answers
@@ -78,12 +77,22 @@ CANCEL_PHRASES = (
     "nahin chahiye", "cancel kar do", "hata do",
 )
 
-_CANCEL_RE = re.compile(
-    r"(?<!\w)(?:"
-    + "|".join(re.escape(word) for word in AFFIRMATIVES + CANCEL_PHRASES)
-    + r")(?!\w)",
-    re.IGNORECASE | re.UNICODE,
-)
+CANCEL_WORDS = AFFIRMATIVES + CANCEL_PHRASES
+
+# Whole word, case-insensitive: "yes" in "yesterday" is not a yes, and the
+# hyphens in "mm-hmm" and "uh-huh" are not word characters, so the guards hold
+# at both ends. Urdu letters are word characters to `re`, so the same rule works
+# for ہاں, جی and ٹھیک ہے.
+def _whole_word_re(words) -> re.Pattern:
+    return re.compile(
+        r"(?<!\w)(?:" + "|".join(re.escape(word) for word in words) + r")(?!\w)",
+        re.IGNORECASE | re.UNICODE,
+    )
+
+
+_AFFIRMATIVE_RE = _whole_word_re(CONFIRM_WORDS)
+
+_CANCEL_RE = _whole_word_re(CANCEL_WORDS)
 
 # The refusal 2zb item 3 requires, word for word. It goes back to Gemini as the
 # tool's result, so THE HOST asks the guest again instead of placing an order.
@@ -98,12 +107,15 @@ CANCEL_REFUSAL = {
 
 
 def has_affirmative(line: str) -> bool:
-    """True when the guest's line contains one of AFFIRMATIVES as a whole word."""
+    """True when the guest's line contains one of CONFIRM_WORDS as a whole word."""
     return bool(_AFFIRMATIVE_RE.search(line or ""))
 
 
 def has_cancel_consent(line: str) -> bool:
-    """True for a yes or for the guest naming the cancellation themselves."""
+    """True for a yes or for the guest naming the cancellation themselves.
+
+    16 section 2zh item 3(b): a payment word is not one of these.
+    """
     return bool(_CANCEL_RE.search(line or ""))
 
 # 16 section 2a item 3: the state each tool call announces before it runs.

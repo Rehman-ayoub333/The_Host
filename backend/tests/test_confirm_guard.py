@@ -333,14 +333,18 @@ def test_the_word_list_is_the_one_the_spec_names():
     Under pay-first the one question is "Shall I place it -- cash or QR?", so
     the guest answers it with the payment and not with a yes. Those four words
     are the guest's own consent to the order being placed.
+
+    16 section 2zh item 3(b) separates the two: `AFFIRMATIVES` is the 2zb list
+    on its own, because the cancel guard takes that and not the payment words.
     """
     assert ls.AFFIRMATIVES == (
         "yes", "yeah", "yep", "yup", "sure", "confirm", "confirmed", "okay", "ok",
         "alright", "go ahead", "please do", "place it", "mhm", "mm-hmm", "uh-huh",
         "haan", "han", "ji", "jee", "theek hai", "thik hai", "bilkul", "kar do",
         "kardo", "ہاں", "جی", "ٹھیک ہے",
-        "cash", "qr", "online", "scan",
     )
+    assert ls.PAYMENT_WORDS == ("cash", "qr", "online", "scan")
+    assert ls.CONFIRM_WORDS == ls.AFFIRMATIVES + ls.PAYMENT_WORDS
 
 
 def test_a_cancel_is_never_guarded():
