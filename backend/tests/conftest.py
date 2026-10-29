@@ -7,6 +7,7 @@ import config
 import data
 import event_bus
 import health
+import netlify_feedback
 import tools
 
 
@@ -49,6 +50,11 @@ def fresh_backend(tmp_path, monkeypatch):
     event_bus.set_loop(None)
     health._mode = "ONLINE"
     health._override = None
+    # 16 section 2zi item 4(b): the import status is one module-level object, so
+    # a test that imported something would otherwise leave "ok" behind for the
+    # /health tests to trip over.
+    netlify_feedback.STATUS.__init__()
+    netlify_feedback._off_logged = False
     data.init_db()
     yield
     event_bus.PUBLISHED.clear()
@@ -56,6 +62,8 @@ def fresh_backend(tmp_path, monkeypatch):
     event_bus.set_loop(None)
     health._mode = "ONLINE"
     health._override = None
+    netlify_feedback.STATUS.__init__()
+    netlify_feedback._off_logged = False
 
 
 @pytest.fixture

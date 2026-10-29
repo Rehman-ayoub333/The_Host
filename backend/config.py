@@ -30,6 +30,20 @@ DB_PATH = _resolved_path("DB_PATH", "./data/the_host.db")
 # pictures, so this folder -- tracked in git, with a README.txt beside the
 # pictures -- is the one place the backend serves static files from.
 POSTERS_DIR = _resolved_path("POSTERS_DIR", "./data/posters")
+# 16 section 2zi item 4(a): the guests' feedback forms. Rehman hosts the form
+# himself on Netlify, and THE HOST pulls the submissions in so the team can
+# read them on the dashboard beside the feedback spoken at the stall. Both are
+# secrets: they are never logged and never printed, and with no token the
+# import is simply off.
+NETLIFY_TOKEN = os.getenv("NETLIFY_TOKEN", "")
+NETLIFY_SITE_ID = os.getenv("NETLIFY_SITE_ID", "")
+# The form's name in Netlify, which is the `form-name` the page posts.
+NETLIFY_FORM_NAME = os.getenv("NETLIFY_FORM_NAME", "feedback")
+# 16 section 2zi item 4(b): at startup, then once a minute.
+FEEDBACK_IMPORT_INTERVAL_S = int(os.getenv("FEEDBACK_IMPORT_INTERVAL_S", "60"))
+# 16 section 2zi item 4(e): preflight calls the import healthy for this long
+# after its last success.
+FEEDBACK_IMPORT_FRESH_S = int(os.getenv("FEEDBACK_IMPORT_FRESH_S", "300"))
 # 16 section 2v item 5: FRONTEND_DIR is gone. The backend serves no static
 # files; THE HOST is the display screen. A value left behind in a .env is read
 # by nothing.

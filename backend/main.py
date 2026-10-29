@@ -23,6 +23,7 @@ import config
 import data
 import event_bus
 import health
+import netlify_feedback
 import prompts
 import summaries
 from live_session import LiveSession
@@ -209,7 +210,13 @@ async def lifespan(app: FastAPI):
         app.state.boot_id,
         config.DB_PATH,
     )
-    tasks = [asyncio.create_task(_heartbeat_loop()), asyncio.create_task(_sweep_loop())]
+    tasks = [
+        asyncio.create_task(_heartbeat_loop()),
+        asyncio.create_task(_sweep_loop()),
+        # 16 section 2zi item 4(b): the guests' forms, at startup then every
+        # minute. With no token it logs once and stops.
+        asyncio.create_task(netlify_feedback.import_loop()),
+    ]
     try:
         yield
     finally:
@@ -320,6 +327,10 @@ def get_health():
             "ai_agent": health.ai_agent_status(),
             "database": db_status,
         },
+        # 16 section 2zi item 4(e): what preflight reads for its one new line.
+        # No token needed and no secret in it: a state, a time, and at most an
+        # exception type.
+        "feedback_import": netlify_feedback.STATUS.view(),
     }
 
 
@@ -360,6 +371,45 @@ def get_earnings():
     no tool for it.
     """
     return _read_db(data.get_earnings)
+
+
+@app.get("/api/feedback", dependencies=[Depends(require_operator_token)])
+def get_feedback():
+    """16 section 2zi item 4(c): the guests' forms, and what they told THE HOST.
+
+    Two lists that are never mixed: `form` is what guests filled in on Rehman's
+    Netlify page, `spoken` is what a guest asked THE HOST to pass on. Operator
+    only, and never on `/display`.
+    """
+    return {
+        "form": _read_db(data.list_form_feedback),
+        "spoken": _read_db(data.list_spoken_feedback),
+        "summary": _read_db(data.form_feedback_summary),
+        # So the page can say "import off" rather than "no feedback yet".
+        "import_status": netlify_feedback.STATUS.view(),
+    }
+
+
+@app.get("/api/feedback.csv", dependencies=[Depends(require_operator_token)])
+def get_feedback_csv():
+    """16 section 2zi item 4(c): the form rows, for Rehman to keep."""
+    rows = _read_db(data.list_form_feedback)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(list(data.FORM_FEEDBACK_COLUMNS))
+    for row in rows:
+        writer.writerow(
+            ["" if row.get(name) is None else row[name] for name in data.FORM_FEEDBACK_COLUMNS]
+        )
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="bite-and-pour-feedback-{data._today()}.csv"'
+            )
+        },
+    )
 
 
 @app.get("/api/earnings.csv", dependencies=[Depends(require_operator_token)])

@@ -24,6 +24,14 @@ def test_health_reports_the_menu_row_count(monkeypatch):
         "operational_mode": "ONLINE",
         "db": "ok",
         "components": {"backend": "online", "ai_agent": "online", "database": "ok"},
+        # 16 §2zi item 4(e): what preflight reads for its "Feedback import"
+        # line. No token here, and never anything that could carry one.
+        "feedback_import": {
+            "state": "off",
+            "last_ok": None,
+            "last_error": None,
+            "imported": 0,
+        },
     }
 
 

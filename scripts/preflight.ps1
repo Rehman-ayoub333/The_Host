@@ -89,12 +89,32 @@ if ($health) {
 
     if ($health.operational_mode -eq "ONLINE") { Report "PASS" "Operational mode" "ONLINE" }
     else { Report "WARN" "Operational mode" "$($health.operational_mode) -- resume THE HOST from the dashboard" }
+
+    # 16 section 2zi item 4(e): the guests' feedback forms. Never a FAIL -- the
+    # stall opens whether or not the reviews are coming in. No token is read:
+    # /health reports only a state, a time and at most an exception type.
+    $import = $health.feedback_import
+    if (-not $import) {
+        Report "WARN" "Feedback import" "the backend did not report it"
+    } elseif ($import.state -eq "ok" -and $import.last_ok) {
+        $age = ([datetime]::Now - [datetime]::Parse($import.last_ok)).TotalSeconds
+        if ($age -le 300) {
+            Report "PASS" "Feedback import" "last import $([int]$age)s ago"
+        } else {
+            Report "WARN" "Feedback import" "last import $([int]$age)s ago -- over 5 minutes"
+        }
+    } elseif ($import.state -eq "off") {
+        Report "WARN" "Feedback import" "off -- NETLIFY_TOKEN and NETLIFY_SITE_ID are not set"
+    } else {
+        Report "WARN" "Feedback import" "failing ($($import.last_error)) -- retrying every minute"
+    }
 } else {
     Report "FAIL" "Backend status"     "backend not answering"
     Report "FAIL" "AI agent"           "backend not answering"
     Report "FAIL" "Database"           "backend not answering"
     Report "FAIL" "Menu loaded"        "backend not answering"
     Report "WARN" "Operational mode"   "backend not answering"
+    Report "WARN" "Feedback import"    "backend not answering"
 }
 
 # GET /api/menu needs no token.

@@ -138,6 +138,14 @@ def test_health_reports_its_components(served):
         "operational_mode": "ONLINE",
         "db": "ok",
         "components": {"backend": "online", "ai_agent": "online", "database": "ok"},
+        # 16 §2zi item 4(e): what preflight reads for its "Feedback import"
+        # line. No token here, and never anything that could carry one.
+        "feedback_import": {
+            "state": "off",
+            "last_ok": None,
+            "last_error": None,
+            "imported": 0,
+        },
     }
     # No camera, microphone or speaker: the backend cannot see them.
     assert set(body["components"]) == {"backend", "ai_agent", "database"}

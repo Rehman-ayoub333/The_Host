@@ -385,9 +385,13 @@ secret in any file that is committed.**
 | `CORS_ALLOW_ORIGINS` | Comma-separated origins allowed to call the API. No wildcard. | `http://localhost:8080,http://localhost:5173,http://localhost:4173` |
 | `PORT` | Port recorded for the frontends to use. | `8000` |
 | `VISION_SEND_MODE` | How a snapshot reaches the model: `client_content` (picture and question as one turn) or `realtime` (two calls). | `client_content` |
+| `NETLIFY_TOKEN` | A Netlify personal access token, so the guests' feedback forms can be read. Leave it blank and the import is simply off. | *(blank)* |
+| `NETLIFY_SITE_ID` | The API ID of the Netlify site the feedback form is published on. | *(blank)* |
+| `NETLIFY_FORM_NAME` | The form's name in Netlify, which is what the page posts as `form-name`. | `feedback` |
 
 `.env` is never committed and the key is only ever read by the backend process. It is never
-logged, never sent to a browser, and never written into any file by the application.
+logged, never sent to a browser, and never written into any file by the application. The same
+holds for `NETLIFY_TOKEN`: a failed import logs the exception type and nothing else.
 
 ## REST and WebSocket reference
 

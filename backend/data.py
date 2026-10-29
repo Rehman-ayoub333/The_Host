@@ -111,6 +111,11 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def now_iso() -> str:
+    """The same booth-local stamp every row and event carries (03 section 3)."""
+    return _now()
+
+
 def _today() -> str:
     return datetime.now().date().isoformat()
 
@@ -265,6 +270,27 @@ def init_db() -> list[tuple[str, bool]]:
                 comment TEXT NOT NULL,
                 rating INTEGER,
                 guest_name TEXT
+            )"""
+        )
+        # 16 section 2zi item 4(b): the guests' own feedback forms, pulled in
+        # from Netlify. Kept apart from the `feedback` table above, which is
+        # what a guest asked THE HOST to pass on: the two are different things
+        # and the dashboard shows them on separate tabs. `netlify_id` is
+        # unique, so importing the same submission twice changes nothing.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS form_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                netlify_id TEXT NOT NULL UNIQUE,
+                created_at TEXT,
+                item TEXT,
+                overall_rating INTEGER,
+                taste_rating INTEGER,
+                presentation_rating INTEGER,
+                value_rating TEXT,
+                liked_most TEXT,
+                improvement TEXT,
+                buy_again TEXT,
+                one_word TEXT
             )"""
         )
         conn.execute(
@@ -1107,6 +1133,91 @@ def create_feedback(subject, comment, rating, guest_name) -> int:
         )
         conn.commit()
         return int(cursor.lastrowid)
+
+
+# 16 section 2zi item 4(b)/(c): the guests' form, in the order the dashboard
+# and the CSV both show it.
+FORM_FEEDBACK_COLUMNS = (
+    "netlify_id", "created_at", "item", "overall_rating", "taste_rating",
+    "presentation_rating", "value_rating", "liked_most", "improvement",
+    "buy_again", "one_word",
+)
+
+# 16 section 2zi item 4(c): `buy_again_yes_pct` is the share of these two.
+BUY_AGAIN_YES = ("definitely", "probably")
+
+
+def insert_form_feedback(row: dict) -> bool:
+    """One Netlify submission. False when it was already here.
+
+    16 section 2zi item 4(b): `netlify_id` is unique, so a re-import of the
+    same submission is a no-op rather than a duplicate -- the import re-reads
+    the whole form every minute and has no idea what it fetched last time.
+    """
+    netlify_id = str(row.get("netlify_id") or "").strip()
+    if not netlify_id:
+        return False
+    values = [netlify_id] + [row.get(name) for name in FORM_FEEDBACK_COLUMNS[1:]]
+    placeholders = ",".join("?" * len(FORM_FEEDBACK_COLUMNS))
+    with closing(_connect()) as conn:
+        cursor = conn.execute(
+            f"INSERT OR IGNORE INTO form_feedback ({', '.join(FORM_FEEDBACK_COLUMNS)}) "
+            f"VALUES ({placeholders})",
+            values,
+        )
+        conn.commit()
+    return cursor.rowcount == 1
+
+
+def list_form_feedback(limit: int = 200) -> list[dict]:
+    """Newest first (16 section 2zi item 4(c))."""
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            f"SELECT id, {', '.join(FORM_FEEDBACK_COLUMNS)} FROM form_feedback "
+            "ORDER BY COALESCE(created_at, '') DESC, id DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_spoken_feedback(limit: int = 200) -> list[dict]:
+    """The `feedback` table: what a guest asked THE HOST to pass on."""
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT id, timestamp, subject, comment, rating, guest_name "
+            "FROM feedback ORDER BY id DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _average(values) -> float | None:
+    numbers = [value for value in values if isinstance(value, (int, float))]
+    return round(sum(numbers) / len(numbers), 2) if numbers else None
+
+
+def form_feedback_summary() -> dict:
+    """16 section 2zi item 4(c): the tiles above the two tabs.
+
+    An average over no ratings is `null`, never 0: nobody has said anything yet
+    is not the same as everybody said zero.
+    """
+    rows = list_form_feedback(limit=100000)
+    answered = [
+        str(row.get("buy_again") or "").strip().lower()
+        for row in rows
+        if str(row.get("buy_again") or "").strip()
+    ]
+    yes = [value for value in answered if value in BUY_AGAIN_YES]
+    return {
+        "count": len(rows),
+        "avg_overall": _average([row.get("overall_rating") for row in rows]),
+        "avg_taste": _average([row.get("taste_rating") for row in rows]),
+        "avg_presentation": _average([row.get("presentation_rating") for row in rows]),
+        "buy_again_yes_pct": (
+            round(100 * len(yes) / len(answered)) if answered else None
+        ),
+    }
 
 
 def get_visitor(key) -> dict | None:
