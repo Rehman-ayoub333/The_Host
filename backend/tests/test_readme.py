@@ -123,7 +123,7 @@ def test_the_readme_carries_the_real_test_counts():
     """16 §2ze item 7: "the real counts after this phase", not a round number."""
     text = readme_text()
 
-    assert "**890 backend tests and 237 dashboard tests pass.**" in text
+    assert "**959 backend tests and 250 dashboard tests pass.**" in text
 
 
 def test_the_readme_describes_the_phase_5f_reliability_work():

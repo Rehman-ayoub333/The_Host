@@ -84,6 +84,12 @@ menu board, so the pictures must carry the prices (section 1, step 6). The lapto
 operator's, and it holds the only screen with order controls and guest names on it. `http://127.0.0.1:8000/` is the backend, not a screen: it answers
 with one line saying where the display is. If `/display` will not start, see section 4.
 
+**The feedback QR card.** Print `feedback-site/bite-and-pour-feedback-qr.png` and stand it
+on the counter where a guest waiting for their order can reach it. It opens a short form on
+their own phone; the reviews come back into THE HOST within a minute and appear on the
+dashboard's **Feedback** page. It needs nothing at the stall but the guest's own internet —
+if the venue Wi-Fi is down, the card still works on their mobile data.
+
 1. **Plug in the hardware first,** before any window is opened: the external camera, the
    handheld microphone, the speaker, and the HDMI cable to the TV.
 2. **Start everything:**
@@ -165,6 +171,11 @@ loud rather than reaching across to someone else's laptop.
 
 ### The kitchen flow
 
+**Every order has a number.** The guest is given one — 1, 2, 3 and on through the evening —
+the moment the order is placed, and that is the number THE HOST says, the TV calls out, and
+the cards and the CSV show. The numbers start again at 1 each morning. Before an order is
+placed there is no number yet and the card reads **Draft**: nothing has been ordered.
+
 **The money comes first.** A guest orders by talking to THE HOST, which asks one question
 — *"Shall I place it — cash or QR?"* — and places the order on their answer. It then
 **waits for payment**, and the kitchen has nothing to do until it is paid. From then on it
@@ -177,7 +188,7 @@ is Saad's:
    guest in one line that it is paid and on its way. **Nothing is cooked before this.**
 2. **PREPARING** — the kitchen has started it.
 3. **READY** — it is on the counter. The TV announces
-   *"Order #27 for Ahmed is ready!"* and speaks it aloud.
+   *"Order #3 for Ahmed is ready!"* and speaks it aloud.
 4. **COLLECTED** — the guest has taken it. One button now, for every order: how it was paid
    was recorded at step 1, and the card already reads *Paid · Cash* or *Paid · QR*. An order
    **on the house** goes straight to the kitchen with nothing to charge.
@@ -185,13 +196,13 @@ is Saad's:
 An order waiting for payment is shown at the top of the Orders panel and again in the Live
 conversation panel, with the total in large figures, and a line counts how many are waiting.
 **A guest who walks away without paying costs nothing**: after ten minutes the order cancels
-itself, the feed reads *Order #27 cancelled (unpaid)*, and the Earnings panel stops counting
+itself, the feed reads *Order #3 cancelled (unpaid)*, and the Earnings panel stops counting
 it as money at the counter.
 
 **Announce again** re-plays a ready announcement if the guest missed it.
 
 **A guest who changes their mind.** While an order is still *Waiting for payment*, THE HOST
-can change or cancel it itself: it asks *"Shall I cancel order number 27?"* and waits for the
+can change or cancel it itself: it asks *"Shall I cancel order number 3?"* and waits for the
 guest's yes. For a change it places the corrected order first and cancels the old one
 after, so the guest is never left with nothing. Once the money has been taken, THE HOST says
 the order is already paid and flags it for the team — that call is the operator's, including
@@ -320,7 +331,13 @@ the USB stick afterwards.
    payment type* can only come from an order collected before the day's update, because a
    collection with neither is now refused; if one appears, that money cannot be told apart
    and has to be reconciled by hand.
-2. **Stop both servers:**
+2. **Download the guest feedback as well.** The **Feedback** page in the sidebar has
+   **Download guest forms (CSV)**, saving `bite-and-pour-feedback-<date>.csv`. The page has
+   two tabs that are never mixed: *Guest forms*, what guests filled in on the QR form, and
+   *Spoken to THE HOST*, what a guest asked THE HOST to pass on at the microphone. If the
+   forms tab says the import is off, the two Netlify settings are missing from `backend/.env`
+   — the names are in the README; the values are Rehman's and go in by hand, in Notepad.
+3. **Stop both servers:**
    ```powershell
    .\scripts\stop-all.ps1
    ```
@@ -328,7 +345,7 @@ the USB stick afterwards.
    `stopped node (pid 5678) on 8080` — or `nothing listening on 8000` if that half is
    already down. **Closing the two windows is not enough:** the servers they started keep
    running and keep the ports open, so the next start finds the old one still answering.
-3. **Leave the database alone.** `backend\data\the_host.db` holds the evening's real orders
+4. **Leave the database alone.** `backend\data\the_host.db` holds the evening's real orders
    and visitors, and the report needs them. `reset-for-gala.ps1` keeps every earlier
    database in `backend\data\backups\` as well.
-4. Pack the microphone, the speaker and both chargers.
+5. Pack the microphone, the speaker and both chargers.

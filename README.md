@@ -54,6 +54,10 @@ THE HOST never replaces the team; it hands work to them. A guest who needs a per
 - **Unprompted greeting** from on-device presence detection — no wake word, no button.
 - **Live voice both ways** through the Gemini Live API (16 kHz in, 24 kHz out), with
   barge-in: a guest can talk over THE HOST and it stops.
+- **Orders numbered 1, 2, 3.** The guest is given a number the moment their order is placed,
+  and that is the number THE HOST says, the TV calls out when it is ready, and the dashboard
+  and the CSV show. Numbers run in sequence through the day and start again each morning; a
+  draft has none, because nothing has been placed yet.
 - **Pay first, then the kitchen.** An order is placed and then waits for the money: THE HOST
   asks *cash or QR* while placing it, the guest pays at the counter, and the team presses
   **Paid · Cash** or **Paid · QR** on the dashboard. Only that press sends it to the kitchen,
@@ -77,6 +81,9 @@ THE HOST never replaces the team; it hands work to them. A guest who needs a per
 - **Earnings you can count against the cash box.** Every payment records Cash or QR, the
   dashboard totals the two separately alongside what is still waiting at the counter and what
   had to be refunded, and one button downloads the day's sales as a CSV.
+- **Feedback from the guests themselves.** A QR card on the table opens a short form; the
+  reviews come back into THE HOST once a minute and sit on a **Feedback** page beside the
+  feedback guests give THE HOST out loud, with the averages, both lists and a CSV.
 - **The stall's posters on the TV.** Drop pictures into a folder and the idle screen becomes
   a full-screen poster rotation, 8 seconds each, no text over them, no restart needed.
 - **Recovery from a real outage.** A dropped Gemini connection is rebuilt for a full thirty
@@ -482,7 +489,7 @@ cd backend
 ..\.venv\Scripts\python.exe -m pytest -q
 ```
 
-**890 backend tests and 237 dashboard tests pass.** They cover the data model, all 13 tools,
+**959 backend tests and 250 dashboard tests pass.** They cover the data model, all 13 tools,
 the system prompt word for word against its specification, the confirmation and cancellation
 guards, pay-first from the status machine to the ten-minute expiry, who may be on the house,
 returning guests, the operator's note and everything it must never write down, the event bus
