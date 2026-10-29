@@ -1439,9 +1439,12 @@ def get_earnings() -> dict:
             # takings that only counted COLLECTED would read far too low.
             method = order.get("payment_method")
             earned[method if method in PAYMENT_METHODS else None] += amount
-            # 2z item 4, not amended by 2zf: this counts collected orders.
-            if status == "COLLECTED":
-                paid_orders += 1
+            # 16 section 2zh item 3(c): the count of the orders that made up
+            # `earned`, so the two figures describe the same set. It used to
+            # count only COLLECTED ones, which under pay-first meant the money
+            # in the box was divided by a smaller number of orders than had
+            # paid it -- an average order value that was simply wrong.
+            paid_orders += 1
             for entry in order["items"] or []:
                 name = (entry or {}).get("name")
                 if not name:

@@ -363,9 +363,10 @@ def test_the_earnings_add_up_for_a_mixed_day(mixed_day):
     assert "to_collect" not in earnings
     assert earnings["on_the_house"] == 350
     assert earnings["on_the_house_orders"] == 1
-    # 2z item 4, not amended: COLLECTED and not on the house. The QR order is
-    # paid but still with the kitchen, so it is earned and not yet collected.
-    assert earnings["paid_orders"] == 2
+    # 16 §2zh item 3(c): the orders counted in `earned`, which here are the
+    # cash one, the QR one and the legacy unrecorded one. The QR order is paid
+    # but still with the kitchen: its money is in the box, so it counts.
+    assert earnings["paid_orders"] == 3
     # The order nobody paid for, and the one the operator cancelled after it
     # had been paid.
     assert earnings["cancelled_orders"] == 2
@@ -373,6 +374,56 @@ def test_the_earnings_add_up_for_a_mixed_day(mixed_day):
     assert earnings["refunded_orders"] == 1
     assert earnings["unpriced_orders"] == 1
     assert earnings["date"] == data._today()
+
+
+# ----------------------- 2zh item 3(c): paid_orders is the orders in earned
+
+
+def test_paid_orders_counts_every_order_that_made_up_earned():
+    """16 §2zh item 3(c). The money and the count describe the same orders.
+
+    Three paid orders at three different points in the kitchen: one still
+    waiting to be made, one ready, one handed over. All three are money in the
+    box, so all three count -- before this, only the collected one did.
+    """
+    order([BURGER], "CONFIRMED", payment="CASH")
+    order([LEMONADE], "READY", payment="QR")
+    order([SHAKE], "COLLECTED", payment="CASH")
+
+    earnings = data.get_earnings()
+
+    print("earnings:", json.dumps(earnings, indent=2))
+    assert earnings["earned"] == 650 + 250 + 350 == 1250
+    assert earnings["paid_orders"] == 3
+
+
+def test_paid_orders_leaves_out_everything_earned_leaves_out():
+    """An order on the house, one nobody has paid for, a draft, a refund."""
+    order([SHAKE], "COLLECTED", complimentary=True, name="Vice Chancellor")
+    order([BURGER], "AWAITING_PAYMENT")
+    order([LEMONADE], None)
+    paid_then_cancelled([LEMONADE])
+
+    earnings = data.get_earnings()
+
+    print("earnings:", json.dumps(earnings, indent=2))
+    assert earnings["earned"] == 0
+    assert earnings["paid_orders"] == 0
+    # The money that has to go back is still reported, on its own line.
+    assert earnings["refunded_orders"] == 1
+    assert earnings["on_the_house_orders"] == 1
+
+
+def test_an_unpriced_order_is_in_neither_figure():
+    """It is warned about separately: counting it would imply an amount."""
+    legacy_order(
+        [{"name": "Mystery Item", "quantity": 1, "price": "ask the team"}], "COLLECTED"
+    )
+
+    earnings = data.get_earnings()
+
+    assert earnings["paid_orders"] == 0
+    assert earnings["unpriced_orders"] == 1
 
 
 def test_money_paid_and_then_cancelled_is_reported_as_a_refund():
