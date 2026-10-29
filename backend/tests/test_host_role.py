@@ -198,12 +198,47 @@ def test_the_returning_guests_section_is_in_the_prompt():
 
 
 def test_the_payment_template_is_exactly_the_spec_line():
-    """16 §2zf item 3(e): what THE HOST is told when the team marks an order paid."""
+    """16 §2zf item 3(e), as amended by 2zi item 3(b): the guest's own number."""
     assert prompts.PAYMENT_TEMPLATE == (
-        "Order #{order_id} has just been paid. Tell the guest in one short line "
+        "Order #{order_number} has just been paid. Tell the guest in one short line "
         "that it is paid and the kitchen is on it."
     )
-    assert prompts.PAYMENT_TEMPLATE.format(order_id=7).startswith("Order #7 has just been paid.")
+    assert prompts.PAYMENT_TEMPLATE.format(order_number=7).startswith(
+        "Order #7 has just been paid."
+    )
+
+
+# ------------------------------- 2zi item 3(b): what a person hears is the number
+
+
+def test_the_spoken_templates_use_the_order_number_and_never_the_internal_id():
+    """16 §2zi item 3(b) and 3(e): no internal id in anything a guest hears.
+
+    These two are the templates whose text becomes spoken words, so they are the
+    ones that could have called an order by its database id in front of a room.
+    """
+    for template in (prompts.ANNOUNCE_TEMPLATE, prompts.PAYMENT_TEMPLATE):
+        assert "{order_number}" in template
+        assert "order_id" not in template
+        assert "draft_id" not in template
+
+
+def test_a_draft_is_your_order_with_its_items_and_never_a_number():
+    """16 §2zi item 3(b): numbers are given out at placing, so a draft has none."""
+    for template in (prompts.RECONNECT_DRAFT_TEMPLATE, prompts.ORPHAN_DRAFT_TEMPLATE):
+        assert "{order_number}" not in template
+        assert "order #" not in template
+        assert "{items}" in template
+        # The draft_id is in there for confirm_order, and said to be unspoken.
+        assert "{draft_id}" in template
+        assert "never say the draft_id out loud" in template
+
+
+def test_the_announcement_names_the_number_the_guest_was_given():
+    text = prompts.ANNOUNCE_TEMPLATE.format(order_number=3, name=" for Ali")
+
+    assert text.startswith("An order just became ready: order #3 for Ali.")
+    assert '"Order number 3 for Ali is ready!"' in text
 
 
 def test_the_safety_line_is_in_the_prompt():

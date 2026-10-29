@@ -558,7 +558,13 @@ async def post_order_status(order_id: int, request: Request):
         if session is not None and session.owns_order(result["order"]):
             try:
                 await session.inject(
-                    "payment", prompts.PAYMENT_TEMPLATE.format(order_id=order_id)
+                    "payment",
+                    prompts.PAYMENT_TEMPLATE.format(
+                        # 16 section 2zi item 3(b): the number the guest was
+                        # given, falling back to the id for an order placed
+                        # before the column existed.
+                        order_number=result["order"].get("order_no") or order_id
+                    ),
                 )
             except Exception:
                 # The order is paid and both screens know: a line that could

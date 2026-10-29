@@ -510,7 +510,8 @@ def test_the_second_attempt_still_uses_the_handle(monkeypatch, caplog, host_data
     sent = texts(session)
     assert len(sent) == 1
     assert sent[0].startswith(prompts.RECONNECT_PROMPT)
-    assert f"#{order_id}" in sent[0]
+    assert f"draft_id is {order_id}" in sent[0]
+    assert f"#{order_id}" not in sent[0]
     assert "2 x Chicken Burger" in sent[0]
     assert "Rs. 1,300" in sent[0]
     assert "for Sara" in sent[0]
@@ -563,7 +564,8 @@ def test_a_resumed_connection_restates_the_draft_as_well(monkeypatch, host_data)
 
     sent = texts(session)
     assert len(sent) == 1
-    assert f"#{order_id}" in sent[0]
+    assert f"draft_id is {order_id}" in sent[0]
+    assert f"#{order_id}" not in sent[0]
     assert "2 x Chicken Burger" in sent[0]
     assert "for Sara" in sent[0]
 

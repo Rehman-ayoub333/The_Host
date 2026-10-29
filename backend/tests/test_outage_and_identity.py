@@ -584,9 +584,9 @@ def test_the_prompt_asks_for_a_name_once_before_confirming():
 
 
 def test_the_announcement_uses_the_name_when_there_is_one():
-    with_name = prompts.ANNOUNCE_TEMPLATE.format(order_id=5, name=" for Rehman")
+    with_name = prompts.ANNOUNCE_TEMPLATE.format(order_number=5, name=" for Rehman")
     assert "Order number 5 for Rehman is ready!" in with_name
-    without = prompts.ANNOUNCE_TEMPLATE.format(order_id=5, name="")
+    without = prompts.ANNOUNCE_TEMPLATE.format(order_number=5, name="")
     assert "Order number 5 is ready!" in without
     assert "Rehman" not in without
 
@@ -633,7 +633,9 @@ def test_a_new_conversation_inside_the_window_is_offered_the_draft(host_data):
     opening = asyncio.run(session._opening_text())
 
     assert "Greet the guest with this line" in opening
-    assert f"#{order_id}" in opening
+    # 16 §2zi item 3(b): a draft is "your order"; the draft_id is for the tool only.
+    assert f"draft_id is {order_id}" in opening
+    assert f"#{order_id}" not in opening
     assert "2 x Chicken Burger" in opening
     assert "Rs. 1,300" in opening
     assert "for Rehman" in opening
@@ -707,8 +709,8 @@ def test_only_the_most_recent_orphan_is_offered(host_data):
     session, _ws = doubles.new_session()
     opening = asyncio.run(session._opening_text())
 
-    assert f"#{second}" in opening
-    assert f"#{first}" not in opening
+    assert f"draft_id is {second}" in opening
+    assert f"draft_id is {first}" not in opening
     assert session.ctx["pending_order_id"] == second
 
 
@@ -717,7 +719,7 @@ def test_a_claimed_draft_is_not_offered_to_the_next_conversation_too(host_data):
     host_data.orphan_draft(order_id)
 
     first, _ws = doubles.new_session()
-    assert f"#{order_id}" in asyncio.run(first._opening_text())
+    assert f"draft_id is {order_id}" in asyncio.run(first._opening_text())
 
     second, _ws2 = doubles.new_session()
     assert "cut off" not in asyncio.run(second._opening_text())
@@ -731,7 +733,9 @@ def test_the_voice_trigger_also_offers_the_draft(host_data):
     opening = asyncio.run(session._opening_text())
 
     assert opening.startswith(prompts.GREETING_VOICE)
-    assert f"#{order_id}" in opening
+    # 16 §2zi item 3(b): a draft is "your order"; the draft_id is for the tool only.
+    assert f"draft_id is {order_id}" in opening
+    assert f"#{order_id}" not in opening
 
 
 # ------------------------- 2l item 5: order questions from the database
@@ -817,7 +821,8 @@ def test_the_apology_carries_the_draft_read_from_the_database(monkeypatch, host_
     sent = texts(session)
     assert len(sent) == 1
     assert sent[0].startswith(prompts.RECONNECT_PROMPT)
-    assert f"#{order_id}" in sent[0]
+    assert f"draft_id is {order_id}" in sent[0]
+    assert f"#{order_id}" not in sent[0]
     assert "2 x Chicken Burger" in sent[0]
     assert "Rs. 1,300" in sent[0]
     assert "for Rehman" in sent[0]
@@ -1005,7 +1010,7 @@ def test_the_orphan_instruction_works_with_no_name_on_the_order(host_data):
 
 def test_the_accepted_decisions_from_the_5f_report_still_hold(ctx):
     # An unnamed order is announced by number only.
-    assert "guest" not in prompts.ANNOUNCE_TEMPLATE.format(order_id=5, name="").replace(
+    assert "guest" not in prompts.ANNOUNCE_TEMPLATE.format(order_number=5, name="").replace(
         "this guest's order", ""
     )
     # The identity rule tells the model where the topics come from.

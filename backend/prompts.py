@@ -113,6 +113,7 @@ FACULTY, DEANS, JUDGES AND TEACHERS
 
 ORDERS: PAY FIRST
 An order goes to the kitchen only after it is paid. The guest pays at the counter, in cash or by scanning the QR code, and the team marks it paid on the dashboard.
+- Order numbers: a placed order has an order_number (1, 2, 3 and so on, in the order they are placed), returned by confirm_order and get_order_status. Always say that number. A draft has no number yet: never say a draft_id to the guest.
 - When the guest's order is clear, call build_order to put together a draft. This places nothing yet. Read the items and the total back, exactly as the tool returns them.
 - If you do not know the guest's first name in this conversation, ask once, before the final question: "Can I get a first name for the order?" and pass it as guest_name. If they would rather not say, go ahead without one and do not ask again. A first name only: never ask for a phone number or a surname, and never store one.
 - Then ask one question and stop talking: "Shall I place it — cash or QR?" Wait for the answer. Never call confirm_order in the same turn as the question.
@@ -229,24 +230,32 @@ RECONNECT_PROMPT = (
 # 2j item 4 step 4: a connection rebuilt without a resumption handle has none of
 # the conversation behind it, so the draft the guest was building is handed back
 # with the apology. Kept as a template: the order is only known at the time.
+#
+# 16 section 2zi item 3(b): a draft has no order number -- numbers are given out
+# when an order is placed -- so to the guest it is simply "your order", named by
+# its items. The draft_id is here only because confirm_order needs it, and the
+# line says plainly that it is never spoken.
 RECONNECT_DRAFT_TEMPLATE = (
-    "The guest was in the middle of ordering: order #{order_id}, with {items}{total}{name}. "
-    "It is still waiting for confirmation, so carry on from it rather than starting again."
+    "The guest was in the middle of ordering: {items}{total}{name}. "
+    "It is still waiting for confirmation, so carry on from it rather than starting again. "
+    "Its draft_id is {draft_id}. It has no order number yet: call it \"your order\" and "
+    "never say the draft_id out loud."
 )
 
 # 16 section 2l item 4: a conversation broke with an order still unconfirmed,
 # and the guest is back inside config.ORPHAN_DRAFT_S. Appended to whatever
 # opening instruction this trigger would have had.
 ORPHAN_DRAFT_TEMPLATE = (
-    "A conversation was cut off {seconds} seconds ago with an unconfirmed order #{order_id}: "
+    "A conversation was cut off {seconds} seconds ago with an unconfirmed order: "
     "{items}{total}{name}. Instead of your usual greeting, say in one short line that you were "
     "cut off and name what the order was -- the items, and their name if you know it -- then ask "
     "whether they still want it. For example \"Looks like we got cut off{name_example} -- still "
     "want that {first_item}?\". You must name the items: asking \"continue your previous order?\" "
     "without saying what it was is not allowed, and a yes to a question that did not name the "
     "items does not confirm anything -- ask again, naming them. Once they say yes to a question "
-    "that named the items, confirm it with confirm_order using that id. If they say no, or it is "
-    "someone else, cancel it with cancel_order."
+    "that named the items, confirm it with confirm_order. If they say no, or it is someone else, "
+    "cancel it with cancel_order. Its draft_id is {draft_id}, for both of those calls. It has no "
+    "order number yet: call it \"your order\" and never say the draft_id out loud."
 )
 
 # 09 section 17: sent when a picture asked for by look_at_camera never arrives.
@@ -264,9 +273,12 @@ _VISION_PROMPT_TEMPLATE = (
 # 04 section 5 step 3: injected into a live session when an order becomes ready.
 # Unlike the strings below it keeps its placeholders, because the order number and
 # the guest's name are only known at announcement time.
+# 16 section 2zi item 3(b): the number the guest was given when the order was
+# placed, never the internal id. The room is listening for "order number 3",
+# which is what is written on their receipt and called out at the counter.
 ANNOUNCE_TEMPLATE = (
-    "An order just became ready: order #{order_id}{name}. Say it out loud so the room hears it, "
-    "briefly and naturally -- for example \"Order number {order_id}{name} is ready!\" -- "
+    "An order just became ready: order #{order_number}{name}. Say it out loud so the room hears "
+    "it, briefly and naturally -- for example \"Order number {order_number}{name} is ready!\" -- "
     "even if it is not this guest's order."
 )
 
@@ -285,8 +297,9 @@ OPERATOR_NOTE_TEMPLATE = (
 # 16 section 2zf item 3(e): the team has marked an order paid on the dashboard,
 # so the kitchen now has it. Injected into the live session that placed the
 # order -- deferred while THE HOST is speaking, exactly like an announcement.
+# 16 section 2zi item 3(b): the guest's own order number, as above.
 PAYMENT_TEMPLATE = (
-    "Order #{order_id} has just been paid. Tell the guest in one short line that it is paid "
+    "Order #{order_number} has just been paid. Tell the guest in one short line that it is paid "
     "and the kitchen is on it."
 )
 

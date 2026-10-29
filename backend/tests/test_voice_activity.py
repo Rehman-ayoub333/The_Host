@@ -18,7 +18,7 @@ import prompts
 import schemas
 
 
-ANNOUNCEMENT_27 = prompts.ANNOUNCE_TEMPLATE.format(order_id=27, name=" for Ahmed")
+ANNOUNCEMENT_27 = prompts.ANNOUNCE_TEMPLATE.format(order_number=27, name=" for Ahmed")
 
 
 def listening():

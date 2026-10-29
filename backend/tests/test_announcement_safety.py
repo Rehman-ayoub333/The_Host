@@ -20,7 +20,7 @@ import prompts
 
 ORDER_27 = {"id": 27, "guest_name": "Ahmed"}
 ORDER_28 = {"id": 28, "guest_name": None}
-ANNOUNCEMENT_27 = prompts.ANNOUNCE_TEMPLATE.format(order_id=27, name=" for Ahmed")
+ANNOUNCEMENT_27 = prompts.ANNOUNCE_TEMPLATE.format(order_number=27, name=" for Ahmed")
 
 
 class Clock:

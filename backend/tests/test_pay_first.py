@@ -675,7 +675,7 @@ def test_a_line_with_no_consent_still_refuses_a_cancel(ctx):
 
 
 def test_the_payment_template_names_the_order():
-    text = prompts.PAYMENT_TEMPLATE.format(order_id=12)
+    text = prompts.PAYMENT_TEMPLATE.format(order_number=12)
 
     assert text == (
         "Order #12 has just been paid. Tell the guest in one short line that it "
@@ -733,7 +733,7 @@ def test_a_ready_order_is_announced_before_a_paid_order_line():
     asyncio.run(go())
 
     assert session.session.inputs == [
-        {"text": prompts.ANNOUNCE_TEMPLATE.format(order_id=9, name=" for Ali")}
+        {"text": prompts.ANNOUNCE_TEMPLATE.format(order_number=9, name=" for Ali")}
     ]
     assert session.pending_injections
 
@@ -768,7 +768,7 @@ def test_marking_it_paid_speaks_to_the_guest_whose_order_it_is(served, ctx, monk
     )
 
     assert spoken == [
-        ("payment", prompts.PAYMENT_TEMPLATE.format(order_id=order_id))
+        ("payment", prompts.PAYMENT_TEMPLATE.format(order_number=order_id))
     ]
 
 

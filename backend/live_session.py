@@ -746,7 +746,7 @@ class LiveSession:
         )
         return text + " " + prompts.ORPHAN_DRAFT_TEMPLATE.format(
             seconds=orphan_age_seconds(orphan),
-            order_id=claimed["id"],
+            draft_id=claimed["id"],
             items=items,
             total=describe_total(claimed.get("items")),
             name=f", for {who}" if who else "",
@@ -1351,7 +1351,7 @@ class LiveSession:
             return text
         who = str(order.get("guest_name") or "").strip() or None
         return text + " " + prompts.RECONNECT_DRAFT_TEMPLATE.format(
-            order_id=order["id"],
+            draft_id=order["id"],
             items=items,
             total=describe_total(order.get("items")),
             # The guest's name when the order carries one (2k item 4).
@@ -1888,7 +1888,10 @@ class LiveSession:
         try:
             await self.session.send_realtime_input(
                 text=prompts.ANNOUNCE_TEMPLATE.format(
-                    order_id=order["id"],
+                    # 16 section 2zi item 3(b): the guest's own number. An order
+                    # from before the column existed has none, and its internal
+                    # id is the only number anyone ever knew it by.
+                    order_number=order.get("order_no") or order["id"],
                     # 16 section 2l item 3: "Order number 5 for Rehman is ready!"
                     # -- and just the number when the order has no name on it.
                     name=(
