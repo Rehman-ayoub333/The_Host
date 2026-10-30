@@ -8,9 +8,13 @@ import tools
 def test_system_instruction_names_the_host_and_the_stall_with_no_braces_left():
     text = prompts.build_system_instruction(datetime(2026, 10, 10, 18, 42))
 
-    assert text.startswith(
+    # 16 section 2zk item 4(a): the instruction opens with the language
+    # directive, in the form Google's Live API best practices page recommends,
+    # and "You are THE HOST" follows it.
+    assert text.startswith("RESPOND IN ENGLISH OR URDU ONLY.")
+    assert (
         "You are THE HOST, the AI host of Bite & Pour, a food and drink stall at "
-        "the GCUF Business Gala."
+        "the GCUF Business Gala." in text
     )
     assert "Current date and time at the stall: Saturday 10 October 2026, 18:42." in text
     assert "{" not in text and "}" not in text
