@@ -28,8 +28,9 @@ THE HOST never replaces the team; it hands work to them. A guest who needs a per
 
 ## What it does
 
-1. A guest walks up. The browser's on-device detector notices a person and reports presence
-   to the backend, which opens a conversation on its own — nobody has to press anything.
+1. A guest walks up. The operator presses **Start listening** (or F2), which opens the
+   conversation and the microphone together. In a quiet room THE HOST can do this itself from
+   on-device presence detection instead — see *Listening modes* below.
 2. THE HOST greets the guest in its own voice and listens. Speech goes both ways over one
    WebSocket as raw audio; the transcript appears live on the operator's screen.
 3. The guest asks what's good. THE HOST checks the real menu, recommends something that is
@@ -51,7 +52,13 @@ THE HOST never replaces the team; it hands work to them. A guest who needs a per
 
 ## Key features
 
-- **Unprompted greeting** from on-device presence detection — no wake word, no button.
+- **Listening modes.** **Operator** (the default): one large *Start listening* / *Stop
+  listening* button on the dashboard, and **F2**, so the team decides when THE HOST has its
+  ears open. **Automatic**: on-device presence detection opens the microphone while a guest
+  is close to the camera and facing it — no wake word, no button. See *Listening modes* below.
+- **A language guard in code.** THE HOST answers in English or Urdu. The backend reads its
+  own output transcription as it speaks and stops a turn that is in any other language,
+  rather than relying on the prompt alone.
 - **Live voice both ways** through the Gemini Live API (16 kHz in, 24 kHz out), with
   barge-in: a guest can talk over THE HOST and it stops.
 - **Orders numbered 1, 2, 3.** The guest is given a number the moment their order is placed,
@@ -354,6 +361,43 @@ exists; it never opens it, and no script ever reads or prints the operator token
 roles, the kitchen flow, the operator buttons, the guest-of-honour protocol, and what to do
 when the internet drops.
 
+## Listening modes
+
+THE HOST hears the guest standing at the counter, not the hall behind them. Which is harder
+than it sounds: at the faculty demo on 30 October it answered room noise, and the fixed level
+threshold added to stop that made the operator repeat himself even into the handheld
+microphone — a level that works depends on the microphone and on the Windows input gain.
+
+So there are two modes, chosen in the dashboard's **Settings → Listening mode**.
+
+**Operator (the default).** The team decides. The Live conversation panel has one large
+**Start listening** / **Stop listening** button and a **LISTENING / NOT LISTENING** badge,
+and **F2** does the same from the keyboard. Start listening opens the microphone, and opens a
+conversation too if none is running, so THE HOST greets the guest. Stop listening silences the
+microphone at once without ending the conversation — THE HOST can still finish its sentence,
+confirm a payment and call out a ready order. While listening is on nothing is filtered at
+all, so a guest speaking into the handheld is never cut; between guests the microphone is
+shut. A conversation ending always turns listening off. The TV shows a small *Listening* dot
+under the orb, and the backend asks Gemini for `START_SENSITIVITY_HIGH`, because the operator
+has already decided a guest is speaking and a soft one-word "yes" has to be heard.
+
+**Automatic.** THE HOST decides, from the camera rather than from the level alone. Audio
+leaves the page only while a face is close to the screen and facing it — the same test
+wake-on-speech uses — and for 1.5 s after one was last seen, so a guest turning their head
+does not cut their own sentence. A noise gate sits under that: frames quieter than the
+**noise gate level** (0.05 by default, adjustable between 0.01 and 0.30 in Settings) are
+replaced with silence. The sensitivity is `START_SENSITIVITY` from the environment, which is
+`LOW`. If the camera fails or is denied, the presence gate cannot work and the dashboard says
+*"Camera off — listening to everyone"*.
+
+In both modes the echo gate stays: while THE HOST's own voice is in the room, and for 300 ms
+after, the page sends silence instead of the microphone, so THE HOST never answers itself.
+A held frame is always sent as **silence of the same length** rather than dropped — Gemini's
+end-of-speech detection reads the uplink as one continuous stream, and a real gap confuses it.
+
+Open the display with `?debug=mic` to tune any of this: the browser console prints the
+microphone level, the frame rate, and how many frames each gate is holding.
+
 ## The menu and the posters
 
 Both are data, not code. Neither needs a rebuild, a migration or a developer.
@@ -392,6 +436,7 @@ secret in any file that is committed.**
 | `CORS_ALLOW_ORIGINS` | Comma-separated origins allowed to call the API. No wildcard. | `http://localhost:8080,http://localhost:5173,http://localhost:4173` |
 | `PORT` | Port recorded for the frontends to use. | `8000` |
 | `VISION_SEND_MODE` | How a snapshot reaches the model: `client_content` (picture and question as one turn) or `realtime` (two calls). | `client_content` |
+| `START_SENSITIVITY` | How readily the server decides somebody has started speaking, in **automatic** listening mode: `LOW` or `HIGH`. Operator mode always uses `HIGH`, because the operator has already decided a guest is speaking. Set `HIGH` only with a handheld or headset microphone — on a laptop or TV microphone it makes passing chatter count as a guest starting to talk. | `LOW` |
 | `NETLIFY_TOKEN` | A Netlify personal access token, so the guests' feedback forms can be read. Leave it blank and the import is simply off. | *(blank)* |
 | `NETLIFY_SITE_ID` | The API ID of the Netlify site the feedback form is published on. | *(blank)* |
 | `NETLIFY_FORM_NAME` | The form's name in Netlify, which is what the page posts as `form-name`. | `feedback` |
@@ -430,12 +475,13 @@ anything requires it.
 | `POST /api/operator/announce` | Repeat the announcement for a ready order | yes |
 | `POST /api/session/note` | A line for THE HOST from the team, 1–300 characters, while a conversation is running | yes |
 | `POST /api/display/reload` | Ask the TV to reload itself | yes |
+| `POST /api/listening` | Start or stop listening, and set the listening mode. `{"on": true}` or `false`, `{"mode": "operator"}` or `"automatic"`, or both. Relayed to the TV, which is the side holding the microphone | yes |
 | `PATCH /api/visitors/{name_key}` | Correct a misheard name or a wrong favourite | yes |
 | `DELETE /api/visitors/{name_key}` | Forget a visitor completely. Orders are untouched | yes |
 
 | WebSocket | Purpose |
 |---|---|
-| `/ws/session` | The conversation: binary audio both ways plus `agent_state_changed`, `speech_transcript`, `interrupted`, `error` and `capture_request` |
+| `/ws/session` | The conversation: binary audio both ways plus `agent_state_changed`, `speech_transcript`, `interrupted`, `error` and `capture_request`. Takes `trigger=presence\|voice\|button` and `listen=operator\|auto`, which picks the start-of-speech sensitivity |
 | `/ws/events?role=dashboard` | Read-only observer stream for the operator. Also needs the operator token, passed as a query parameter because a browser cannot set a header on a WebSocket handshake |
 | `/ws/events?role=smd` | Read-only observer stream for the public display, filtered in the backend |
 
@@ -455,7 +501,7 @@ conversation.
 
 | Event | Meaning |
 |---|---|
-| `state_snapshot` | Sent once on connect: boot id, mode, current state, presence, active orders |
+| `state_snapshot` | Sent once on connect: boot id, mode, current state, presence, active orders, and whether THE HOST is listening and in which mode — so a TV that reloads recovers both |
 | `agent_state_changed` | The conversation state changed |
 | `person_detected` / `person_left` | The browser's detector saw someone arrive or leave |
 | `visitor_identified` | A spoken name matched a stored profile |
@@ -471,6 +517,8 @@ conversation.
 | `system_status_changed` | A component the backend can actually observe changed. Dashboard only |
 | `operational_mode_changed` | `ONLINE`, `OFFLINE`, `PAUSED` or `OPERATOR_TAKEOVER` |
 | `capture_request` | The agent is asking the TV for one picture. Never public |
+| `listening` | The operator started or stopped listening. The TV opens or silences its microphone on it; the dashboard draws the badge |
+| `listening_mode` | The operator changed the listening mode. Switching always leaves the microphone shut |
 | `display_reload` | The operator asked the TV to reload itself. Display only |
 | `error` | A plain, human-readable failure message |
 | `heartbeat` | Every 10 seconds, so a client knows the stream is alive |

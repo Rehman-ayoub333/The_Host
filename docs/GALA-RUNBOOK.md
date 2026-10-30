@@ -132,18 +132,23 @@ if the venue Wi-Fi is down, the card still works on their mobile data.
    microphone: allow both. After that the TV starts itself every time and never shows
    *Tap to begin* — which is also what lets **Reload display screen** work from the
    dashboard. There are no buttons and no drop-downs on the TV at all.
-   **The TV never needs touching again** — THE HOST greets guests itself, wakes on speech,
-   and listens. (Use `-X 0` to open it on the laptop while testing.)
+   **The TV never needs touching again** — THE HOST greets guests itself and the operator
+   opens its microphone from the laptop (section 4, *Listening*). (Use `-X 0` to open it on
+   the laptop while testing.)
 7. **Leave the TV window focused and on top.** Face detection pauses while the window is
    hidden, which is also what holds the empty-room timer. A partly overlapped window is
    fine; a minimised one is not. The operator's two keys work on this window: **Space**
    starts a conversation, **Escape** ends one.
 8. **The operator token.** On the laptop open the dashboard → **Settings**, paste the token
    into *Operator token*, and press **Save & connect**. The agent link must read `LIVE`.
-9. **Never start the dashboard's camera preview.** The dashboard's **Live Vision** page has
+9. **Check the listening mode.** Settings → **Listening mode** must be **Operator**, which is
+   the default. That is the mode the gala runs in: you press **Start listening** when a guest
+   steps up (section 4, *Listening*). *Automatic* is for a quiet room with nobody free to work
+   the button.
+10. **Never start the dashboard's camera preview.** The dashboard's **Live Vision** page has
    a preview that opens the camera on the laptop. At the gala the camera belongs to
    `/display`, and two pages cannot have it at once. Leave the preview off all evening.
-10. **Run preflight until every line is PASS:**
+11. **Run preflight until every line is PASS:**
    ```powershell
    .\scripts\preflight.ps1
    ```
@@ -157,9 +162,9 @@ top of the stall is THE HOST, and the laptop on the front table is the operator'
 
 | Who | Looks after |
 |---|---|
-| **Rehman** | **Operator and project lead.** The dashboard: the Live conversation panel and AI Activity; answers "Operator help requested" at once; uses Pause, Take over, End conversation, Retry connection and Announce again; switches to the phone hotspot if the venue internet fails; last resort Settings → Demo Mode, said out loud to be a demonstration. Speaks to the Vice Chancellor, the chief guest and the judges about the technology when THE HOST hands over |
+| **Rehman** | **Operator and project lead.** The dashboard: **Start listening when a guest steps up and Stop listening when they are done** (F2, section 4); the Live conversation panel and AI Activity; answers "Operator help requested" at once; uses Pause, Take over, End conversation, Retry connection and Announce again; switches to the phone hotspot if the venue internet fails; last resort Settings → Demo Mode, said out loud to be a demonstration. Speaks to the Vice Chancellor, the chief guest and the judges about the technology when THE HOST hands over |
 | **Saad** | **Kitchen and orders.** Watches the orders panel and marks PREPARING → READY → COLLECTED, hands food over by order number and name, takes payment, and handles the late, wrong or missing orders THE HOST flags |
-| **Umair** | **Guests, display and backup.** Stands at the front: hands the microphone to each guest and says "Just talk to it", keeps one guest at a time at the microphone, keeps the TV and the camera clear, runs the backup laptop (section 5), and calls Rehman when anything looks wrong on the TV |
+| **Umair** | **Guests, display and backup.** Stands at the front: hands the microphone to each guest and says "Just talk to it", tells Rehman when a guest is ready so the microphone is opened, keeps one guest at a time at the microphone, keeps the TV and the camera clear, runs the backup laptop (section 5), and calls Rehman when anything looks wrong on the TV |
 
 Saad and Rehman share the one laptop for the order statuses; Saad calls out when an order is
 ready if Rehman is busy. One person to a job otherwise. If something looks wrong, say so out
@@ -207,6 +212,55 @@ guest's yes. For a change it places the corrected order first and cancels the ol
 after, so the guest is never left with nothing. Once the money has been taken, THE HOST says
 the order is already paid and flags it for the team — that call is the operator's, including
 any refund, and they can still cancel a paid or *Preparing* order from the dashboard.
+
+### Listening: when THE HOST has its ears open
+
+THE HOST does not decide for itself when somebody is talking to it. You do.
+
+In the **Live conversation** panel there is one large button and one large badge:
+
+| | |
+|---|---|
+| **Start listening** (green) | Opens the microphone. If no conversation is running it also starts one, so THE HOST greets the guest. |
+| **Stop listening** (red) | Closes the microphone at once. |
+| **LISTENING / NOT LISTENING** | What the microphone is doing this second. Read the badge, not the button. |
+
+**F2** does the same as the button, so you never have to find the mouse while a guest is
+standing there. Press **Start listening** when the guest steps up, and **Stop listening**
+when they are done. The badge is the truth: it only turns green once the display screen has
+really been told, so if it stays grey the TV has not heard you.
+
+While you are listening, nothing is filtered out — the hall, the queue, a neighbouring stall,
+all of it reaches THE HOST, which is exactly why you close the microphone between guests.
+THE HOST still never hears its own voice. Stopping does **not** end the conversation: THE HOST
+can still finish the sentence it was saying, tell a guest their order is paid, and call out an
+order that is ready. Ending a conversation always turns listening off, so the next guest
+never walks up to an open microphone.
+
+The display screen shows a small **Listening** dot under the orb while the microphone is
+open, so you can check from across the stall.
+
+Why it works this way: at the faculty demo on 30 October THE HOST answered the room instead
+of the guest, and the level threshold meant to stop that made Rehman repeat himself even into
+the handheld microphone. A fixed level depends on the microphone and on the Windows input
+gain. Your finger does not.
+
+**Pick the handheld microphone first.** Settings → **Display screen devices** → *Microphone*,
+then **Reload display screen**. The laptop's built-in microphone hears the whole hall; the
+handheld hears whoever is holding it. This matters more than anything else on this page.
+
+**Automatic mode, if you want it.** Settings → **Listening mode** → *Automatic* hands the
+decision back to THE HOST: it listens while a guest is close to the camera and facing it, and
+for a moment after, so a turned head does not cut a sentence. It also uses a **noise gate
+level** you can set there (0.05 by default). Use it only in a quiet room, and only if nobody
+is free to work the button. If the camera is off or refused, the System panel says
+*"Camera off — listening to everyone"* — in that state Automatic cannot tell a guest from a
+crowd, so switch back to Operator.
+
+**Rehearse it once.** Open the display with `?debug=mic` on the end of the address
+(`http://localhost:8080/display?debug=mic`), stand where the guests will stand, and watch the
+browser console: it prints the microphone level and how many frames each gate is holding. Do
+this in a noisy room before the gala, not on the day.
 
 ### Telling THE HOST something, without speaking
 
