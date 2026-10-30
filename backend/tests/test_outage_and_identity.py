@@ -461,6 +461,33 @@ def test_the_prompt_carries_the_language_rule():
     # 16 section 2za item 3: the rule turns on the guest's LATEST message, in
     # both directions, and "aap" is required outright.
     assert "Reply in the language of the guest's latest message." in built
+
+
+def test_only_english_and_urdu_are_allowed():
+    """THE HOST answers in English or Urdu and in no third language at all.
+
+    The rule below it already forbids Hindi, Punjabi and the two scripts by
+    name; this one closes the list, so a guest who opens in Arabic, Pashto or
+    Chinese is still answered in one of the two -- including when they ask
+    outright to be answered in their own language.
+    """
+    built = prompts.build_system_instruction(datetime.now())
+    assert (
+        "You speak two languages and no others: English and Urdu. Every reply "
+        "you give is in one of those two, whatever language the guest used."
+        in built
+    )
+    assert (
+        "do not answer in it and do not switch into it, even if they ask you to "
+        "or say they do not understand English" in built
+    )
+    assert (
+        "never produce a sentence, a greeting or a single phrase in any third "
+        "language." in built
+    )
+    # The closing rule must not undo the one above it: a language the guest
+    # cannot be served in is still never a reason to fetch a person (2k item 5).
+    assert "A change of language is never a reason to call a team member" in built
     assert (
         "If it is in English, reply in English, even if the guest's name or an "
         "earlier line was Urdu." in built
@@ -473,6 +500,55 @@ def test_the_prompt_carries_the_language_rule():
     assert "never Hindi, never Punjabi, never Gurmukhi or Devanagari script" in built
     assert 'In Urdu, always use "aap", never "tum".' in built
     assert "A change of language is never a reason to call a team member" in built
+
+
+def test_the_prompt_makes_it_answer_what_was_asked():
+    """The guest's question is the reply, not a cue to sell something.
+
+    Rehman asked THE HOST to speak only English and was answered with a Chicken
+    Burger recommendation. Nothing in Part A had ever said "answer the question",
+    while several rules pushed the other way -- the one drink offered unasked,
+    the steer back to the menu, "ask something specific instead". This section is
+    the counterweight, and it also makes an instruction about HOW it speaks
+    something to obey rather than to chat about.
+    """
+    built = prompts.build_system_instruction(datetime.now())
+    assert "ANSWER WHAT YOU ARE ASKED" in built
+    assert (
+        "Answer the guest's actual question, and then stop." in built
+    )
+    assert (
+        "Never answer with a recommendation, a menu item, an offer or a question "
+        "of your own in place of what was asked." in built
+    )
+    assert (
+        'A request about HOW you speak -- "only speak English", "speak Urdu", '
+        '"slower", "louder", "keep it short", "stop suggesting things" -- is an '
+        "instruction, not conversation." in built
+    )
+    assert (
+        "do not add an item, a suggestion or \"what would you like?\" after it"
+        in built
+    )
+    # The two rules that caused it are now explicitly subordinate.
+    assert (
+        "Offer a recommendation only when the guest asks what to have, or is "
+        "placing an order with no drink." in built
+    )
+    assert (
+        "never instead of answering a question the guest has just asked" in built
+    )
+
+
+def test_the_answer_rule_comes_before_the_menu_steering_it_overrides():
+    """Order matters in a long instruction: the limit has to be read before the
+    rule it limits."""
+    built = prompts.build_system_instruction(datetime.now())
+    answer_at = built.index("ANSWER WHAT YOU ARE ASKED")
+    assert answer_at < built.index("Be helpful once before being asked")
+    assert answer_at < built.index(
+        "After a few off-topic turns, bring the conversation gently back"
+    )
 
 
 def test_the_prompt_carries_the_personality_rule():
