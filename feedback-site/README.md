@@ -4,7 +4,7 @@ The form guests open by scanning the QR code at the stall. It is a static page
 hosted on Netlify; THE HOST reads the submissions back through the Netlify API
 and shows them on the dashboard's **Feedback** page.
 
-Live at: <https://imaginative-taiyaki-542a7a.netlify.app/>
+Live at: <https://biteandpour.netlify.app/>
 
 ## What is in here
 
