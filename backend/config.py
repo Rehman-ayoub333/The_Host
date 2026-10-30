@@ -93,6 +93,18 @@ SILENCE_DURATION_MS = 500
 # guest had started speaking is kept. A short soft reply ("yes", a name) loses
 # its first syllable without this, which is one way it goes unheard.
 PREFIX_PADDING_MS = 300
+# How readily the server decides somebody has started speaking.
+#
+# 2r item 5 set this to HIGH on the assumption of a handheld microphone, whose
+# own directionality "keeps the room out". That assumption does not hold for the
+# laptop and TV microphones actually in use: HIGH makes Gemini treat faint
+# background sound -- the queue behind the guest, a neighbouring stall, someone
+# walking past -- as a guest beginning to talk, and THE HOST answers the room.
+# LOW requires a clearer onset, which the guest standing at the counter easily
+# gives and passing chatter does not. PREFIX_PADDING_MS above is what keeps a
+# quiet "yes" from losing its first syllable, so raising the bar here does not
+# cost short replies. Set to "HIGH" only with a handheld or headset microphone.
+START_SENSITIVITY = os.getenv("START_SENSITIVITY", "LOW").strip().upper()
 # 16 section 2j item 5: Gemini has heard the guest, or has been given a tool
 # result, and nothing has come back for this long. The conversation is not over,
 # so the connection is rebuilt rather than the session ended.

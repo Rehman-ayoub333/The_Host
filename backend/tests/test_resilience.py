@@ -67,13 +67,14 @@ def test_the_connect_config_shortens_the_silence_before_a_reply():
     detection = built.realtime_input_config.automatic_activity_detection
     assert config.SILENCE_DURATION_MS == 500
     assert detection.silence_duration_ms == 500
-    # 2r item 5 supersedes 2j item 6 here: the start sensitivity is set high
-    # rather than left off, so a short soft reply is heard. The silence itself
-    # is untouched.
+    # The start sensitivity is set rather than left off, and it is LOW: 2r item
+    # 5's HIGH assumed a handheld microphone and made THE HOST answer the room on
+    # the one the stall actually uses. Short replies are kept by the prefix
+    # padding. The silence itself is untouched.
     from google.genai import types
 
     assert detection.start_of_speech_sensitivity == (
-        types.StartSensitivity.START_SENSITIVITY_HIGH
+        types.StartSensitivity.START_SENSITIVITY_LOW
     )
 
 

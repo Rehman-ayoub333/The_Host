@@ -91,17 +91,18 @@ def test_the_other_triggers_keep_their_own_opening():
 # ------------------------------------------- 2h item 5: the VAD field it sets
 
 
-def test_the_start_sensitivity_is_high_for_short_replies():
-    # 16 section 2j item 6 removed START_SENSITIVITY_LOW. 2r item 5 then set the
-    # field the other way after Rehman's C1 test: the handheld microphone keeps
-    # the room out, so the server may start listening more readily, and a short
-    # soft "yes" or a name is what that buys.
+def test_the_start_sensitivity_is_low_so_the_room_is_not_answered():
+    # 16 section 2j item 6 removed START_SENSITIVITY_LOW and 2r item 5 set HIGH,
+    # on the reasoning that the handheld microphone keeps the room out. The stall
+    # runs on a laptop and TV microphone, where it does not: HIGH had Gemini
+    # taking passing chatter for a guest starting to talk. Short soft replies are
+    # protected by PREFIX_PADDING_MS instead, which is untouched.
     from google.genai import types
 
     built = live_session.build_live_config(datetime.now())
     detection = built.realtime_input_config.automatic_activity_detection
     assert detection.start_of_speech_sensitivity == (
-        types.StartSensitivity.START_SENSITIVITY_HIGH
+        types.StartSensitivity.START_SENSITIVITY_LOW
     )
 
 
@@ -439,6 +440,9 @@ RULES = [
     # guest's LATEST message, after E3 answered a Roman-Urdu line in English
     # and two E31 runs answered an English guest in Urdu.
     "Reply in the language of the guest's latest message. If it is in English, reply in English, even if the guest's name or an earlier line was Urdu. If it is in Urdu, Punjabi or Roman Urdu, even a short line mixed with English words (for example \"VC sahab ko ek Blue Lemonade\"), reply in Urdu, with English words where they are natural (menu names stay in English): never Hindi, never Punjabi, never Gurmukhi or Devanagari script.",
+    # The two languages are the whole list, so a guest opening in a language
+    # the rule above does not name is still answered in one of them.
+    "You speak two languages and no others: English and Urdu.",
 ]
 
 # Instructions an earlier Part A carried that the current one deliberately

@@ -345,6 +345,22 @@ def failure_message(exc: Exception) -> str:
     return "Something went wrong. Please try again."
 
 
+def _start_sensitivity() -> types.StartSensitivity:
+    """`config.START_SENSITIVITY` as the enum, falling back to LOW.
+
+    An unreadable value must not take the stall down mid-gala, and of the two
+    LOW is the safe one: it answers the guest at the counter and not the room.
+    """
+    name = f"START_SENSITIVITY_{config.START_SENSITIVITY}"
+    chosen = getattr(types.StartSensitivity, name, None)
+    if chosen is None:
+        log.warning(
+            "unknown START_SENSITIVITY %r -- using LOW", config.START_SENSITIVITY
+        )
+        return types.StartSensitivity.START_SENSITIVITY_LOW
+    return chosen
+
+
 def build_live_config(
     now: datetime, proactive: bool = False, resume_handle: str | None = None
 ) -> types.LiveConnectConfig:
@@ -371,14 +387,18 @@ def build_live_config(
         # 16 section 2j item 6: the server waits about 800 ms of silence before it
         # decides the guest has finished, which is most of the pause Rehman heard
         # before every reply.
-        # 2r item 5: and short replies have to be heard. The handheld microphone
-        # keeps the room out, so the server may start listening more readily
-        # (START_SENSITIVITY_HIGH), and 300 ms of prefix padding keeps the first
-        # syllable of a quiet "yes" or a name instead of clipping it. The
-        # end-of-speech sensitivity stays at the server default.
+        # 2r item 5: and short replies have to be heard. 300 ms of prefix padding
+        # keeps the first syllable of a quiet "yes" or a name instead of clipping
+        # it. The end-of-speech sensitivity stays at the server default.
+        #
+        # The start sensitivity is `config.START_SENSITIVITY`, and it is LOW: 2r
+        # item 5's HIGH assumed a handheld microphone whose directionality keeps
+        # the room out, and on the laptop and TV microphones in use it made THE
+        # HOST answer the queue behind the guest instead of the guest. See the
+        # note in config.py.
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
-                start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
+                start_of_speech_sensitivity=_start_sensitivity(),
                 prefix_padding_ms=config.PREFIX_PADDING_MS,
                 silence_duration_ms=config.SILENCE_DURATION_MS,
             )
