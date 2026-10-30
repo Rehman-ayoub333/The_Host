@@ -17,6 +17,7 @@ import config
 import data
 import event_bus
 import health
+import language_guard
 import prompts
 import schemas
 import summaries
@@ -450,6 +451,12 @@ class LiveSession:
             "awaiting_confirmation": False,
         }
         self.first_audio_sent = False
+        # 16 section 2zk item 4(b): the language guard acts once per turn, and
+        # once it has fired the rest of that turn's audio is dropped rather than
+        # played -- the guest must not hear the end of a sentence in Spanish
+        # after the start of it has already been cut off.
+        self.language_guard_fired = False
+        self.drop_turn_audio = False
         # 16 section 2e item 1: true from the first piece of model output of a
         # turn until that turn ends. Unlike first_audio_sent it survives a tool
         # response, so an announcement cannot be injected into the gap between a
@@ -619,6 +626,39 @@ class LiveSession:
         if line:
             self.last_guest_line = line
             self.last_guest_line_at = _now()
+
+    async def _check_language(self, line: str) -> None:
+        """16 section 2zk item 4(b): stop a turn that is not in English or Urdu.
+
+        The first violation in a turn interrupts THE HOST mid-sentence -- the
+        page flushes the audio it has queued, so the room stops hearing the
+        wrong language at once -- drops whatever audio the rest of the turn
+        would have produced, and asks for the line again in English.
+
+        A second violation in the same turn gets none of that. The model has
+        already been told once; telling it again mid-turn is what would turn one
+        bad answer into a loop, so the turn is simply dropped in silence.
+
+        The log carries a reason and never a word of the line (12 section 1).
+        """
+        reason = language_guard.violation(line)
+        if reason is None:
+            return
+        if self.language_guard_fired:
+            # Already handled once this turn: stay silent and keep dropping.
+            return
+        self.language_guard_fired = True
+        self.drop_turn_audio = True
+        log.info(
+            "language guard session %s reason=%s", self.ctx["session_id"], reason
+        )
+        # The page's own interrupt path: queued audio goes immediately.
+        await self._send_control({"type": "interrupted"})
+        # The wrong words must not stay on the TV either.
+        self.transcripts["agent"] = ""
+        await self._to_live(
+            self.session.send_realtime_input(text=prompts.LANGUAGE_GUARD_PROMPT)
+        )
 
     async def _on_transcript_fragment(self, role: str, fragment: str) -> None:
         """03 section 4: the other speaker's line is finalised first; text is the whole line."""
@@ -1294,6 +1334,8 @@ class LiveSession:
         await self._close_live()
         self.turn_in_progress = False
         self.first_audio_sent = False
+        self.language_guard_fired = False
+        self.drop_turn_audio = False
         self.awaiting_model_since = None
         self.last_audio_chunk_at = None
         # 2s item 2: the connection that owed the answer is gone with it.
@@ -1497,6 +1539,11 @@ class LiveSession:
                         continue
                     if part.inline_data and part.inline_data.data:
                         self.turn_in_progress = True
+                        # 16 section 2zk item 4(b): the guard has stopped this
+                        # turn, so the audio still arriving for it is dropped
+                        # rather than sent on to the page.
+                        if self.drop_turn_audio:
+                            continue
                         self._model_output()
                         self._log_turn_latency()
                         self.last_audio_chunk_at = _now()
@@ -1533,6 +1580,10 @@ class LiveSession:
                 await self._on_transcript_fragment(
                     "agent", server_content.output_transcription.text
                 )
+                # 16 section 2zk item 4(b): the guard reads the line THE HOST is
+                # actually speaking, as it arrives, and stops a turn that is not
+                # in English or Urdu.
+                await self._check_language(self.transcripts["agent"])
 
             if server_content.generation_complete:
                 # 16 section 2j item 5: the model has finished producing this
@@ -1583,6 +1634,9 @@ class LiveSession:
         self.first_audio_sent = False
         self.turn_in_progress = False
         self.recommended_this_turn = False
+        # A new turn may speak, and may be judged again (2zk item 4b).
+        self.language_guard_fired = False
+        self.drop_turn_audio = False
         # 16 section 2j items 5 and 9: the turn is over, so nothing is owed and
         # the next turn gets its own latency line.
         self.awaiting_model_since = None

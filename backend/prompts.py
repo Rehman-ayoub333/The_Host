@@ -268,6 +268,14 @@ ORPHAN_DRAFT_TEMPLATE = (
     "order number yet: call it \"your order\" and never say the draft_id out loud."
 )
 
+# 16 section 2zk item 4(b): sent when the language guard has stopped a turn that
+# was not in English or Urdu. The exact text the section gives.
+LANGUAGE_GUARD_PROMPT = (
+    "Your last reply was not in English or Urdu. Say it again now in English, "
+    "or in Urdu if the guest spoke Urdu."
+)
+
+
 # 09 section 17: sent when a picture asked for by look_at_camera never arrives.
 LOOK_FAILED_PROMPT = (
     "The camera picture could not be taken. Tell the guest briefly that you could not get a "
