@@ -41,6 +41,10 @@ export const initialSnapshot: AgentSnapshot = {
   lastError: null,
   tokenError: null,
   demoStep: null,
+  // 16 §2zk item 3: operator mode, microphone shut, until the backend says
+  // otherwise. A page that has heard nothing must not assume it is listening.
+  listening: false,
+  listeningMode: "operator",
   updatedAt: 0,
 };
 
@@ -134,6 +138,9 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
         sessionId: e.session_id ?? null,
         opMode: { mode: e.operational_mode },
         present: e.present,
+        // 16 §2zk item 3: "kept across reloads".
+        listening: e.listening ?? s.listening,
+        listeningMode: e.listening_mode ?? s.listeningMode,
         orders: [...incoming, ...kept],
       });
     }
@@ -154,6 +161,12 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       });
     case "operational_mode_changed":
       return n({ opMode: { mode: e.mode, reason: e.reason } });
+    // 16 §2zk item 3: the operator pressed Start/Stop listening, or changed the
+    // mode in Settings. Changing the mode always leaves the microphone shut.
+    case "listening":
+      return n({ listening: e.on });
+    case "listening_mode":
+      return n({ listeningMode: e.mode, listening: false });
     case "speech_transcript": {
       const speaker = e.role === "agent" ? ("host" as const) : ("visitor" as const);
       const caption = { speaker, text: e.text };

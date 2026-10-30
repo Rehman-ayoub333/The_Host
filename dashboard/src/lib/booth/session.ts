@@ -30,6 +30,9 @@ export type LocalState =
 
 export type Trigger = "presence" | "voice" | "button";
 
+/** 16 §2zk item 3: who decides when THE HOST is listening. */
+export type ListeningMode = "operator" | "automatic";
+
 export const ACTIVE_STATES: ReadonlySet<LocalState> = new Set<LocalState>([
   "noticed",
   "connecting",
@@ -72,6 +75,12 @@ export interface SessionView {
   presenceAvailable: boolean;
   /** Camera or microphone trouble, for the Start screen only — never the TV. */
   notes: string[];
+  /**
+   * 16 §2zk item 3(a): the TV shows a small "Listening" dot under the orb while
+   * the operator is listening, so Rehman can see from across the stall whether
+   * the microphone is open.
+   */
+  listening: boolean;
 }
 
 export interface SocketLike {
@@ -133,6 +142,7 @@ export class HostSession {
     cameraAvailable: false,
     presenceAvailable: false,
     notes: [],
+    listening: false,
   };
 
   private ws: SocketLike | null = null;
@@ -192,6 +202,17 @@ export class HostSession {
   // The noise gate's hangover: until when a frame counts as the guest speaking,
   // measured from the last frame that was loud enough. 0 means the gate is shut.
   private uplink = { loudUntil: 0 };
+  // 16 §2zk item 3: who is holding the microphone. `mode` is the operator's
+  // Settings choice and `on` is the Start/Stop toggle, both arriving from the
+  // dashboard over /ws/events. Operator mode and NOT LISTENING are the
+  // defaults, so a page that has heard nothing yet sends silence.
+  private listening: { mode: ListeningMode; on: boolean } = { mode: "operator", on: false };
+  // §2zk item 3(b): the noise-gate level in automatic mode is a Settings
+  // number, not a constant. Until Settings says otherwise it is the default.
+  private gateLevel: number = C.UPLINK_GATE_LEVEL_DEFAULT;
+  // §2zj item 5: until when a face counts as still there, measured from the
+  // last close-and-facing reading. 0 means nobody has been seen.
+  private presence = { seenUntil: 0 };
   // 16 §2h item 2: what wake-on-speech is watching.
   private wake: { face: FaceReading | null; speechSince: number; lastEndAt: number; lastFaceAt: number } = {
     face: null,
@@ -212,7 +233,7 @@ export class HostSession {
   private caption: { lastAt: number; pending: string | null } = { lastAt: 0, pending: null };
   private playCounters = { since: 0 };
   private micDebug: { samples: { at: number; level: number }[] } = { samples: [] };
-  private micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, gated: 0, lastFrameAt: 0, since: 0 };
+  private micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, gated: 0, presenceGated: 0, lastFrameAt: 0, since: 0 };
   private longTaskObserver: PerformanceObserver | null = null;
 
   constructor(deps: SessionDeps) {
@@ -428,10 +449,11 @@ export class HostSession {
     this.micCounters.frames += 1;
   }
 
-  /** How many frames the noise gate replaced with silence, for ?debug=mic. */
-  private countGatedFrame() {
+  /** How many frames a gate replaced with silence, for ?debug=mic. */
+  private countGatedFrame(byPresence: boolean) {
     if (!this.deps.debugMic) return;
     this.micCounters.gated += 1;
+    if (byPresence) this.micCounters.presenceGated += 1;
   }
 
   private printMicCounters = () => {
@@ -444,11 +466,12 @@ export class HostSession {
     // A quiet room between guests is mostly gated; a frame count that stays high
     // while somebody is speaking at the counter means UPLINK_GATE_LEVEL is set
     // too high for this microphone.
-    this.log().info("mic frames/s", Number(rate.toFixed(1)), "maxgap_ms", Math.round(this.micCounters.maxGapMs), "longtasks", this.micCounters.longTasks, "gated", this.micCounters.gated);
+    this.log().info("mic frames/s", Number(rate.toFixed(1)), "maxgap_ms", Math.round(this.micCounters.maxGapMs), "longtasks", this.micCounters.longTasks, "gated", this.micCounters.gated, "presence_gated", this.micCounters.presenceGated);
     this.micCounters.frames = 0;
     this.micCounters.maxGapMs = 0;
     this.micCounters.longTasks = 0;
     this.micCounters.gated = 0;
+    this.micCounters.presenceGated = 0;
     this.micCounters.since = this.now();
   };
 
@@ -478,7 +501,7 @@ export class HostSession {
   private startMicCounters() {
     if (!this.deps.debugMic) return;
     this.stopMicCounters();
-    this.micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, gated: 0, lastFrameAt: 0, since: this.now() };
+    this.micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, gated: 0, presenceGated: 0, lastFrameAt: 0, since: this.now() };
     this.playCounters.since = this.now();
     this.deps.audio.takePlaybackStats();
     this.timers.playCounters = setInterval(this.printPlaybackCounters, MIC_COUNTER_MS);
@@ -781,17 +804,54 @@ export class HostSession {
    * Is this microphone frame worth sending -- is the guest at the counter
    * speaking right now?
    *
-   * True for any frame at or above `UPLINK_GATE_LEVEL`, and for
+   * True for any frame at or above the gate level, and for
    * `UPLINK_GATE_HANGOVER_MS` after the last such frame. `getMicAmp()` is this
    * frame's own RMS, so the frame carrying the first syllable opens the gate
    * itself and is sent whole: nothing is clipped off the start of a short reply.
    */
   uplinkGateOpen(): boolean {
-    if (this.deps.audio.getMicAmp() >= C.UPLINK_GATE_LEVEL) {
+    if (this.deps.audio.getMicAmp() >= this.gateLevel) {
       this.uplink.loudUntil = this.now() + C.UPLINK_GATE_HANGOVER_MS;
       return true;
     }
     return this.now() < this.uplink.loudUntil;
+  }
+
+  /**
+   * 16 §2zj item 5, as amended by §2zk item 3(b) -- the presence gate.
+   *
+   * A level gate cannot tell a guest from a loud crowd; the camera can. In
+   * automatic mode the uplink carries the room only while somebody is standing
+   * at the screen looking at it -- the same close-and-facing test wake-on-speech
+   * uses -- or for PRESENCE_GATE_GRACE_MS after a face was last seen, so a head
+   * turned mid-sentence does not cut the sentence.
+   *
+   * If the camera failed or was denied there is nothing to ask, and the gate
+   * opens: falling back to the level gate alone is what §2zj item 5 requires,
+   * and the dashboard says "Camera off — listening to everyone".
+   */
+  presenceGateOpen(): boolean {
+    if (!this.view.presenceAvailable) return true;
+    const face = this.wake.face;
+    if (face && face.frontal && face.ratio >= C.WAKE_MIN_FACE_RATIO) {
+      this.presence.seenUntil = this.now() + C.PRESENCE_GATE_GRACE_MS;
+      return true;
+    }
+    return this.now() < this.presence.seenUntil;
+  }
+
+  /**
+   * 16 §2zk item 3 -- the one question `onMicFrame` asks: may this frame go?
+   *
+   * Operator mode is Rehman's decision and overrides every measurement: while
+   * he is listening the noise gate and the presence gate are both off, so
+   * nothing a guest says into the handheld is cut, and while he is not, nothing
+   * goes at all. Only the echo gate still applies, and it is checked by the
+   * caller before this.
+   */
+  uplinkOpen(): boolean {
+    if (this.listening.mode === "operator") return this.listening.on;
+    return this.presenceGateOpen() && this.uplinkGateOpen();
   }
 
   echoGateOpen(): boolean {
@@ -816,11 +876,16 @@ export class HostSession {
       this.ws.send(new ArrayBuffer(buffer.byteLength));
       return;
     }
-    // The noise gate: anything too quiet to be the guest at the counter is sent
+    // 16 §2zk item 3: in operator mode the toggle decides; in automatic mode
+    // the presence gate and the noise gate do. Either way a held frame is sent
     // as silence rather than streamed to Gemini, which would otherwise answer
     // the room. Same shape as the echo gate above -- silence, never a gap.
-    if (!this.uplinkGateOpen()) {
-      this.countGatedFrame();
+    if (!this.uplinkOpen()) {
+      // §2zj item 5 wants the presence gate counted separately, so Rehman can
+      // tell "the camera is not seeing me" from "the level is too high".
+      this.countGatedFrame(
+        this.listening.mode === "automatic" && !this.presenceGateOpen(),
+      );
       this.ws.send(new ArrayBuffer(buffer.byteLength));
       return;
     }
@@ -865,7 +930,12 @@ export class HostSession {
     // 16 §2t item 3: the socket goes to the agent link's host, not this page's.
     const wsBase = this.base().replace(/^http:/, "ws:").replace(/^https:/, "wss:");
     try {
-      this.ws = this.deps.createSocket(`${wsBase}/ws/session?trigger=${trigger}`);
+      // 16 §2zk item 3(c): the backend picks the start-of-speech sensitivity
+      // from the mode, so it travels with the connection.
+      const listen = this.listening.mode === "operator" ? "operator" : "auto";
+      this.ws = this.deps.createSocket(
+        `${wsBase}/ws/session?trigger=${trigger}&listen=${listen}`,
+      );
     } catch {
       this.fail("Connection lost.");
       return;
@@ -1240,5 +1310,59 @@ export class HostSession {
   /** Re-runs the per-conversation reset, including the noise gate's hangover. */
   startVoiceActivityForTest() {
     this.startVoiceActivity();
+  }
+
+  /* ----------------------- 16 §2zk item 3: listening ---------------------- */
+
+  /**
+   * The operator pressed Start or Stop listening (the `listening` event).
+   *
+   * Start listening with no conversation running is what opens one, as trigger
+   * `button` so THE HOST greets the guest -- only this side knows whether its
+   * own socket is up, which is why the backend does not try to decide it.
+   * Stop listening silences the uplink at once; it does not end the
+   * conversation, because THE HOST may still owe the guest the end of a reply,
+   * a payment line or a ready announcement.
+   */
+  setListening(on: boolean) {
+    if (this.listening.on === on) return;
+    this.listening.on = on;
+    this.patch({ listening: on });
+    // A fresh hangover each time, so neither gate carries a decision over from
+    // before the operator changed their mind.
+    this.uplink.loudUntil = 0;
+    this.presence.seenUntil = 0;
+    if (on && !this.isSessionActive() && this.view.state !== "connecting") {
+      void this.startSession("button");
+    }
+  }
+
+  /** The operator changed Settings → Listening mode (the `listening_mode` event). */
+  setListeningMode(mode: ListeningMode) {
+    if (this.listening.mode === mode) return;
+    this.listening.mode = mode;
+    // Switching mode never leaves the microphone open on the old rule.
+    this.listening.on = false;
+    if (this.view.listening) this.patch({ listening: false });
+    this.uplink.loudUntil = 0;
+    this.presence.seenUntil = 0;
+  }
+
+  /** The operator changed Settings → noise gate level (automatic mode only). */
+  setGateLevel(level: number) {
+    if (!Number.isFinite(level)) return;
+    this.gateLevel = Math.min(
+      C.UPLINK_GATE_LEVEL_MAX,
+      Math.max(C.UPLINK_GATE_LEVEL_MIN, level),
+    );
+  }
+
+  listeningForTest() {
+    return { ...this.listening, gateLevel: this.gateLevel };
+  }
+
+  /** The presence gate asks whether there is a camera at all; a test has none. */
+  setPresenceAvailableForTest(available: boolean) {
+    this.patch({ presenceAvailable: available });
   }
 }

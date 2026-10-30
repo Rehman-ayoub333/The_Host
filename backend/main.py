@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager, closing
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
+from typing import Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
@@ -26,6 +27,7 @@ import health
 import netlify_feedback
 import prompts
 import summaries
+import live_session
 from live_session import LiveSession
 
 
@@ -298,6 +300,11 @@ def build_state_snapshot() -> dict:
         "conversation_state": (session.last_state if session and session.last_state else "IDLE"),
         "session_id": session.ctx["session_id"] if session else None,
         "present": bool(getattr(app.state, "present", False)),
+        # 16 section 2zk item 3: "kept across reloads". A TV that reloads mid
+        # gala gets the mode and the toggle back in the snapshot rather than
+        # falling back to a default and quietly opening its microphone.
+        "listening": LISTENING["on"],
+        "listening_mode": LISTENING["mode"],
         "active_orders": data.list_orders("active", limit=50)["orders"],
     }
 
@@ -945,6 +952,74 @@ async def post_session_note(request: Request):
     return {"sent": True}
 
 
+# 16 section 2zk item 3: who is holding the microphone, and how. Operator is
+# the default mode -- after the 30 Oct demo Rehman decides when THE HOST is
+# listening -- and listening itself always starts off, because a microphone that
+# is open before anybody asked is what the whole section is about. Module level
+# beside ACTIVE for the same reason: one stall, one conversation at a time.
+LISTENING = {"on": False, "mode": "operator"}
+LISTENING_MODES = ("operator", "automatic")
+
+
+class ListeningRequest(BaseModel):
+    """Either half may be sent on its own: the toggle, the mode, or both."""
+
+    on: StrictBool | None = None
+    mode: Literal["operator", "automatic"] | None = None
+
+
+def _publish_listening(on: bool) -> None:
+    LISTENING["on"] = on
+    event_bus.publish({"type": "listening", "on": on, "session_id": None})
+
+
+def _publish_listening_mode(mode: str) -> None:
+    LISTENING["mode"] = mode
+    event_bus.publish({"type": "listening_mode", "mode": mode, "session_id": None})
+
+
+def listening_off(reason: str) -> None:
+    """2zk item 3(a): a conversation ending turns listening off, for any reason.
+
+    The next guest must never walk up to a microphone that the last one left
+    open. Safe to call when it is already off -- then it says nothing.
+    """
+    if not LISTENING["on"]:
+        return
+    log.info("listening off reason=%s", reason)
+    _publish_listening(False)
+
+
+@app.post("/api/listening", dependencies=[Depends(require_operator_token)])
+async def post_listening(request: Request):
+    """16 section 2zk item 3: Start listening, Stop listening, and the mode.
+
+    The backend only relays: it is `/display` that holds the microphone, so
+    this publishes to the `smd` role and the page acts on it. Start listening
+    with no conversation running is what makes the page open one (trigger
+    `button`, so THE HOST greets); the page decides that, because only the page
+    knows whether its own socket is up.
+
+    Carries no text and no token, and the body is two optional fields.
+    """
+    try:
+        body = ListeningRequest.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid listening request.")
+    if body.on is None and body.mode is None:
+        raise HTTPException(status_code=400, detail="Invalid listening request.")
+
+    if body.mode is not None and body.mode != LISTENING["mode"]:
+        _publish_listening_mode(body.mode)
+        _operator_row(f"listening mode: {body.mode}")
+        await _log_operator_action("listening_mode", mode=body.mode)
+    if body.on is not None:
+        _publish_listening(body.on)
+        _operator_row("started listening" if body.on else "stopped listening")
+        await _log_operator_action("listening", on=body.on)
+    return {"on": LISTENING["on"], "mode": LISTENING["mode"]}
+
+
 @app.post("/api/display/reload", dependencies=[Depends(require_operator_token)])
 async def post_display_reload():
     """16 section 2zf item 8(c): Rehman's own control for the TV.
@@ -1100,6 +1175,14 @@ async def websocket_session(websocket: WebSocket):
     trigger = websocket.query_params.get("trigger", "button")
     if trigger not in ("presence", "voice"):
         trigger = "button"
+    # 16 section 2zk item 3(c): which listening mode the page is in, which is
+    # what picks the start-of-speech sensitivity. Anything unrecognised, and a
+    # page old enough to send nothing, takes the automatic path: LOW is the
+    # conservative setting, and HIGH is only right once an operator has said a
+    # guest is speaking.
+    listen = websocket.query_params.get("listen", "auto")
+    if listen not in live_session.LISTEN_MODES:
+        listen = "auto"
 
     async def refuse(message: str) -> None:
         await websocket.send_text(
@@ -1130,15 +1213,19 @@ async def websocket_session(websocket: WebSocket):
         await refuse("Another conversation is already active.")
         return
 
-    session = LiveSession(websocket, trigger)
+    session = LiveSession(websocket, trigger, listen)
     ACTIVE = session
     session_id = session.ctx["session_id"]
     started_at = monotonic()
-    log.info("session %s started trigger=%s", session_id, trigger)
+    log.info("session %s started trigger=%s listen=%s", session_id, trigger, listen)
     try:
         await session.run()
     finally:
         ACTIVE = None
+        # 16 section 2zk item 3(a): the conversation is over, so the microphone
+        # closes with it -- however it ended, including a crash or the guest
+        # walking off. The next guest starts from NOT LISTENING.
+        listening_off("session ended")
         log.info(
             "session %s ended trigger=%s duration=%.2fs",
             session_id,

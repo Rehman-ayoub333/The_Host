@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Radio } from "lucide-react";
 import { useAgent } from "@/lib/agent/store";
-import { sendSessionNote, setOrderStatus } from "@/lib/agent/service";
+import { sendSessionNote, setListening, setOrderStatus } from "@/lib/agent/service";
 import { fmtClock, fmtElapsed, toMs, useNow } from "@/lib/agent/ui";
 import type { OperationalMode, OrderStatus, PaymentMethod, TranscriptLine } from "@/lib/agent/types";
 import { cn } from "@/lib/utils";
@@ -324,6 +324,95 @@ function LineRow({ line, previous }: { line: TranscriptLine; previous?: Transcri
   );
 }
 
+/**
+ * 16 §2zk item 3(a) — the operator holds the microphone.
+ *
+ * One large toggle and one large badge, because at the stall Rehman reads this
+ * across a table while talking to a guest. F2 does the same thing, so his hand
+ * never has to find the mouse while somebody is standing there.
+ *
+ * Start listening with no conversation running is what starts one: the TV acts
+ * on the `listening` event and opens it as trigger `button`, so THE HOST
+ * greets. Stop listening silences the microphone but does not end the
+ * conversation -- THE HOST may still owe the guest the end of a reply.
+ *
+ * Nothing here is drawn from the click: the badge follows the `listening` event
+ * coming back from the backend, so it shows what the TV was really told.
+ */
+function ListeningToggle() {
+  const listening = useAgent((s) => s.listening);
+  const mode = useAgent((s) => s.listeningMode);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = useRef<() => void>(() => {});
+  toggle.current = () => {
+    if (busy) return;
+    setBusy(true);
+    void setListening({ on: !listening }).finally(() => setBusy(false));
+  };
+
+  // F2, the operator's one key for this. Ignored while a text box has focus, so
+  // it cannot fire while the operator is typing a note to THE HOST.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "F2") return;
+      const el = document.activeElement;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement | null)?.isContentEditable) return;
+      event.preventDefault();
+      toggle.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // §2zk item 3(b): in automatic mode nobody is holding a button, so the toggle
+  // would be a lie. The badge still says what the microphone is doing.
+  if (mode === "automatic") {
+    return (
+      <div className="border-border/60 rounded-md border p-3" data-testid="listening-automatic">
+        <p className="text-[0.62rem] uppercase tracking-widest text-muted-foreground">Listening</p>
+        <p className="mt-1 text-sm font-semibold">Automatic</p>
+        <p className="mt-1 text-[0.68rem] text-muted-foreground">
+          THE HOST listens while a guest is in front of the camera. Switch to Operator in Settings to control it yourself.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-border/60 rounded-md border p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[0.62rem] uppercase tracking-widest text-muted-foreground">Microphone</p>
+        <span
+          data-testid="listening-badge"
+          className={cn(
+            "rounded px-2 py-0.5 text-[0.7rem] font-bold uppercase tracking-widest",
+            listening ? "bg-success/15 text-success" : "bg-muted text-muted-foreground",
+          )}
+        >
+          {listening ? "Listening" : "Not listening"}
+        </span>
+      </div>
+      <button
+        type="button"
+        data-testid="listening-toggle"
+        onClick={() => toggle.current()}
+        disabled={busy}
+        className={cn(
+          "w-full rounded-md px-4 py-3 text-base font-semibold text-white transition-colors disabled:opacity-60",
+          listening ? "bg-destructive hover:bg-destructive/90" : "bg-success hover:bg-success/90",
+        )}
+      >
+        {listening ? "Stop listening" : "Start listening"}
+      </button>
+      <p className="mt-2 text-[0.68rem] text-muted-foreground">
+        F2 does the same. Press Start listening when the guest steps up, Stop listening when they are done.
+      </p>
+    </div>
+  );
+}
+
 export function LivePanel({ className }: { className?: string }) {
   const sessionId = useAgent((s) => s.sessionId);
 
@@ -339,6 +428,9 @@ export function LivePanel({ className }: { className?: string }) {
     >
       <p className="mb-3 text-[0.68rem] text-muted-foreground">Operator only. Guest speech is never shown on the public display or saved.</p>
       <div className="flex flex-col gap-3">
+        {/* 16 §2zk item 3(a): first in the panel, because at the stall it is
+            the control the operator reaches for most. */}
+        <ListeningToggle />
         <div className="grid grid-cols-2 gap-3">
           <ConversationState />
           <OperationalMode_ />

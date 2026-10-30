@@ -33,6 +33,15 @@ export type AgentStateName =
 
 export type OperationalMode = "ONLINE" | "DEGRADED" | "RECOVERING" | "OFFLINE" | "PAUSED" | "OPERATOR_TAKEOVER";
 
+/**
+ * 16 §2zk item 3: who decides when THE HOST is listening.
+ *
+ * Operator is the default. After the 30 Oct faculty demo Rehman stopped
+ * trusting a level threshold to tell a guest from a hall, so he presses Start
+ * listening when a guest steps up and Stop listening when they are done.
+ */
+export type ListeningMode = "operator" | "automatic";
+
 export type ConnectionStatus = "unconfigured" | "connecting" | "live" | "reconnecting" | "token_error";
 export type DataMode = "live" | "demo";
 
@@ -294,7 +303,7 @@ interface Envelope {
 
 /** Events the backend sends over /ws/events (exact shapes, 03 §4). */
 export type AgentEvent =
-  | (Envelope & { type: "state_snapshot"; boot_id: string; operational_mode: OperationalMode; conversation_state: BackendState; present: boolean; active_orders: Order[] })
+  | (Envelope & { type: "state_snapshot"; boot_id: string; operational_mode: OperationalMode; conversation_state: BackendState; present: boolean; active_orders: Order[]; listening?: boolean; listening_mode?: ListeningMode })
   | (Envelope & { type: "agent_state_changed"; state: BackendState })
   | (Envelope & { type: "order_ready"; order_id: number; order_number?: number | null; customer_name?: string | null })
   | (Envelope & { type: "operational_mode_changed"; mode: OperationalMode; reason?: string })
@@ -320,6 +329,10 @@ export type AgentEvent =
   | (Envelope & { type: "error"; message: string; recoverable?: boolean })
   // 16 §2zf item 8(c): to the `smd` role only.
   | (Envelope & { type: "display_reload" })
+  // 16 §2zk item 3: the operator's microphone controls. The TV acts on them --
+  // it is the side holding the microphone -- and the dashboard draws the badge.
+  | (Envelope & { type: "listening"; on: boolean })
+  | (Envelope & { type: "listening_mode"; mode: ListeningMode })
   | { type: "heartbeat"; timestamp?: BoothTime };
 
 /** Internal (frontend-only) actions */
@@ -374,5 +387,13 @@ export interface AgentSnapshot {
   lastError: string | null;
   tokenError: string | null;
   demoStep: number | null;
+  /**
+   * 16 §2zk item 3(a): whether the microphone is open, and on whose rule. The
+   * dashboard draws the LISTENING / NOT LISTENING badge from these and the TV
+   * shows its dot; both are told by the backend, so a reloaded page recovers
+   * them from `state_snapshot` rather than assuming.
+   */
+  listening: boolean;
+  listeningMode: ListeningMode;
   updatedAt: number;
 }

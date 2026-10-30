@@ -80,4 +80,5 @@ const FALLBACK_VIEW: SessionView = {
   cameraAvailable: false,
   presenceAvailable: false,
   notes: [],
+  listening: false,
 };

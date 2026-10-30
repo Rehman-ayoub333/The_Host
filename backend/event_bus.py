@@ -57,6 +57,12 @@ SMD_ALLOWED = frozenset(
         "heartbeat",
         # 16 section 2zf item 8(c): the operator's "Reload display screen".
         "display_reload",
+        # 16 section 2zk item 3: the operator's microphone controls. `listening`
+        # is the Start/Stop toggle and is what opens or silences the uplink;
+        # `listening_mode` is the Settings choice between operator and automatic.
+        # Both are for the TV: it is the page that holds the microphone.
+        "listening",
+        "listening_mode",
     }
 )
 

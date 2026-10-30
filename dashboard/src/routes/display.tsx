@@ -12,7 +12,7 @@ import { STATE_META, fmtCountdown, toMs, useNow } from "@/lib/agent/ui";
 import type { AgentStateName } from "@/lib/agent/types";
 import { chime, type ChimePort } from "@/lib/booth/chime";
 import { C } from "@/lib/booth/constants";
-import { deviceIdOrDefault, loadDeviceChoice, type DeviceChoice } from "@/lib/booth/devices";
+import { deviceIdOrDefault, loadDeviceChoice, loadGateLevel, type DeviceChoice } from "@/lib/booth/devices";
 import type { LocalState, SessionView } from "@/lib/booth/session";
 import { isMicDebug, useHostSession } from "@/lib/booth/useHostSession";
 import { cn } from "@/lib/utils";
@@ -232,6 +232,10 @@ export function SMDDisplay() {
   const mode = useAgent((s) => s.mode);
   const opMode = useAgent((s) => s.opMode);
   const recommendation = useAgent((s) => s.recommendation);
+  // 16 §2zk item 3: the operator's microphone controls reach this screen over
+  // the smd socket; the page is the side that actually holds the microphone.
+  const listening = useAgent((s) => s.listening);
+  const listeningMode = useAgent((s) => s.listeningMode);
   const now = useNow(1000);
 
   // The public display connects with its own role=smd socket — never the
@@ -252,6 +256,23 @@ export function SMDDisplay() {
   const [starting, setStarting] = useState(false);
   const debugMic = isMicDebug();
   const [typed, setTyped] = useState("");
+
+  // 16 §2zk item 3: the mode first -- switching it always shuts the microphone,
+  // so applying the toggle afterwards is what reopens it in the new mode.
+  useEffect(() => {
+    if (session) session.setListeningMode(listeningMode);
+  }, [session, listeningMode]);
+  // §2zk item 3(b): the level the operator saved in Settings. Same origin, so
+  // what the laptop saved is what this page reads; re-read when the mode
+  // changes, which is the moment it starts to matter again.
+  useEffect(() => {
+    if (session) session.setGateLevel(loadGateLevel());
+  }, [session, listeningMode]);
+  useEffect(() => {
+    // Start listening is also what opens a conversation when none is running
+    // (§2zk item 3a), so this must not run before the page has been started.
+    if (session && started) session.setListening(listening);
+  }, [session, started, listening]);
 
   const state = displayState(view.state, fromEvents);
   const meta = STATE_META[state];
@@ -411,6 +432,24 @@ export function SMDDisplay() {
               </p>
             )}
             <VoiceWaveform active={voice} tone={state === "speaking" ? "ivory" : "gold"} bars={56} className={cn("mt-6 h-14 w-[min(70vw,520px)] transition-opacity", voice ? "opacity-100" : "opacity-30")} />
+
+            {/* 16 §2zk item 3(a): a small dot under the orb while the operator
+                is listening, so Rehman can see from across the stall whether
+                the microphone is open. Only in operator mode -- in automatic
+                mode nobody is holding a button and the dot would mean nothing. */}
+            {started && listeningMode === "operator" && (
+              <p
+                data-testid="listening-dot"
+                className={cn(
+                  "mt-4 flex items-center gap-2 text-[clamp(0.7rem,1vw,0.95rem)] uppercase tracking-[0.2em] transition-opacity",
+                  view.listening ? "text-champagne opacity-100" : "opacity-0",
+                )}
+                aria-hidden={!view.listening}
+              >
+                <span className="bg-champagne inline-block h-2 w-2 animate-pulse rounded-full" />
+                Listening
+              </p>
+            )}
 
             {/* 16 §2t item 4: the text box exists only with ?debug=mic. */}
             {debugMic && started && (

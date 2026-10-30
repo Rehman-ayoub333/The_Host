@@ -14,6 +14,8 @@
  * A browser hides device labels until it has been given permission once, so a
  * list read before then has placeholder names in it.
  */
+import { C } from "./constants";
+
 const LS_KEY = "thehost.display.devices";
 
 export interface DeviceChoice {
@@ -41,6 +43,41 @@ export function loadDeviceChoice(): DeviceChoice {
     };
   } catch {
     return fallback;
+  }
+}
+
+/**
+ * 16 §2zk item 3(b) — the automatic mode's noise-gate level.
+ *
+ * Kept beside the device choice and for the same reason: Settings is served
+ * from the same origin as `/display`, so what the operator saves on the laptop
+ * is what the TV reads. Out-of-range and unreadable values fall back to the
+ * default rather than leaving the gate at a number nobody chose.
+ */
+const LS_GATE_KEY = "thehost.display.gateLevel";
+
+export function loadGateLevel(): number {
+  if (typeof window === "undefined") return C.UPLINK_GATE_LEVEL_DEFAULT;
+  try {
+    const raw = window.localStorage.getItem(LS_GATE_KEY);
+    if (!raw) return C.UPLINK_GATE_LEVEL_DEFAULT;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return C.UPLINK_GATE_LEVEL_DEFAULT;
+    if (value < C.UPLINK_GATE_LEVEL_MIN || value > C.UPLINK_GATE_LEVEL_MAX) {
+      return C.UPLINK_GATE_LEVEL_DEFAULT;
+    }
+    return value;
+  } catch {
+    return C.UPLINK_GATE_LEVEL_DEFAULT;
+  }
+}
+
+export function saveGateLevel(level: number) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LS_GATE_KEY, String(level));
+  } catch {
+    /* as above */
   }
 }
 

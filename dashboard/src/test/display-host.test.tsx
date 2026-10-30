@@ -288,6 +288,7 @@ describe("the caption is THE HOST's words only (16 §2t item 4, §2i item 6)", (
       cameraAvailable: true,
       presenceAvailable: true,
       notes: [],
+      listening: false,
     };
 
     expect(displayCaption(view)).toBe("Reconnecting…");

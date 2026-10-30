@@ -1,19 +1,24 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { MonitorSpeaker, Play, Plug } from "lucide-react";
+import { Mic, MonitorSpeaker, Play, Plug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppShell } from "@/components/host/AppShell";
 import { Panel } from "@/components/host/Panel";
 import { PanelBoundary } from "@/components/host/PanelBoundary";
 import { SystemPanel } from "@/components/host/panels";
 import { startDemo } from "@/lib/agent/demo";
-import { connectAgent, getAgentConfig, reloadDisplay, saveAgentConfig } from "@/lib/agent/service";
+import { connectAgent, getAgentConfig, reloadDisplay, saveAgentConfig, setListening } from "@/lib/agent/service";
 import { useAgent } from "@/lib/agent/store";
+import type { ListeningMode } from "@/lib/agent/types";
+import { C } from "@/lib/booth/constants";
+import { cn } from "@/lib/utils";
 import {
   listDevices,
   loadDeviceChoice,
+  loadGateLevel,
   missingDeviceNotes,
   saveDeviceChoice,
+  saveGateLevel,
   SYSTEM_DEFAULT,
   type DeviceChoice,
   type DeviceLists,
@@ -129,6 +134,93 @@ function DisplayDevicesPanel({ className }: { className?: string | undefined }) 
   );
 }
 
+/**
+ * 16 §2zk item 3 — who decides when THE HOST is listening.
+ *
+ * Operator is the default and the one Rehman demos on: he presses Start
+ * listening when a guest steps up. Automatic is kept as an option for a quiet
+ * room, and it is the only mode where the level number means anything, so the
+ * number is shown only then.
+ */
+function ListeningModePanel({ className }: { className?: string | undefined }) {
+  const mode = useAgent((s) => s.listeningMode);
+  const [busy, setBusy] = useState(false);
+  const [level, setLevel] = useState(() => String(loadGateLevel()));
+
+  const choose = (next: ListeningMode) => {
+    if (next === mode || busy) return;
+    setBusy(true);
+    void setListening({ mode: next }).finally(() => setBusy(false));
+  };
+
+  const option = (value: ListeningMode, title: string, detail: string) => (
+    <button
+      key={value}
+      type="button"
+      data-testid={`listening-mode-${value}`}
+      disabled={busy}
+      onClick={() => choose(value)}
+      aria-pressed={mode === value}
+      className={cn(
+        "rounded-md border p-3 text-left transition-colors disabled:opacity-60",
+        mode === value ? "border-gold bg-gold/10" : "border-line hover:border-gold/60",
+      )}
+    >
+      <p className={cn("text-sm font-semibold", mode === value && "text-gold")}>{title}</p>
+      <p className="mt-1 text-[0.68rem] text-muted-foreground">{detail}</p>
+    </button>
+  );
+
+  return (
+    <Panel title="Listening mode" icon={<Mic className="h-4 w-4" />} className={className}>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {option(
+          "operator",
+          "Operator (default)",
+          "You press Start listening when a guest steps up, and Stop listening when they are done. F2 does the same. Use this at a demo and in a busy hall.",
+        )}
+        {option(
+          "automatic",
+          "Automatic",
+          "THE HOST listens by itself while a guest is close to the camera and facing it. Quiet rooms only.",
+        )}
+      </div>
+      {mode === "automatic" && (
+        <div className="mt-4 border-t border-line pt-4">
+          <label className="block">
+            <span className="label-caps">Noise gate level</span>
+            <input
+              type="number"
+              data-testid="gate-level"
+              min={C.UPLINK_GATE_LEVEL_MIN}
+              max={C.UPLINK_GATE_LEVEL_MAX}
+              step={0.01}
+              value={level}
+              onChange={(event) => {
+                setLevel(event.target.value);
+                const next = Number(event.target.value);
+                if (
+                  Number.isFinite(next) &&
+                  next >= C.UPLINK_GATE_LEVEL_MIN &&
+                  next <= C.UPLINK_GATE_LEVEL_MAX
+                ) {
+                  saveGateLevel(next);
+                }
+              }}
+              className="mt-1 h-9 w-28 rounded-md border border-line bg-background/60 px-2 font-mono text-sm"
+            />
+          </label>
+          <p className="mt-2 text-[0.68rem] text-muted-foreground">
+            Between {C.UPLINK_GATE_LEVEL_MIN} and {C.UPLINK_GATE_LEVEL_MAX}; the default is {C.UPLINK_GATE_LEVEL_DEFAULT}. Anything
+            quieter than this is treated as room noise and never reaches THE HOST. Open the display with ?debug=mic to see how many
+            frames the gate is holding before changing it.
+          </p>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 export function SettingsPage() {
   const connection = useAgent((s) => s.connection);
   const tokenError = useAgent((s) => s.tokenError);
@@ -188,6 +280,13 @@ export function SettingsPage() {
             camera and microphone are chosen here, on the laptop. */}
         <PanelBoundary name="Display screen devices" className="xl:col-span-4">
           <DisplayDevicesPanel />
+        </PanelBoundary>
+
+        {/* 16 §2zk item 3: who holds the microphone. Beside the devices panel,
+            because at a demo the handheld mic and Operator mode are chosen
+            together. */}
+        <PanelBoundary name="Listening mode" className="xl:col-span-4">
+          <ListeningModePanel />
         </PanelBoundary>
 
         {/* 16 §2p item 4: Demo Mode lives here, out of the way, so the main

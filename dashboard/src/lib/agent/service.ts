@@ -9,7 +9,7 @@
 import { toast } from "sonner";
 import { agentStore } from "./store";
 import { SOCKET_BACKOFF_MS } from "@/lib/booth/constants";
-import type { Activity, AgentEvent, Analytics, BoothTime, Earnings, FeedbackPayload, Health, MenuItem, Metrics, OperationalMode, Order, OrderStatus, PaymentMethod, Visitor } from "./types";
+import type { Activity, AgentEvent, Analytics, BoothTime, Earnings, FeedbackPayload, Health, ListeningMode, MenuItem, Metrics, OperationalMode, Order, OrderStatus, PaymentMethod, Visitor } from "./types";
 
 const LS_KEY = "thehost.agent.config";
 const DEFAULT_AGENT_URL = "http://localhost:8000";
@@ -184,6 +184,28 @@ export async function announceAgain(orderId: number): Promise<boolean> {
 export async function reloadDisplay(): Promise<boolean> {
   try {
     await request("/api/display/reload", { method: "POST" });
+    return true;
+  } catch (err) {
+    report(err);
+    return false;
+  }
+}
+
+/**
+ * 16 §2zk item 3 — Start listening, Stop listening, and the listening mode.
+ *
+ * After the 30 Oct faculty demo the microphone is Rehman's decision rather than
+ * a level threshold's: he presses Start listening when a guest steps up and
+ * Stop listening when they are done. The backend only relays to the `smd`
+ * role, because the TV is the side that holds the microphone.
+ *
+ * Either half may be sent alone. The store is not written here: the `listening`
+ * and `listening_mode` events come back over /ws/events, so the badge always
+ * shows what the TV was actually told.
+ */
+export async function setListening(body: { on?: boolean; mode?: ListeningMode }): Promise<boolean> {
+  try {
+    await request("/api/listening", { method: "POST", body: JSON.stringify(body) });
     return true;
   } catch (err) {
     report(err);

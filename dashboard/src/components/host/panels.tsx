@@ -846,6 +846,12 @@ export function SystemPanel({ className }: { className?: string }) {
   const connection = useAgent((s) => s.connection);
   const opMode = useAgent((s) => s.opMode);
   const tokenError = useAgent((s) => s.tokenError);
+  // 16 §2zj item 5: in automatic mode the presence gate is what keeps the hall
+  // out, and it needs the camera. Without one it falls back to the level gate
+  // alone, which cannot tell a guest from a crowd -- so the operator is told
+  // plainly rather than left believing the camera is still filtering.
+  const listeningMode = useAgent((s) => s.listeningMode);
+  const cameraOff = system.camera !== "online";
 
   // Browser-side checks: camera/mic permission state, navigator.onLine.
   useEffect(() => {
@@ -876,6 +882,14 @@ export function SystemPanel({ className }: { className?: string }) {
       )}
       {tokenError && (
         <p className="mb-3 rounded-sm border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-[0.68rem] text-destructive">{tokenError}</p>
+      )}
+      {listeningMode === "automatic" && cameraOff && (
+        <p
+          data-testid="camera-off-note"
+          className="mb-3 rounded-sm border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[0.68rem] text-warning"
+        >
+          Camera off — listening to everyone
+        </p>
       )}
       <ul className="space-y-2.5">
         {[...BACKEND_ROWS, ...BROWSER_ROWS].map(([k, label, Icon]) => (

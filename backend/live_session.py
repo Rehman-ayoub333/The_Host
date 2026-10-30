@@ -361,8 +361,27 @@ def _start_sensitivity() -> types.StartSensitivity:
     return chosen
 
 
+# 16 section 2zk item 3(c): the two listening modes `/ws/session` accepts.
+LISTEN_MODES = ("operator", "auto")
+
+
+def _listen_sensitivity(listen: str) -> types.StartSensitivity:
+    """HIGH in operator mode, `config.START_SENSITIVITY` otherwise (2zk item 3c).
+
+    Anything other than "operator" -- including a page old enough not to send
+    the parameter at all -- takes the automatic path, which is the conservative
+    one: LOW does not answer the room.
+    """
+    if listen == "operator":
+        return types.StartSensitivity.START_SENSITIVITY_HIGH
+    return _start_sensitivity()
+
+
 def build_live_config(
-    now: datetime, proactive: bool = False, resume_handle: str | None = None
+    now: datetime,
+    proactive: bool = False,
+    resume_handle: str | None = None,
+    listen: str = "auto",
 ) -> types.LiveConnectConfig:
     settings = dict(
         response_modalities=["AUDIO"],
@@ -391,14 +410,17 @@ def build_live_config(
         # keeps the first syllable of a quiet "yes" or a name instead of clipping
         # it. The end-of-speech sensitivity stays at the server default.
         #
-        # The start sensitivity is `config.START_SENSITIVITY`, and it is LOW: 2r
-        # item 5's HIGH assumed a handheld microphone whose directionality keeps
-        # the room out, and on the laptop and TV microphones in use it made THE
-        # HOST answer the queue behind the guest instead of the guest. See the
-        # note in config.py.
+        # 16 section 2zk item 3(c): the start sensitivity follows the listening
+        # mode. In operator mode the operator has already decided a guest is
+        # speaking, so the server may start listening readily (HIGH) and a short
+        # soft "yes" into the handheld is heard. In automatic mode it is
+        # `config.START_SENSITIVITY`, which is LOW: 2r item 5's HIGH assumed a
+        # handheld microphone whose directionality keeps the room out, and on the
+        # laptop and TV microphones in use it made THE HOST answer the queue
+        # behind the guest instead of the guest. See the note in config.py.
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
-                start_of_speech_sensitivity=_start_sensitivity(),
+                start_of_speech_sensitivity=_listen_sensitivity(listen),
                 prefix_padding_ms=config.PREFIX_PADDING_MS,
                 silence_duration_ms=config.SILENCE_DURATION_MS,
             )
@@ -412,9 +434,12 @@ def build_live_config(
 
 
 class LiveSession:
-    def __init__(self, ws: WebSocket, trigger: str):
+    def __init__(self, ws: WebSocket, trigger: str, listen: str = "auto"):
         self.ws = ws
         self.trigger = trigger
+        # 16 section 2zk item 3(c): kept on the session, so a connection rebuilt
+        # mid-conversation asks for the same sensitivity the guest started with.
+        self.listen = listen if listen in LISTEN_MODES else "auto"
         self.session = None
         self.stack = None
         self.tasks = []
@@ -614,7 +639,9 @@ class LiveSession:
             self.stack.enter_async_context(
                 client.aio.live.connect(
                     model=config.GEMINI_LIVE_MODEL,
-                    config=build_live_config(datetime.now(), proactive, handle),
+                    config=build_live_config(
+                        datetime.now(), proactive, handle, self.listen
+                    ),
                 )
             ),
             timeout=config.CONNECT_TIMEOUT_S,

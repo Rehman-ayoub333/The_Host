@@ -87,11 +87,24 @@ export const C = {
   // itself above the line and goes out whole -- the gate costs no attack delay
   // and cannot clip the start of a quiet "yes".
   //
-  // 0.12 against measured values (§2j item 7: quiet idle 0.00-0.05, speech
-  // 0.4-1.0) sits clear of the idle floor and far below any guest. Raise it
-  // toward 0.2 in a louder hall; lower it only if a soft-spoken guest goes
-  // unheard. `?debug=mic` prints how many frames the gate held.
-  UPLINK_GATE_LEVEL: 0.12,
+  // 16 §2zk item 3(b): the level is a Settings number in automatic mode, and
+  // this is its default. 0.12 was the first attempt, set against the values
+  // §2j item 7 measured on the handheld microphone (quiet idle 0.00-0.05,
+  // speech 0.4-1.0); on 30 Oct Rehman had to repeat himself even into that
+  // microphone, because a fixed threshold depends on the device and on the
+  // Windows input gain. 0.05 sits just on the idle floor instead: it still
+  // drops a silent room, and it is far less likely to drop a guest. The
+  // operator can move it between MIN and MAX from Settings, and `?debug=mic`
+  // prints how many frames the gate held so it can be checked against the
+  // microphone actually in use.
+  UPLINK_GATE_LEVEL_DEFAULT: 0.05,
+  UPLINK_GATE_LEVEL_MIN: 0.01,
+  UPLINK_GATE_LEVEL_MAX: 0.3,
+  // §2zj item 5 as amended by §2zk item 3(b): in automatic mode the uplink
+  // carries real audio only while a face is close and facing the screen, which
+  // is the wake-on-speech test, or for this long after one was last seen -- a
+  // guest turning their head mid-sentence must not cut the sentence.
+  PRESENCE_GATE_GRACE_MS: 1500,
   // Once the guest is speaking, keep sending for this long after the last loud
   // frame, so the quiet tail of a sentence and the pauses inside it are not
   // punched out. Comfortably longer than the backend's 500 ms end-of-speech

@@ -451,7 +451,7 @@ describe("the /ws/session protocol (16 §2t item 3)", () => {
 
     await h.session.startSession("voice");
 
-    expect(urls).toEqual(["ws://localhost:8000/ws/session?trigger=voice"]);
+    expect(urls).toEqual(["ws://localhost:8000/ws/session?trigger=voice&listen=operator"]);
   });
 
   it("sends the trigger the conversation was started with", async () => {
@@ -562,6 +562,12 @@ describe("THE HOST never hears itself (16 §2u item 3)", () => {
     const h = harness({ audio });
     await h.session.start({ video: null });
     const socket = await inConversation(h);
+    // 16 §2zk item 3: these tests are about the level, so they run in automatic
+    // mode with a guest standing in front of the camera. In operator mode the
+    // toggle decides and no level is consulted.
+    h.session.setListeningMode("automatic");
+    h.session.setPresenceAvailableForTest(true);
+    h.session.setFaceForTest({ x: 0.5, y: 0.5, ratio: 0.3, frontal: true });
     return {
       h,
       socket,
@@ -664,8 +670,8 @@ describe("THE HOST never hears itself (16 §2u item 3)", () => {
    * beginning to talk and made THE HOST answer nobody.
    */
   describe("the uplink noise gate", () => {
-    const QUIET = C.UPLINK_GATE_LEVEL - 0.01;
-    const SPEAKING = C.UPLINK_GATE_LEVEL + 0.01;
+    const QUIET = C.UPLINK_GATE_LEVEL_DEFAULT - 0.01;
+    const SPEAKING = C.UPLINK_GATE_LEVEL_DEFAULT + 0.01;
 
     it("sends silence of the same size while the room is below the line", async () => {
       const g = await gated({ micAmp: QUIET });
@@ -735,10 +741,13 @@ describe("THE HOST never hears itself (16 §2u item 3)", () => {
       expect(C.UPLINK_GATE_HANGOVER_MS).toBeGreaterThan(500);
     });
 
-    it("sits clear of the measured idle floor and well under a guest", () => {
-      // §2j item 7: quiet idle 0.00-0.05, speech 0.4-1.0.
-      expect(C.UPLINK_GATE_LEVEL).toBeGreaterThan(0.05);
-      expect(C.UPLINK_GATE_LEVEL).toBeLessThan(0.4);
+    it("sits at the measured idle ceiling and well under a guest", () => {
+      // §2j item 7: quiet idle 0.00-0.05, speech 0.4-1.0. 16 §2zk item 3(b)
+      // lowered this from 0.12 to 0.05: on 30 Oct Rehman had to repeat himself
+      // even into the handheld, because a fixed threshold depends on the device
+      // and on the Windows input gain. It still drops a silent room.
+      expect(C.UPLINK_GATE_LEVEL_DEFAULT).toBeGreaterThanOrEqual(0.05);
+      expect(C.UPLINK_GATE_LEVEL_DEFAULT).toBeLessThan(0.4);
     });
 
     it("is shut again for the next guest", async () => {
