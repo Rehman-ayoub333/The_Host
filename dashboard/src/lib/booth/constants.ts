@@ -71,6 +71,32 @@ export const C = {
   // for this long after, the page sends silence instead of the microphone and
   // its own voice-activity detection ignores the window.
   ECHO_GATE_TAIL_MS: 300,
+  // The uplink noise gate: THE HOST answers the guest at the counter, not the
+  // room. Until now the echo gate above was the only thing that could stop a
+  // microphone frame, so every sound in the hall -- the queue behind the guest,
+  // a neighbouring stall, people walking past -- was streamed to Gemini, whose
+  // own detector then turned it into a guest starting to talk. The page already
+  // measures the level for the orb; this is the same reading used to decide what
+  // is worth sending at all.
+  //
+  // A frame below UPLINK_GATE_LEVEL is replaced by silence of the same length,
+  // exactly as in the echo gate: the stream stays continuous, because Gemini's
+  // end-of-speech detection reads it as one unbroken stream and a real gap would
+  // confuse it. `micAmp` is this frame's own RMS (it is set immediately before
+  // the frame is handed over), so the frame that carries the first syllable is
+  // itself above the line and goes out whole -- the gate costs no attack delay
+  // and cannot clip the start of a quiet "yes".
+  //
+  // 0.12 against measured values (§2j item 7: quiet idle 0.00-0.05, speech
+  // 0.4-1.0) sits clear of the idle floor and far below any guest. Raise it
+  // toward 0.2 in a louder hall; lower it only if a soft-spoken guest goes
+  // unheard. `?debug=mic` prints how many frames the gate held.
+  UPLINK_GATE_LEVEL: 0.12,
+  // Once the guest is speaking, keep sending for this long after the last loud
+  // frame, so the quiet tail of a sentence and the pauses inside it are not
+  // punched out. Comfortably longer than the backend's 500 ms end-of-speech
+  // wait, so the gate can never end a turn earlier than Gemini would.
+  UPLINK_GATE_HANGOVER_MS: 1200,
   // 16 §2u item 4: playback never starves. A chunk that can only be scheduled
   // more than this long after the previous chunk of the same turn finished is an
   // underrun -- a gap the guest hears as THE HOST's voice breaking up.

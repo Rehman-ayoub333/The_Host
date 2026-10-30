@@ -538,13 +538,23 @@ describe("THE HOST never hears itself (16 §2u item 3)", () => {
     return samples.every((sample) => sample === 0);
   }
 
-  /** A session in conversation, with the microphone callback in hand. */
+  /**
+   * A session in conversation, with the microphone callback in hand.
+   *
+   * The default level is a guest talking at the counter. These tests are about
+   * the echo gate -- whether THE HOST's own voice stops the uplink -- and a
+   * silent room would be held back by the noise gate instead, which is a
+   * different question (tested in its own block below).
+   */
   async function gated(options: { micAmp?: number } = {}) {
     let playing = false;
+    // The real level is this frame's own RMS, so a test that changes what the
+    // microphone is hearing between frames swaps this function.
+    let micAmp = () => options.micAmp ?? C.VOICE_ACTIVE_LEVEL;
     const frames: ((frame: ArrayBuffer) => void)[] = [];
     const audio = fakeAudio({
       isPlaying: () => playing,
-      getMicAmp: () => options.micAmp ?? 0,
+      getMicAmp: () => micAmp(),
       startMic: vi.fn(async (onFrame: (frame: ArrayBuffer) => void) => {
         frames.push(onFrame);
       }),
@@ -558,6 +568,9 @@ describe("THE HOST never hears itself (16 §2u item 3)", () => {
       send: (frame: ArrayBuffer) => frames.at(-1)!(frame),
       setPlaying: (value: boolean) => {
         playing = value;
+      },
+      setMicAmp: (next: () => number) => {
+        micAmp = next;
       },
     };
   }
@@ -638,6 +651,107 @@ describe("THE HOST never hears itself (16 §2u item 3)", () => {
     await g.h.advance(C.ECHO_GATE_TAIL_MS + C.VOICE_POLL_MS * (C.VOICE_ON_POLLS + 2));
 
     expect(g.socket.json()).toContainEqual({ type: "voice_activity", active: true });
+  });
+
+  /* ----------------------- the noise gate ------------------------------- */
+
+  /**
+   * THE HOST answers the guest at the counter, not the room.
+   *
+   * Before this gate the echo gate was the only thing that could stop a
+   * microphone frame, so the hall -- the queue behind the guest, the next stall,
+   * people walking past -- was streamed to Gemini, which turned it into a guest
+   * beginning to talk and made THE HOST answer nobody.
+   */
+  describe("the uplink noise gate", () => {
+    const QUIET = C.UPLINK_GATE_LEVEL - 0.01;
+    const SPEAKING = C.UPLINK_GATE_LEVEL + 0.01;
+
+    it("sends silence of the same size while the room is below the line", async () => {
+      const g = await gated({ micAmp: QUIET });
+
+      g.send(loudFrame());
+      g.send(loudFrame());
+
+      const sent = binaries(g.socket);
+      expect(sent).toHaveLength(2);
+      // Silence, never a gap: Gemini's end-of-speech detection reads the uplink
+      // as one continuous stream, exactly as for the echo gate.
+      expect(sent.every((buffer) => buffer.byteLength === C.MIC_FRAME_SAMPLES * 2)).toBe(true);
+      expect(sent.every(allZero)).toBe(true);
+      expect(g.h.session.uplinkGateOpen()).toBe(false);
+    });
+
+    it("sends the very first loud frame whole, so no syllable is clipped", async () => {
+      // The level is this frame's own RMS, so the frame that carries the first
+      // syllable of a quiet "yes" opens the gate itself.
+      const g = await gated({ micAmp: SPEAKING });
+
+      g.send(loudFrame());
+
+      const sent = binaries(g.socket);
+      expect(sent).toHaveLength(1);
+      expect(allZero(sent[0]!)).toBe(false);
+      expect(new Int16Array(sent[0]!)[0]).toBe(9000);
+    });
+
+    it("keeps sending through the quiet tail and the pauses in a sentence", async () => {
+      let amp = SPEAKING;
+      const g = await gated({ micAmp: 0 });
+      // The level is read per frame, so it is swapped between sends.
+      g.setMicAmp(() => amp);
+
+      g.send(loudFrame());
+      amp = QUIET;
+      await g.h.advance(C.UPLINK_GATE_HANGOVER_MS - 100);
+      g.send(loudFrame());
+
+      // Still open: a pause inside a sentence is not the end of one.
+      expect(g.h.session.uplinkGateOpen()).toBe(true);
+      expect(binaries(g.socket).every((buffer) => !allZero(buffer))).toBe(true);
+    });
+
+    it("shuts again once the hangover has passed", async () => {
+      let amp = SPEAKING;
+      const g = await gated({ micAmp: 0 });
+      g.setMicAmp(() => amp);
+
+      g.send(loudFrame());
+      amp = QUIET;
+      await g.h.advance(C.UPLINK_GATE_HANGOVER_MS + 50);
+      g.send(loudFrame());
+
+      const sent = binaries(g.socket);
+      expect(sent).toHaveLength(2);
+      expect(allZero(sent[0]!)).toBe(false);
+      expect(allZero(sent[1]!)).toBe(true);
+      expect(g.h.session.uplinkGateOpen()).toBe(false);
+    });
+
+    it("outlasts the backend's end-of-speech wait, so it never cuts a turn short", () => {
+      // The backend ends a turn on 500 ms of silence (config.SILENCE_DURATION_MS).
+      // A hangover shorter than that could punch a hole in a sentence long
+      // enough for Gemini to decide the guest had finished talking.
+      expect(C.UPLINK_GATE_HANGOVER_MS).toBeGreaterThan(500);
+    });
+
+    it("sits clear of the measured idle floor and well under a guest", () => {
+      // §2j item 7: quiet idle 0.00-0.05, speech 0.4-1.0.
+      expect(C.UPLINK_GATE_LEVEL).toBeGreaterThan(0.05);
+      expect(C.UPLINK_GATE_LEVEL).toBeLessThan(0.4);
+    });
+
+    it("is shut again for the next guest", async () => {
+      const g = await gated({ micAmp: SPEAKING });
+      g.send(loudFrame());
+      expect(g.h.session.uplinkGateOpen()).toBe(true);
+
+      // A hangover left over from one conversation must not stream the room
+      // into the next one.
+      g.h.session.startVoiceActivityForTest();
+      g.setMicAmp(() => 0);
+      expect(g.h.session.uplinkGateOpen()).toBe(false);
+    });
   });
 });
 

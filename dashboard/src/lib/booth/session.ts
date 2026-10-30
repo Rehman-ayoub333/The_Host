@@ -189,6 +189,9 @@ export class HostSession {
   // retried since the failure, which is what picks the backoff step.
   private retry = { attempt: 0 };
   private voice = { onPolls: 0, belowSince: 0, sent: false };
+  // The noise gate's hangover: until when a frame counts as the guest speaking,
+  // measured from the last frame that was loud enough. 0 means the gate is shut.
+  private uplink = { loudUntil: 0 };
   // 16 §2h item 2: what wake-on-speech is watching.
   private wake: { face: FaceReading | null; speechSince: number; lastEndAt: number; lastFaceAt: number } = {
     face: null,
@@ -209,7 +212,7 @@ export class HostSession {
   private caption: { lastAt: number; pending: string | null } = { lastAt: 0, pending: null };
   private playCounters = { since: 0 };
   private micDebug: { samples: { at: number; level: number }[] } = { samples: [] };
-  private micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, lastFrameAt: 0, since: 0 };
+  private micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, gated: 0, lastFrameAt: 0, since: 0 };
   private longTaskObserver: PerformanceObserver | null = null;
 
   constructor(deps: SessionDeps) {
@@ -379,6 +382,9 @@ export class HostSession {
     this.voice.onPolls = 0;
     this.voice.belowSince = 0;
     this.voice.sent = false;
+    // A new conversation starts with the noise gate shut, so a hangover left
+    // over from the last guest cannot stream the room into this one.
+    this.uplink.loudUntil = 0;
     this.timers.voiceActivity = setInterval(this.pollVoiceActivity, C.VOICE_POLL_MS);
   }
 
@@ -422,16 +428,27 @@ export class HostSession {
     this.micCounters.frames += 1;
   }
 
+  /** How many frames the noise gate replaced with silence, for ?debug=mic. */
+  private countGatedFrame() {
+    if (!this.deps.debugMic) return;
+    this.micCounters.gated += 1;
+  }
+
   private printMicCounters = () => {
     // The rate is taken over the window that actually elapsed rather than the
     // nominal 5 s, because a main thread busy enough to delay microphone frames
     // is busy enough to make this very interval run late.
     const seconds = (this.now() - this.micCounters.since) / 1000;
     const rate = seconds > 0 ? this.micCounters.frames / seconds : 0;
-    this.log().info("mic frames/s", Number(rate.toFixed(1)), "maxgap_ms", Math.round(this.micCounters.maxGapMs), "longtasks", this.micCounters.longTasks);
+    // `gated` is how many of those frames the noise gate replaced with silence.
+    // A quiet room between guests is mostly gated; a frame count that stays high
+    // while somebody is speaking at the counter means UPLINK_GATE_LEVEL is set
+    // too high for this microphone.
+    this.log().info("mic frames/s", Number(rate.toFixed(1)), "maxgap_ms", Math.round(this.micCounters.maxGapMs), "longtasks", this.micCounters.longTasks, "gated", this.micCounters.gated);
     this.micCounters.frames = 0;
     this.micCounters.maxGapMs = 0;
     this.micCounters.longTasks = 0;
+    this.micCounters.gated = 0;
     this.micCounters.since = this.now();
   };
 
@@ -461,7 +478,7 @@ export class HostSession {
   private startMicCounters() {
     if (!this.deps.debugMic) return;
     this.stopMicCounters();
-    this.micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, lastFrameAt: 0, since: this.now() };
+    this.micCounters = { frames: 0, maxGapMs: 0, longTasks: 0, gated: 0, lastFrameAt: 0, since: this.now() };
     this.playCounters.since = this.now();
     this.deps.audio.takePlaybackStats();
     this.timers.playCounters = setInterval(this.printPlaybackCounters, MIC_COUNTER_MS);
@@ -760,6 +777,23 @@ export class HostSession {
    * it is measured from the last moment playback was actually observed, so it is
    * accurate to within one poll (100 ms) rather than depending on an end event.
    */
+  /**
+   * Is this microphone frame worth sending -- is the guest at the counter
+   * speaking right now?
+   *
+   * True for any frame at or above `UPLINK_GATE_LEVEL`, and for
+   * `UPLINK_GATE_HANGOVER_MS` after the last such frame. `getMicAmp()` is this
+   * frame's own RMS, so the frame carrying the first syllable opens the gate
+   * itself and is sent whole: nothing is clipped off the start of a short reply.
+   */
+  uplinkGateOpen(): boolean {
+    if (this.deps.audio.getMicAmp() >= C.UPLINK_GATE_LEVEL) {
+      this.uplink.loudUntil = this.now() + C.UPLINK_GATE_HANGOVER_MS;
+      return true;
+    }
+    return this.now() < this.uplink.loudUntil;
+  }
+
   echoGateOpen(): boolean {
     if (this.deps.audio.isPlaying()) {
       this.echo.lastPlayingAt = this.now();
@@ -778,6 +812,15 @@ export class HostSession {
     // Accepted consequence: a guest cannot talk over THE HOST; they speak after
     // it finishes, as at a counter.
     if (this.echoGateOpen()) {
+      this.uplink.loudUntil = 0;
+      this.ws.send(new ArrayBuffer(buffer.byteLength));
+      return;
+    }
+    // The noise gate: anything too quiet to be the guest at the counter is sent
+    // as silence rather than streamed to Gemini, which would otherwise answer
+    // the room. Same shape as the echo gate above -- silence, never a gap.
+    if (!this.uplinkGateOpen()) {
+      this.countGatedFrame();
       this.ws.send(new ArrayBuffer(buffer.byteLength));
       return;
     }
@@ -1192,5 +1235,10 @@ export class HostSession {
 
   getBusyTriesForTest() {
     return this.busy.tries;
+  }
+
+  /** Re-runs the per-conversation reset, including the noise gate's hangover. */
+  startVoiceActivityForTest() {
+    this.startVoiceActivity();
   }
 }
