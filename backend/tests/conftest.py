@@ -55,6 +55,22 @@ def fresh_backend(tmp_path, monkeypatch):
     # /health tests to trip over.
     netlify_feedback.STATUS.__init__()
     netlify_feedback._off_logged = False
+    # 16 section 2zj item 7: the lifespan starts the feedback importer as a
+    # background task (main.py: "at startup then every minute"). With a real
+    # NETLIFY_TOKEN in backend/.env that task is live, so it reached Netlify
+    # while the test ran and wrote its outcome into the one module-level STATUS
+    # object -- which is exactly what the /health tests assert is pristine. On
+    # 30 Oct that made test_main and test_metrics fail with
+    # last_error="ConnectError" in a full run and pass on their own: the result
+    # depended on whether the laptop's network answered inside the window.
+    #
+    # The loop is replaced rather than the token, so the importer's own tests
+    # keep exercising import_once and only the background task is neutralised.
+    # It is reset for every test, so no test can start the real one by accident.
+    async def no_import_loop() -> None:
+        return None
+
+    monkeypatch.setattr(netlify_feedback, "import_loop", no_import_loop)
     data.init_db()
     yield
     event_bus.PUBLISHED.clear()

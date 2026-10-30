@@ -32,9 +32,8 @@ def served(monkeypatch):
     monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
     monkeypatch.setattr(config, "OPERATOR_TOKEN", TOKEN)
     monkeypatch.setattr(main, "ACTIVE", None)
-    # 16 section 2zj item 7: the lifespan starts the feedback importer, and a
-    # live one would reach the network during the test.
-    monkeypatch.setattr(config, "NETLIFY_TOKEN", "")
+    # 16 section 2zj item 7: conftest replaces the importer's background loop
+    # for every test, so starting the lifespan here reaches no network.
     # Every test starts from the documented default, whatever ran before it.
     monkeypatch.setattr(main, "LISTENING", {"on": False, "mode": "operator"})
     with TestClient(main.app) as client:
