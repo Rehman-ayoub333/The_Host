@@ -105,6 +105,10 @@ PREFIX_PADDING_MS = 300
 # quiet "yes" from losing its first syllable, so raising the bar here does not
 # cost short replies. Set to "HIGH" only with a handheld or headset microphone.
 START_SENSITIVITY = os.getenv("START_SENSITIVITY", "LOW").strip().upper()
+# 16 section 2zm item 4: which menu categories are drinks. The old menu called
+# them "Drinks"; the real one has "Lemonades", and the Mix Fruit Cup is food.
+# One constant, so a category rename never has to be hunted through the code.
+DRINK_CATEGORIES = ["Lemonades"]
 # 16 section 2j item 5: Gemini has heard the guest, or has been given a tool
 # result, and nothing has come back for this long. The conversation is not over,
 # so the connection is rebuilt rather than the session ended.

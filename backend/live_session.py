@@ -321,7 +321,7 @@ def describe_total(items) -> str:
 
 
 def describe_items(items) -> str:
-    """"2 x Chicken Burger, 1 x Blue Lemonade" -- for a prompt, never a log."""
+    """"2 x Zinger Burger, 1 x Blue Citrus Lemonade" -- for a prompt, never a log."""
     return ", ".join(
         f"{entry.get('quantity')} x {entry.get('name')}"
         for entry in items or []

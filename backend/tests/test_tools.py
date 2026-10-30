@@ -45,13 +45,24 @@ def test_check_item_availability_reads_the_real_menu(ctx):
         "Mixed Fruit Shake",
     ]
 
+    # 16 section 2zm item 3(f): a word shared by two items is a question now,
+    # not a list. This fixture menu has a Chicken Burger and a Patty Burger.
     burgers = tools.check_item_availability(item="burger")
-    assert burgers["total"] == 2
-    assert burgers["items"][0]["price"] == "Rs. 650"
+    assert burgers["ambiguous"] == ["Chicken Burger", "Patty Burger"]
+    assert "items" not in burgers
+
+    one = tools.check_item_availability(item="chicken burger")
+    assert one["total"] == 1
+    assert one["items"][0]["price"] == "Rs. 650"
 
     drinks = tools.check_item_availability(category="Drinks")
     assert [item["name"] for item in drinks["items"]] == ["Blue Lemonade", "Mixed Fruit Shake"]
-    assert tools.check_item_availability(item="pizza")["items"] == []
+    # Item 3(f): no match carries the three closest real names instead of an
+    # empty list, so THE HOST can offer something that exists.
+    pizza = tools.check_item_availability(item="pizza")
+    assert pizza["no_match"] is True
+    assert len(pizza["closest"]) == 3
+    assert "items" not in pizza
 
 
 def test_check_item_availability_reports_an_unavailable_item(ctx):
@@ -205,10 +216,12 @@ def test_a_late_on_the_house_publishes_the_flag(ctx):
 
 
 def test_build_order_rejects_unknown_unavailable_and_empty_items(ctx):
-    assert tools.build_order([{"name": "Pizza"}]) == {
-        "source": "order",
-        "error": "'Pizza' isn't on the menu.",
-    }
+    # 16 section 2zm item 3(f): the wording and the three closest real names.
+    pizza = tools.build_order([{"name": "Pizza"}])
+    assert pizza["source"] == "order"
+    assert pizza["error"] == "We don't serve Pizza."
+    assert len(pizza["closest"]) == 3
+    assert "draft_id" not in pizza
     data.set_menu_availability("Blue Lemonade", False)
     assert tools.build_order([{"name": "Blue Lemonade"}]) == {
         "source": "order",

@@ -225,7 +225,7 @@ reads `Order #29 created (on the house)`, so the team can always see it and chec
 
 **How THE HOST sounds.** One short style rule runs through everything it says: a polished,
 confident host with quiet wit, one or two sentences unless detail is asked for, varied
-wording rather than the same opener twice, a decisive "Done — one Chicken Burger for Rehman."
+wording rather than the same opener twice, a decisive "Done — one Zinger Burger for Rehman."
 instead of a paragraph, the guest's name once or twice rather than in every line, two or
 three suggestions rather than the whole menu read out, at most one light joke in a
 conversation and none at all with a guest of honour, and none of the assistant filler

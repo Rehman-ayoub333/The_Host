@@ -66,12 +66,18 @@ _STATUS_CHAIN = (
 
 _MENU_COLUMNS = (
     "name, category, price, description, image_url, available, prep_seconds, "
-    "ingredients, allergens, tags, add_ons"
+    "ingredients, allergens, tags, add_ons, aliases"
 )
 # 16 section 2i item 4: the four optional facts guests ask about, stored as JSON
 # text. NULL means "unknown", which is never the same as "none" -- the five
 # current items carry no invented values, so they simply leave these out.
 MENU_OPTIONAL_FIELDS = ("ingredients", "allergens", "tags", "add_ons")
+# 16 section 2zm item 2: the other spoken names for an item, so the matcher can
+# reach it from "zingr", "blue wali" or "shwarma". Stored with the item and
+# optional -- missing means the item has none. Kept out of MENU_OPTIONAL_FIELDS
+# because those are facts a guest asks about; this one is only ever read by
+# menu_match, never read out.
+MENU_LIST_FIELDS = (*MENU_OPTIONAL_FIELDS, "aliases")
 MENU_TAGS = ("spicy", "sweet", "vegetarian", "cold", "hot")
 _ORDER_COLUMNS = (
     "id, timestamp, guest_name, items, status, announced, session_id, "
@@ -158,7 +164,7 @@ def _encode_menu_list(field: str, value, row_number: int) -> str | None:
 def _menu_from_row(row) -> dict:
     """The menu row as the tools see it: an optional field absent when unknown."""
     item = dict(row)
-    for field in MENU_OPTIONAL_FIELDS:
+    for field in MENU_LIST_FIELDS:
         raw = item.pop(field, None)
         if raw is None:
             continue
@@ -197,7 +203,8 @@ def init_db() -> list[tuple[str, bool]]:
                 ingredients TEXT,
                 allergens TEXT,
                 tags TEXT,
-                add_ons TEXT
+                add_ons TEXT,
+                aliases TEXT
             )"""
         )
         # 16 section 2i item 4: a database from an earlier phase has none of the
@@ -205,7 +212,7 @@ def init_db() -> list[tuple[str, bool]]:
         existing = {
             row["name"] for row in conn.execute("PRAGMA table_info(menu_items)")
         }
-        for field in MENU_OPTIONAL_FIELDS:
+        for field in MENU_LIST_FIELDS:
             if field not in existing:
                 conn.execute(f"ALTER TABLE menu_items ADD COLUMN {field} TEXT")
         conn.execute(
@@ -372,7 +379,7 @@ def init_db() -> list[tuple[str, bool]]:
                     max(0, int(row.get("prep_seconds", 0))),
                     *(
                         _encode_menu_list(field, row.get(field), row_number)
-                        for field in MENU_OPTIONAL_FIELDS
+                        for field in MENU_LIST_FIELDS
                     ),
                 )
                 current = stored.get(name.lower())
@@ -380,7 +387,7 @@ def init_db() -> list[tuple[str, bool]]:
                 if current is None:
                     conn.execute(
                         f"""INSERT INTO menu_items ({_MENU_COLUMNS})
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             name,
                             *fields[:4],
@@ -396,14 +403,15 @@ def init_db() -> list[tuple[str, bool]]:
                     current["description"],
                     current["image_url"],
                     current["prep_seconds"],
-                    *(current[field] for field in MENU_OPTIONAL_FIELDS),
+                    *(current[field] for field in MENU_LIST_FIELDS),
                 )
                 if was == fields and current["name"] == name:
                     continue
                 conn.execute(
                     """UPDATE menu_items SET name = ?, category = ?, price = ?,
                        description = ?, image_url = ?, prep_seconds = ?,
-                       ingredients = ?, allergens = ?, tags = ?, add_ons = ?
+                       ingredients = ?, allergens = ?, tags = ?, add_ons = ?,
+                       aliases = ?
                        WHERE LOWER(name) = ?""",
                     (name, *fields, name.lower()),
                 )

@@ -7,6 +7,7 @@ import httpx
 import config
 import data
 import event_bus
+import menu_match
 
 
 log = logging.getLogger(__name__)
@@ -252,6 +253,29 @@ def _note_visitor(name, announce_only_if_changed: bool = False) -> dict | None:
 def check_item_availability(item=None, category=None) -> dict:
     args = {"item": item, "category": category}
     try:
+        # 16 section 2zm item 3(f): a spoken name goes through the one matcher,
+        # so "zingr burgr" finds the Zinger Burger and "zinger" comes back as a
+        # question rather than a guess. A category query is a list, not a name,
+        # so it skips the matcher entirely.
+        if item and not category:
+            resolved = menu_match.resolve_item(item, data.get_menu())
+            if "ambiguous" in resolved:
+                return _finish(
+                    "check_item_availability",
+                    args,
+                    {"source": "menu", "ambiguous": resolved["ambiguous"]},
+                )
+            if resolved.get("no_match"):
+                return _finish(
+                    "check_item_availability",
+                    args,
+                    {
+                        "source": "menu",
+                        "no_match": True,
+                        "closest": resolved["closest"],
+                    },
+                )
+            item = resolved["match"]
         rows = data.get_menu(
             item=str(item).strip() if item else None,
             category=str(category).strip() if category else None,
@@ -306,13 +330,41 @@ def build_order(items, guest_name=None, complimentary=None) -> dict:
     try:
         c = _ctx()
         validated = []
+        # Read once: the matcher needs every item's aliases, and the loop below
+        # must not re-read the menu per entry.
+        menu = data.get_menu()
         for entry in (items or []):
             name = str((entry or {}).get("name", "")).strip()
             try:
                 quantity = max(1, min(20, int((entry or {}).get("quantity", 1))))
             except (TypeError, ValueError):
                 quantity = 1
-            row = data.get_menu_item(name)
+            # 16 section 2zm item 3(f): nothing is built while any item is
+            # ambiguous or unmatched, and only the first problem is reported --
+            # one question at a time is how a guest at a counter is asked.
+            resolved = menu_match.resolve_item(name, menu)
+            if "ambiguous" in resolved:
+                options = resolved["ambiguous"]
+                return _finish(
+                    "build_order",
+                    args,
+                    {
+                        "source": "order",
+                        "error": f"Ask the guest which one: {' or '.join(options)}.",
+                        "options": options,
+                    },
+                )
+            if resolved.get("no_match"):
+                return _finish(
+                    "build_order",
+                    args,
+                    {
+                        "source": "order",
+                        "error": f"We don't serve {name}.",
+                        "closest": resolved["closest"],
+                    },
+                )
+            row = data.get_menu_item(resolved["match"])
             if row is None:
                 return _finish(
                     "build_order",
@@ -859,7 +911,15 @@ TOOL_DECLARATIONS = [
         "Look up the real menu: what is available, prices and descriptions. Provide only what the guest mentioned; omit both fields to list everything.",
         {
             "item": {"type": "string", "description": "Item name or part of it, e.g. 'burger'."},
-            "category": {"type": "string", "description": "Category such as 'Mains' or 'Drinks'."},
+            "category": {
+                "type": "string",
+                # 16 section 2zm item 4: the real categories, and the drinks one
+                # from config.DRINK_CATEGORIES rather than spelled out here.
+                "description": (
+                    "Category such as 'Burgers', 'Sandwiches' or "
+                    f"'{config.DRINK_CATEGORIES[0]}'."
+                ),
+            },
         },
     ),
     _decl(
@@ -964,7 +1024,7 @@ TOOL_DECLARATIONS = [
         {
             "subject": {
                 "type": "string",
-                "description": "What it is about, e.g. 'chicken burger' or 'service speed'.",
+                "description": "What it is about, e.g. 'zinger burger' or 'service speed'.",
             },
             "comment": {
                 "type": "string",

@@ -1,7 +1,13 @@
 [
-  {"name": "Chicken Burger", "category": "Mains", "price": "Rs. 650", "description": "Crispy chicken, signature sauce, freshly assembled.", "image_url": "/menu/chicken-burger.jpg", "available": true, "prep_seconds": 300},
-  {"name": "Club Sandwich", "category": "Mains", "price": "Rs. 550", "description": "Triple-layered, grilled, served with fries.", "image_url": "/menu/club-sandwich.jpg", "available": true, "prep_seconds": 240},
-  {"name": "Patty Burger", "category": "Mains", "price": "Rs. 500", "description": "Classic beef patty, fresh-baked bun.", "image_url": "/menu/patty-burger.jpg", "available": true, "prep_seconds": 300},
-  {"name": "Blue Lemonade", "category": "Drinks", "price": "Rs. 250", "description": "Butterfly-pea lemonade, lightly sweet.", "image_url": "/menu/blue-lemonade.jpg", "available": true, "prep_seconds": 60},
-  {"name": "Mixed Fruit Shake", "category": "Drinks", "price": "Rs. 350", "description": "Seasonal fruit, blended fresh.", "image_url": "/menu/fruit-shake.jpg", "available": true, "prep_seconds": 120}
+  {"name": "Patty Burger", "category": "Burgers", "price": "Rs. 250", "description": "", "available": true, "prep_seconds": 900, "aliases": ["patty", "patti burger", "pattie burger"]},
+  {"name": "Zinger Burger", "category": "Burgers", "price": "Rs. 350", "description": "", "available": true, "prep_seconds": 900, "aliases": ["zinger burger", "zingar burger", "chicken burger"]},
+  {"name": "Fire Burger", "category": "Burgers", "price": "Rs. 400", "description": "", "available": true, "prep_seconds": 900, "aliases": ["fire wala burger"]},
+  {"name": "Regular Sandwich", "category": "Sandwiches", "price": "Rs. 130", "description": "", "available": true, "prep_seconds": 900, "aliases": ["regular", "simple sandwich", "normal sandwich", "sada sandwich"]},
+  {"name": "Special Sandwich", "category": "Sandwiches", "price": "Rs. 150", "description": "", "available": true, "prep_seconds": 900, "aliases": ["special", "special wala sandwich"]},
+  {"name": "Classic Lemon Lemonade", "category": "Lemonades", "price": "Rs. 120", "description": "", "available": true, "prep_seconds": 900, "aliases": ["classic lemonade", "lemon lemonade", "simple lemonade", "plain lemonade", "nimbu lemonade"]},
+  {"name": "Mint Lemonade", "category": "Lemonades", "price": "Rs. 140", "description": "", "available": true, "prep_seconds": 900, "aliases": ["mint", "pudina lemonade"]},
+  {"name": "Strawberry Lemonade", "category": "Lemonades", "price": "Rs. 160", "description": "", "available": true, "prep_seconds": 900, "aliases": ["strawberry"]},
+  {"name": "Blue Citrus Lemonade", "category": "Lemonades", "price": "Rs. 180", "description": "", "available": true, "prep_seconds": 900, "aliases": ["blue lemonade", "blue citrus", "blue"]},
+  {"name": "Zinger Shawarma", "category": "Shawarma", "price": "Rs. 200", "description": "", "available": true, "prep_seconds": 900, "aliases": ["shawarma", "shwarma", "chicken shawarma"]},
+  {"name": "Mix Fruit Cup", "category": "Fruit", "price": "Rs. 150", "description": "", "available": true, "prep_seconds": 900, "aliases": ["fruit cup", "mixed fruit cup", "mix fruit"]}
 ]
