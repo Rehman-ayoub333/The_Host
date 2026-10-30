@@ -140,7 +140,7 @@ def test_the_style_section_is_in_the_prompt():
         "At most one light, tasteful joke per conversation, never at the guest's expense, "
         "and never about religion, politics, the university, teachers or any real person. "
         "No jokes at all with guests of honour, judges, teachers or elders.",
-        "Confirm decisively, for example 'Done — one Chicken Burger for Rehman.' or "
+        "Confirm decisively, for example 'Done — one Zinger Burger for Rehman.' or "
         "'Consider it done.'",
         "Use the guest's name once or twice, not in every sentence.",
         'No slang such as "bro", "dude" or "yaar". No emojis or symbols read aloud.',

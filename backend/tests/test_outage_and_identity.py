@@ -494,7 +494,7 @@ def test_only_english_and_urdu_are_allowed():
     )
     assert (
         "If it is in Urdu, Punjabi or Roman Urdu, even a short line mixed with "
-        'English words (for example "VC sahab ko ek Blue Lemonade"), reply in Urdu'
+        'English words (for example "VC sahab ko ek Mint Lemonade"), reply in Urdu'
         in built
     )
     assert "never Hindi, never Punjabi, never Gurmukhi or Devanagari script" in built

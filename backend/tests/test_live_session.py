@@ -289,7 +289,9 @@ def test_build_order_failure_sends_no_taking_order():
     assert states(ws) == ["LISTENING", "THINKING"]
     assert session.ctx["pending_order_id"] is None
     response = session.session.responses[0]["function_responses"][0]
-    assert response.response["error"] == "'Pizza' isn't on the menu."
+    # 16 section 2zm item 3(f): the matcher's wording for an item we do
+    # not serve, with the three closest real names beside it.
+    assert response.response["error"] == "We don't serve Pizza."
     validate(ws)
 
 

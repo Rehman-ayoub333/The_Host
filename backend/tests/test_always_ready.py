@@ -432,14 +432,14 @@ RULES = [
     'say what fits instead of "we don\'t have any"',
     # The closest real item, never "could not find it".
     "offer the closest real item",
-    "Our Chicken Burger is the crispy one — would you like that?",
+    "The closest we have is our Zinger Burger — would you like that?",
     # One welcome per conversation.
     "Welcome a guest only once per conversation, even if later speech sounds "
     "like a greeting.",
     # Language and length. 16 section 2za item 3 made the rule turn on the
     # guest's LATEST message, after E3 answered a Roman-Urdu line in English
     # and two E31 runs answered an English guest in Urdu.
-    "Reply in the language of the guest's latest message. If it is in English, reply in English, even if the guest's name or an earlier line was Urdu. If it is in Urdu, Punjabi or Roman Urdu, even a short line mixed with English words (for example \"VC sahab ko ek Blue Lemonade\"), reply in Urdu, with English words where they are natural (menu names stay in English): never Hindi, never Punjabi, never Gurmukhi or Devanagari script.",
+    "Reply in the language of the guest's latest message. If it is in English, reply in English, even if the guest's name or an earlier line was Urdu. If it is in Urdu, Punjabi or Roman Urdu, even a short line mixed with English words (for example \"VC sahab ko ek Mint Lemonade\"), reply in Urdu, with English words where they are natural (menu names stay in English): never Hindi, never Punjabi, never Gurmukhi or Devanagari script.",
     # The two languages are the whole list, so a guest opening in a language
     # the rule above does not name is still answered in one of them.
     "You speak two languages and no others: English and Urdu.",
