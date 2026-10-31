@@ -234,8 +234,18 @@ While you are listening, nothing is filtered out — the hall, the queue, a neig
 all of it reaches THE HOST, which is exactly why you close the microphone between guests.
 THE HOST still never hears its own voice. Stopping does **not** end the conversation: THE HOST
 can still finish the sentence it was saying, tell a guest their order is paid, and call out an
-order that is ready. Ending a conversation always turns listening off, so the next guest
-never walks up to an open microphone.
+order that is ready.
+
+**The button only ever moves when you move it.** Start listening, Stop listening, F2, or
+**End conversation** (which turns it off) — nothing else: not a conversation ending by
+itself, not a goodbye, not a reconnect, not the TV reloading. So while it is on and the last
+conversation has finished, THE HOST simply starts a new one the moment the next guest speaks.
+The Live panel's border is green while you are listening, and a toast says "Listening ON" or
+"Listening OFF" each time it changes.
+
+**Watch the mic meter** beside the button. If it reads
+*"Too loud — hold the mic a little further away"* in red, the guest has the handheld against
+their mouth: ask them to hold it about a hand's width away, slightly to the side.
 
 The display screen shows a small **Listening** dot under the orb while the microphone is
 open, so you can check from across the stall.
