@@ -165,22 +165,10 @@ def test_an_empty_query_is_never_a_match(items):
     [
         ("do patty", "Patty Burger"),
         ("teen blue wali lemonade", "Blue Citrus Lemonade"),
-        pytest.param(
-            "de do patty",
-            "Patty Burger",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "16 section 2zn item 4(b) asks for this but adds only the "
-                    "number words. With 'do' dropped the query is 'de patty'; "
-                    "'de' (Urdu: give) is not in the filler list, so "
-                    "containment fails and the best fuzzy score is 0.7692 "
-                    "against the 0.80 floor section 2zm item 3(d) sets. Passing "
-                    "it needs either 'de' added to the list or a lower floor, "
-                    "and both are Cowork's to decide."
-                ),
-            ),
-        ),
+        ("de do patty", "Patty Burger"),
+        ("dedo patty", "Patty Burger"),
+        ("patty chahiye", "Patty Burger"),
+        ("mint lemonade de dena", "Mint Lemonade"),
     ],
 )
 def test_a_number_word_never_hides_the_item(items, text, expected):
@@ -211,6 +199,8 @@ def test_the_thresholds_are_the_ones_the_section_sets():
         ["wala", "wali", "wale", "ek", "one", "a", "an", "the", "please", "plz"]
         # 16 section 2zn item 4(b).
         + ["do", "teen", "char", "chaar", "paanch", "two", "three", "four", "five"]
+        # 16 section 2zp item 5.
+        + ["de", "dedo", "dena", "chahiye"]
     )
 
 

@@ -162,6 +162,7 @@ export class HostSession {
     recover: Timer;
     snapshot: Timer;
     voiceActivity: Timer;
+    micLevel: Timer;
     micDebug: Timer;
     wake: Timer;
     busy: Timer;
@@ -181,6 +182,7 @@ export class HostSession {
     recover: null,
     snapshot: null,
     voiceActivity: null,
+    micLevel: null,
     micDebug: null,
     wake: null,
     busy: null,
@@ -561,6 +563,18 @@ export class HostSession {
   }
 
   wakeReady(): boolean {
+    // 16 §2zp item 3(c): while the operator is listening there is no question
+    // that a guest is there -- they said so by pressing the button -- so speech
+    // alone starts the next conversation. This is the other half of item 3(a):
+    // a conversation ending no longer turns listening off, so without this the
+    // microphone would stay open with nothing to carry it.
+    if (this.listening.mode === "operator" && this.listening.on) {
+      return Boolean(
+        this.wake.speechSince &&
+          this.now() - this.wake.speechSince >= C.WAKE_SPEECH_MS &&
+          this.now() - this.wake.lastEndAt >= C.WAKE_AFTER_END_MS,
+      );
+    }
     // 16 §2h item 2: a face that is close AND looking at the screen, with a
     // voice behind it. Sound on its own is the nearby-chatter problem, not a guest.
     const face = this.wake.face;
@@ -1332,18 +1346,54 @@ export class HostSession {
     // before the operator changed their mind.
     this.uplink.loudUntil = 0;
     this.presence.seenUntil = 0;
-    if (on && !this.isSessionActive() && this.view.state !== "connecting") {
-      void this.startSession("button");
+    if (on) {
+      this.startMicLevel();
+      if (!this.isSessionActive() && this.view.state !== "connecting") {
+        void this.startSession("button");
+      }
+    } else {
+      this.stopMicLevel();
     }
   }
+
+  /**
+   * 16 §2zp item 4(c) -- the operator's microphone meter.
+   *
+   * Two numbers every MIC_LEVEL_MS while listening: the peak of the last block
+   * and how much of it clipped. It travels on the conversation socket because
+   * `/ws/events` is read-only for a page, and the backend republishes it to the
+   * dashboard role alone. Never audio, and never a word of what was said.
+   */
+  private startMicLevel() {
+    this.stopMicLevel();
+    this.timers.micLevel = setInterval(this.sendMicLevel, C.MIC_LEVEL_MS);
+  }
+
+  private stopMicLevel() {
+    if (this.timers.micLevel) clearInterval(this.timers.micLevel);
+    this.timers.micLevel = null;
+  }
+
+  private sendMicLevel = () => {
+    if (!this.ws || this.ws.readyState !== SOCKET_OPEN) return;
+    if (!this.listening.on) return;
+    const level = this.deps.audio.getMicLevel();
+    this.ws.send(
+      JSON.stringify({
+        type: "mic_level",
+        peak: Number(level.peak.toFixed(4)),
+        clip_pct: Number(level.clip_pct.toFixed(2)),
+      }),
+    );
+  };
 
   /** The operator changed Settings → Listening mode (the `listening_mode` event). */
   setListeningMode(mode: ListeningMode) {
     if (this.listening.mode === mode) return;
     this.listening.mode = mode;
-    // Switching mode never leaves the microphone open on the old rule.
-    this.listening.on = false;
-    if (this.view.listening) this.patch({ listening: false });
+    // 16 §2zp item 3(a): the mode is not one of the three causes that may
+    // move the toggle, so it is left exactly as the operator set it. The
+    // backend holds the same rule.
     this.uplink.loudUntil = 0;
     this.presence.seenUntil = 0;
   }

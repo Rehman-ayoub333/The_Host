@@ -869,6 +869,9 @@ async def post_operator_takeover_end():
 @app.post("/api/operator/end-session", dependencies=[Depends(require_operator_token)])
 async def post_operator_end_session():
     ended = await _end_active_session()
+    # 16 section 2zp item 3(a): End conversation is the only thing besides the
+    # operator's own button that may move the toggle, and it turns it off.
+    set_listening(False, "end_button")
     _operator_row("ended the conversation")
     await _log_operator_action("end_session", ended=ended)
     return {"ended": ended}
@@ -968,26 +971,40 @@ class ListeningRequest(BaseModel):
     mode: Literal["operator", "automatic"] | None = None
 
 
-def _publish_listening(on: bool) -> None:
+def set_listening(on: bool, by: str) -> None:
+    """16 section 2zp item 3(a) and (d): the only way listening ever changes.
+
+    `by` is "operator" (Start/Stop listening or F2) or "end_button" (End
+    conversation). Nothing else may call this: 2zk item 3(a) used to turn
+    listening off whenever `/ws/session` closed, and because that happens on an
+    idle end, a goodbye, a reconnect and the TV recovering, the button appeared
+    to Rehman to turn itself off and on at random. Now a conversation ending by
+    itself leaves it exactly as the operator set it.
+
+    Already in that state is not a change, so it logs and publishes nothing.
+    """
+    if LISTENING["on"] == on:
+        return
     LISTENING["on"] = on
+    session = ACTIVE
+    session_id = session.ctx["session_id"] if session is not None else None
+    log.info(
+        "listening %s by=%s session=%s",
+        "on" if on else "off",
+        by,
+        session_id or "none",
+    )
+    summaries.emit_activity(
+        "operator", "Listening on" if on else "Listening off", None, session_id
+    )
     event_bus.publish({"type": "listening", "on": on, "session_id": None})
 
 
 def _publish_listening_mode(mode: str) -> None:
+    # 16 section 2zp item 3(a): changing the mode is not one of the three causes
+    # that may move the toggle, so it leaves `on` alone.
     LISTENING["mode"] = mode
     event_bus.publish({"type": "listening_mode", "mode": mode, "session_id": None})
-
-
-def listening_off(reason: str) -> None:
-    """2zk item 3(a): a conversation ending turns listening off, for any reason.
-
-    The next guest must never walk up to a microphone that the last one left
-    open. Safe to call when it is already off -- then it says nothing.
-    """
-    if not LISTENING["on"]:
-        return
-    log.info("listening off reason=%s", reason)
-    _publish_listening(False)
 
 
 @app.post("/api/listening", dependencies=[Depends(require_operator_token)])
@@ -1014,7 +1031,7 @@ async def post_listening(request: Request):
         _operator_row(f"listening mode: {body.mode}")
         await _log_operator_action("listening_mode", mode=body.mode)
     if body.on is not None:
-        _publish_listening(body.on)
+        set_listening(body.on, "operator")
         _operator_row("started listening" if body.on else "stopped listening")
         await _log_operator_action("listening", on=body.on)
     return {"on": LISTENING["on"], "mode": LISTENING["mode"]}
@@ -1222,10 +1239,11 @@ async def websocket_session(websocket: WebSocket):
         await session.run()
     finally:
         ACTIVE = None
-        # 16 section 2zk item 3(a): the conversation is over, so the microphone
-        # closes with it -- however it ended, including a crash or the guest
-        # walking off. The next guest starts from NOT LISTENING.
-        listening_off("session ended")
+        # 16 section 2zp item 3(a): the conversation ending does NOT change
+        # listening. That is what made the button look random to Rehman: an idle
+        # end, a goodbye, a reconnect and the TV recovering all close this
+        # socket. The operator's button is the state now, and item 3(c) has
+        # `/display` open a fresh conversation on the next guest's speech.
         log.info(
             "session %s ended trigger=%s duration=%.2fs",
             session_id,

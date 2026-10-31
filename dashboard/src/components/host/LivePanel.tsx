@@ -9,10 +9,12 @@
  * the public display at all (16 §2o item 2).
  */
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Radio } from "lucide-react";
 import { useAgent } from "@/lib/agent/store";
 import { sendSessionNote, setListening, setOrderStatus } from "@/lib/agent/service";
 import { fmtClock, fmtElapsed, toMs, useNow } from "@/lib/agent/ui";
+import { C } from "@/lib/booth/constants";
 import type { OperationalMode, OrderStatus, PaymentMethod, TranscriptLine } from "@/lib/agent/types";
 import { cn } from "@/lib/utils";
 import { Panel, StatusDot } from "./Panel";
@@ -339,10 +341,63 @@ function LineRow({ line, previous }: { line: TranscriptLine; previous?: Transcri
  * Nothing here is drawn from the click: the badge follows the `listening` event
  * coming back from the backend, so it shows what the TV was really told.
  */
+/**
+ * 16 §2zp item 4(c) -- the microphone meter, beside the button.
+ *
+ * Two numbers from `/display` every 500 ms while listening. The bar is the
+ * peak; the red line appears once the signal has been clipping for
+ * CLIP_WARN_MS, because one loud syllable is not a problem and a guest holding
+ * the handheld against their mouth is.
+ */
+function MicMeter() {
+  const level = useAgent((s) => s.micLevel);
+  const clippingSince = useAgent((s) => s.clippingSince);
+  const now = useNow(500);
+  const tooLoud = clippingSince > 0 && now - clippingSince >= C.CLIP_WARN_MS;
+  const peak = level ? Math.min(1, Math.max(0, level.peak)) : 0;
+
+  return (
+    <div className="mt-2" data-testid="mic-meter">
+      <div className="flex items-center gap-2">
+        <span className="label-caps text-[0.58rem]">Mic</span>
+        <div className="bg-muted h-1.5 flex-1 overflow-hidden rounded-full">
+          <div
+            data-testid="mic-meter-bar"
+            className={cn("h-full rounded-full transition-[width]", tooLoud ? "bg-destructive" : "bg-success")}
+            style={{ width: `${Math.round(peak * 100)}%` }}
+          />
+        </div>
+        <span className="font-mono text-[0.58rem] text-muted-foreground">
+          {level ? `${Math.round(peak * 100)}%` : "--"}
+        </span>
+      </div>
+      {tooLoud && (
+        <p data-testid="too-loud" className="text-destructive mt-1 text-[0.68rem] font-semibold">
+          Too loud — hold the mic a little further away
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ListeningToggle() {
   const listening = useAgent((s) => s.listening);
   const mode = useAgent((s) => s.listeningMode);
   const [busy, setBusy] = useState(false);
+
+  // 16 §2zp item 3(e): a short toast whenever it changes, so the operator can
+  // never be unsure which way the button is. The first render is skipped: a
+  // reload reading the state from `state_snapshot` is not a change.
+  const seen = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (seen.current === null) {
+      seen.current = listening;
+      return;
+    }
+    if (seen.current === listening) return;
+    seen.current = listening;
+    toast[listening ? "success" : "info"](listening ? "Listening ON" : "Listening OFF");
+  }, [listening]);
 
   const toggle = useRef<() => void>(() => {});
   toggle.current = () => {
@@ -406,6 +461,7 @@ function ListeningToggle() {
       >
         {listening ? "Stop listening" : "Start listening"}
       </button>
+      <MicMeter />
       <p className="mt-2 text-[0.68rem] text-muted-foreground">
         F2 does the same. Press Start listening when the guest steps up, Stop listening when they are done.
       </p>
@@ -415,6 +471,8 @@ function ListeningToggle() {
 
 export function LivePanel({ className }: { className?: string }) {
   const sessionId = useAgent((s) => s.sessionId);
+  // 16 §2zp item 3(e): impossible to miss from across the stall.
+  const listening = useAgent((s) => s.listening);
 
   // 16 §2p item 2: arranged for a narrower box — Conversation and Mode side by
   // side, then the open draft, then the transcript. "What THE HOST just did" is
@@ -423,7 +481,7 @@ export function LivePanel({ className }: { className?: string }) {
     <Panel
       title="Live conversation"
       icon={<Radio className="h-4 w-4" />}
-      className={className}
+      className={cn(className, listening && "border-success")}
       action={sessionId ? <span className="font-mono text-[0.62rem] uppercase tracking-widest text-muted-foreground">Session {sessionId}</span> : null}
     >
       <p className="mb-3 text-[0.68rem] text-muted-foreground">Operator only. Guest speech is never shown on the public display or saved.</p>

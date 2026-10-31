@@ -110,6 +110,14 @@ export const C = {
   // punched out. Comfortably longer than the backend's 500 ms end-of-speech
   // wait, so the gate can never end a turn earlier than Gemini would.
   UPLINK_GATE_HANGOVER_MS: 1200,
+  // 16 section 2zp item 4(c): how often the operator's microphone meter is
+  // sent while listening. Two numbers, never audio.
+  MIC_LEVEL_MS: 500,
+  // Item 4(c): clipping above this percentage, held for CLIP_WARN_MS, is what
+  // puts "Too loud" on the dashboard. One loud syllable is not a problem; a
+  // guest holding the handheld against their mouth for two seconds is.
+  CLIP_WARN_PCT: 1,
+  CLIP_WARN_MS: 2000,
   // 16 §2u item 4: playback never starves. A chunk that can only be scheduled
   // more than this long after the previous chunk of the same turn finished is an
   // underrun -- a gap the guest hears as THE HOST's voice breaking up.

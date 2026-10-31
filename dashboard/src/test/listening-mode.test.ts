@@ -49,6 +49,7 @@ function fakeAudio(overrides: Partial<AudioPort> = {}): AudioPort {
     isPlaying: vi.fn(() => false),
     isRunning: vi.fn(() => true),
     getMicAmp: vi.fn(() => 0),
+    getMicLevel: vi.fn(() => ({ peak: 0, clip_pct: 0 })),
     getPlaybackAmp: vi.fn(() => 0),
     endPlaybackTurn: vi.fn(),
     takePlaybackStats: vi.fn(() => ({ chunks: 0, maxLateMs: 0, underruns: 0 })),
@@ -345,15 +346,19 @@ describe("automatic mode (16 §2zk item 3b, §2zj item 5)", () => {
 /* --------------------------- switching between them --------------------- */
 
 describe("switching listening mode", () => {
-  it("never leaves the microphone open on the old rule", async () => {
+  it("leaves the toggle exactly as the operator set it", async () => {
+    // 16 §2zp item 3(a) amends §2zk item 3(a): listening changes only on
+    // Start/Stop listening, F2 or End conversation. A mode change is none of
+    // those, and at Rehman's 31 Oct retest a toggle that moved on its own was
+    // the complaint.
     const b = await booth();
     b.session.setListening(true);
     expect(b.session.listeningForTest().on).toBe(true);
 
     b.session.setListeningMode("automatic");
 
-    expect(b.session.listeningForTest().on).toBe(false);
-    expect(b.session.getView().listening).toBe(false);
+    expect(b.session.listeningForTest().on).toBe(true);
+    expect(b.session.getView().listening).toBe(true);
   });
 
   it("holds every frame in operator mode after coming back from automatic", async () => {

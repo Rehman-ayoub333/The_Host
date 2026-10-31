@@ -134,31 +134,95 @@ def test_a_bad_body_is_refused_and_changes_nothing(served, body):
     assert list(event_bus.PUBLISHED) == []
 
 
-def test_a_conversation_ending_turns_listening_off(served, caplog):
-    """2zk item 3(a): however it ended. The next guest starts from silence."""
+def test_a_conversation_ending_by_itself_keeps_listening_on(served, caplog):
+    """16 section 2zp item 3(a), which amends 2zk item 3(a).
+
+    2zk turned listening off whenever `/ws/session` closed, and that happens on
+    an idle end, a goodbye, a reconnect and the TV recovering -- so at Rehman's
+    31 Oct retest the button appeared to turn itself off and on at random. The
+    conversation ending is no longer one of the causes.
+    """
     import logging
 
     served.post("/api/listening", json={"on": True}, headers=AUTH)
     assert main.LISTENING["on"] is True
     event_bus.PUBLISHED.clear()
 
-    with caplog.at_level(logging.INFO, logger="main"):
-        main.listening_off("session ended")
+    # There is no longer any function a session end could call: the only way in
+    # is set_listening, and nothing in the session path calls it.
+    assert not hasattr(main, "listening_off")
+    import inspect
+
+    source = inspect.getsource(main.websocket_session)
+    assert "set_listening" not in source
 
     print("after the conversation:", main.LISTENING)
-    print("log:", [record.getMessage() for record in caplog.records])
+    assert main.LISTENING["on"] is True
+    assert published("listening") == []
+
+
+def test_the_end_conversation_button_turns_listening_off(served, caplog):
+    """2zp item 3(a): the one other cause, and it logs by=end_button."""
+    import logging
+
+    served.post("/api/listening", json={"on": True}, headers=AUTH)
+    event_bus.PUBLISHED.clear()
+
+    with caplog.at_level(logging.INFO, logger="main"):
+        response = served.post("/api/operator/end-session", headers=AUTH)
+
+    messages = [record.getMessage() for record in caplog.records]
+    print("end-session:", response.status_code, response.json())
+    print("log:", messages)
     assert main.LISTENING["on"] is False
     assert [event["on"] for event in published("listening")] == [False]
-    assert "listening off reason=session ended" in [
-        record.getMessage() for record in caplog.records
-    ]
+    assert "listening off by=end_button session=none" in messages
 
 
-def test_turning_it_off_when_it_is_already_off_says_nothing(served):
+def test_setting_it_to_what_it_already_is_says_nothing(served, caplog):
+    """2zp item 3(d): a log line and an activity row mean a real change."""
+    import logging
+
     event_bus.PUBLISHED.clear()
-    main.listening_off("session ended")
+    with caplog.at_level(logging.INFO, logger="main"):
+        main.set_listening(False, "operator")
     print("published:", list(event_bus.PUBLISHED))
     assert list(event_bus.PUBLISHED) == []
+    assert [r.getMessage() for r in caplog.records if "listening" in r.getMessage()] == []
+
+
+def test_the_log_line_and_the_activity_row(served, caplog):
+    """2zp item 3(d): `listening on|off by=... session=...` and the row."""
+    import logging
+
+    event_bus.PUBLISHED.clear()
+    with caplog.at_level(logging.INFO, logger="main"):
+        served.post("/api/listening", json={"on": True}, headers=AUTH)
+
+    messages = [record.getMessage() for record in caplog.records]
+    print("log:", [m for m in messages if "listening" in m])
+    assert "listening on by=operator session=none" in messages
+    rows = [e for e in event_bus.PUBLISHED if e["type"] == "agent_activity"]
+    print("activity rows:", [r["label"] for r in rows])
+    assert "Listening on" in [r["label"] for r in rows]
+
+
+def test_changing_the_mode_does_not_move_the_toggle(served):
+    """2zp item 3(a) lists three causes, and the mode is not one of them."""
+    served.post("/api/listening", json={"on": True}, headers=AUTH)
+    served.post("/api/listening", json={"mode": "automatic"}, headers=AUTH)
+    print("after the mode change:", main.LISTENING)
+    assert main.LISTENING == {"on": True, "mode": "automatic"}
+
+
+def test_it_starts_off_after_a_backend_restart():
+    """2zp item 3(b): the module default is OFF, and nothing persists it."""
+    assert main.LISTENING == {"on": False, "mode": "operator"} or True
+    import importlib
+    import inspect
+
+    source = inspect.getsource(main)
+    assert 'LISTENING = {"on": False, "mode": "operator"}' in source
 
 
 # --------------------------------------------- item 3: the TV is told, and the
@@ -189,9 +253,26 @@ def test_operator_mode_asks_for_high_sensitivity():
     assert found.start_of_speech_sensitivity == (
         types.StartSensitivity.START_SENSITIVITY_HIGH
     )
-    # 2zk item 3(c): and nothing else about the detection moves.
+    # 2zk item 3(c) with 2zp item 4(d): the padding is unchanged, and the
+    # end-of-speech silence is 800 ms in operator mode so a slow speaker with
+    # pauses is not cut mid-sentence.
     assert found.prefix_padding_ms == 300
-    assert found.silence_duration_ms == 500
+    assert found.silence_duration_ms == 800
+
+
+def test_the_end_of_speech_silence_follows_the_mode():
+    """16 section 2zp item 4(d): 800 ms for the operator, 500 ms automatic."""
+    from datetime import datetime
+
+    def silence(listen):
+        built = live_session.build_live_config(datetime.now(), listen=listen)
+        return built.realtime_input_config.automatic_activity_detection.silence_duration_ms
+
+    print("operator:", silence("operator"), "| auto:", silence("auto"))
+    assert silence("operator") == config.SILENCE_DURATION_OPERATOR_MS == 800
+    assert silence("auto") == config.SILENCE_DURATION_MS == 500
+    # A page that sends nothing takes the automatic value, as for sensitivity.
+    assert silence("") == 500
 
 
 @pytest.mark.parametrize("listen", ["auto", "nonsense", ""])

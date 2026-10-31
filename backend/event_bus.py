@@ -37,6 +37,9 @@ SMD_NEVER = frozenset(
         # Transcripts are for the operator only (16 section 2o item 2): the
         # public display receives none at all, partial or final.
         "speech_transcript",
+        # 16 section 2zp item 4(c): the microphone meter is the operator's, and
+        # the TV is the side producing it. It never goes back to the smd role.
+        "mic_level",
     }
 )
 SMD_ALLOWED = frozenset(

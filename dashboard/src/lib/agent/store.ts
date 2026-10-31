@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { Activity, ActivityKind, AgentEvent, AgentSnapshot, AgentStateName, BackendState, BoothTime, LocalAction, Order } from "./types";
+import { C } from "@/lib/booth/constants";
 import { toMs } from "./ui";
 
 export const initialSnapshot: AgentSnapshot = {
@@ -45,6 +46,8 @@ export const initialSnapshot: AgentSnapshot = {
   // otherwise. A page that has heard nothing must not assume it is listening.
   listening: false,
   listeningMode: "operator",
+  micLevel: null,
+  clippingSince: 0,
   updatedAt: 0,
 };
 
@@ -164,7 +167,18 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
     // 16 §2zk item 3: the operator pressed Start/Stop listening, or changed the
     // mode in Settings. Changing the mode always leaves the microphone shut.
     case "listening":
-      return n({ listening: e.on });
+      // A microphone that is shut has no level to show.
+      return n({ listening: e.on, micLevel: e.on ? s.micLevel : null, clippingSince: 0 });
+    // 16 §2zp item 4(c): `clippingSince` is when the clipping started, so the
+    // warning can wait CLIP_WARN_MS before it appears and disappears the moment
+    // the guest moves the microphone back.
+    case "mic_level": {
+      const clipping = e.clip_pct > C.CLIP_WARN_PCT;
+      return n({
+        micLevel: { peak: e.peak, clip_pct: e.clip_pct },
+        clippingSince: clipping ? s.clippingSince || now : 0,
+      });
+    }
     case "listening_mode":
       return n({ listeningMode: e.mode, listening: false });
     case "speech_transcript": {

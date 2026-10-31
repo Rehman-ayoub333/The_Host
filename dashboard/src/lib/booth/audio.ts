@@ -9,6 +9,7 @@
  * `undefined` means the system default, which is what the old booth page always had.
  */
 import { C } from "./constants";
+import { measure, softLimit, type MicLevel } from "./limiter";
 
 /**
  * 16 §2u item 4: what the debug playback line reports.
@@ -44,6 +45,8 @@ export interface AudioPort {
    */
   isRunning(): boolean;
   getMicAmp(): number;
+  /** 16 section 2zp item 4(c): the last block's peak and clip percentage. */
+  getMicLevel(): MicLevel;
   getPlaybackAmp(): number;
   /**
    * 16 §2u item 4: the turn is over, so the silence until THE HOST speaks again
@@ -67,6 +70,9 @@ let nextPlayTime = 0;
 let envelope: { start: number; end: number; amp: number }[] = [];
 const active = new Set<AudioBufferSourceNode>();
 let micAmp = 0;
+// 16 section 2zp item 4(c): the last block's peak and clipped percentage, for
+// the operator's meter. Overwritten per block, read on the page's 500 ms tick.
+let lastLevel: MicLevel = { peak: 0, clip_pct: 0 };
 let stream: MediaStream | null = null;
 let src: MediaStreamAudioSourceNode | null = null;
 let proc: AudioWorkletNode | null = null;
@@ -159,6 +165,11 @@ export const audio: AudioPort = {
       const rms = input.length ? Math.sqrt(squares / input.length) : 0;
       micAmp = clamp(rms * 6, 0, 1);
 
+      // 16 section 2zp item 4(c): the operator's meter reads the block as the
+      // microphone delivered it, BEFORE the limiter -- the limiter's job is to
+      // hide a hot signal from the audio, not from the person holding the mic.
+      lastLevel = measure(input);
+
       const ratio = capCtx!.sampleRate / C.INPUT_SAMPLE_RATE;
       const outLength = Math.floor(input.length / ratio);
       const output = new Int16Array(outLength);
@@ -168,7 +179,10 @@ export const audio: AudioPort = {
         let total = 0;
         for (let j = start; j < end; j += 1) total += input[j]!;
         const average = end > start ? total / (end - start) : 0;
-        const sample = clamp(average, -1, 1);
+        // 16 section 2zp item 4(b): the soft limiter, immediately before the
+        // uplink. A guest holding the handheld close used to clip, and clipped
+        // audio is distorted audio, which the model hears as the wrong words.
+        const sample = clamp(softLimit(average), -1, 1);
         output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
       }
       onFrame(output.buffer);
@@ -209,6 +223,7 @@ export const audio: AudioPort = {
     proc = null;
     mute = null;
     micAmp = 0;
+    lastLevel = { peak: 0, clip_pct: 0 };
   },
 
   playPcm(arrayBuffer: ArrayBuffer) {
@@ -288,6 +303,10 @@ export const audio: AudioPort = {
 
   getMicAmp() {
     return micAmp;
+  },
+
+  getMicLevel() {
+    return lastLevel;
   },
 
   getPlaybackAmp() {

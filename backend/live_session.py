@@ -378,6 +378,13 @@ def _listen_sensitivity(listen: str) -> types.StartSensitivity:
     return _start_sensitivity()
 
 
+def _silence_duration(listen: str) -> int:
+    """16 section 2zp item 4(d): 800 ms in operator mode, 500 ms otherwise."""
+    if listen == "operator":
+        return config.SILENCE_DURATION_OPERATOR_MS
+    return config.SILENCE_DURATION_MS
+
+
 def build_live_config(
     now: datetime,
     proactive: bool = False,
@@ -423,7 +430,7 @@ def build_live_config(
             automatic_activity_detection=types.AutomaticActivityDetection(
                 start_of_speech_sensitivity=_listen_sensitivity(listen),
                 prefix_padding_ms=config.PREFIX_PADDING_MS,
-                silence_duration_ms=config.SILENCE_DURATION_MS,
+                silence_duration_ms=_silence_duration(listen),
             )
         ),
     )
@@ -1175,6 +1182,25 @@ class LiveSession:
                     self._note_guest_line(text)
                     await self._emit_transcript("visitor", text, True)
                     await self._to_live(self.session.send_realtime_input(text=text))
+            elif message_type == "mic_level":
+                # 16 section 2zp item 4(c): two numbers for the operator's
+                # meter, every 500 ms while listening. Published to the
+                # dashboard role only and never logged -- a level every half
+                # second would bury the log, and it says nothing about what was
+                # said anyway.
+                try:
+                    level = schemas.MicLevelMessage.model_validate(payload)
+                except ValidationError:
+                    log.warning("ignored invalid mic_level message")
+                    continue
+                event_bus.publish(
+                    {
+                        "type": "mic_level",
+                        "peak": round(level.peak, 4),
+                        "clip_pct": round(level.clip_pct, 2),
+                        "session_id": self.ctx["session_id"],
+                    }
+                )
             elif message_type == "voice_activity":
                 try:
                     voice_message = schemas.VoiceActivityMessage.model_validate(payload)

@@ -89,6 +89,12 @@ ANNOUNCE_MAX_DEFER_S = 20
 # 16 section 2j item 6: Google's guidance is 500-800 ms and the server default is
 # about 800, which made every reply feel a beat late at the booth.
 SILENCE_DURATION_MS = 500
+# 16 section 2zp item 4(d): in operator mode the operator has already decided a
+# guest is speaking, so the server may wait longer before calling the turn
+# finished. At 500 ms a slow speaker with pauses was cut mid-sentence, which is
+# half of what confused THE HOST at Rehman's 31 Oct retest. Automatic mode keeps
+# 500 ms, because there nothing but the level says a guest is there at all.
+SILENCE_DURATION_OPERATOR_MS = 800
 # 16 section 2r item 5: how much audio from just before the server decided the
 # guest had started speaking is kept. A short soft reply ("yes", a name) loses
 # its first syllable without this, which is one way it goes unheard.

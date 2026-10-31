@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 AGENT_STATES = (
@@ -106,6 +106,19 @@ class VoiceActivityMessage(BaseModel):
 
     type: Literal["voice_activity"]
     active: bool
+
+
+class MicLevelMessage(BaseModel):
+    """Browser -> backend (16 section 2zp item 4(c)).
+
+    Two numbers for the operator's meter and nothing else: the peak magnitude of
+    the last window, 0.0-1.0, and the percentage of its samples that clipped.
+    Never audio -- `/ws/events` carries levels only.
+    """
+
+    type: Literal["mic_level"]
+    peak: float = Field(ge=0.0, le=1.0)
+    clip_pct: float = Field(ge=0.0, le=100.0)
 
 
 class SessionEndMessage(BaseModel):

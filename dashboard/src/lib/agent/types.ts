@@ -333,6 +333,9 @@ export type AgentEvent =
   // it is the side holding the microphone -- and the dashboard draws the badge.
   | (Envelope & { type: "listening"; on: boolean })
   | (Envelope & { type: "listening_mode"; mode: ListeningMode })
+  // 16 §2zp item 4(c): the operator's microphone meter. Levels only, never
+  // audio, and never to the public display.
+  | (Envelope & { type: "mic_level"; peak: number; clip_pct: number })
   | { type: "heartbeat"; timestamp?: BoothTime };
 
 /** Internal (frontend-only) actions */
@@ -395,5 +398,11 @@ export interface AgentSnapshot {
    */
   listening: boolean;
   listeningMode: ListeningMode;
+  /**
+   * 16 §2zp item 4(c): the newest microphone reading, and since when it has
+   * been clipping. `clippingSince` is 0 when it is not.
+   */
+  micLevel: { peak: number; clip_pct: number } | null;
+  clippingSince: number;
   updatedAt: number;
 }

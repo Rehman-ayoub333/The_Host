@@ -55,6 +55,7 @@ function fakeAudio(overrides: Partial<AudioPort> = {}): AudioPort {
     isPlaying: vi.fn(() => false),
     isRunning: vi.fn(() => true),
     getMicAmp: vi.fn(() => 0),
+    getMicLevel: vi.fn(() => ({ peak: 0, clip_pct: 0 })),
     getPlaybackAmp: vi.fn(() => 0),
     endPlaybackTurn: vi.fn(),
     takePlaybackStats: vi.fn(() => ({ chunks: 0, maxLateMs: 0, underruns: 0 })),

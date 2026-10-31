@@ -53,6 +53,13 @@ FILLER_WORDS = frozenset(
         "three",
         "four",
         "five",
+        # 16 section 2zp item 5: "de do", "dedo", "de dena", "chahiye" are how a
+        # guest asks for a thing in Roman Urdu. None of them names an item, and
+        # without them "de do patty" reached nothing at all.
+        "de",
+        "dedo",
+        "dena",
+        "chahiye",
     }
 )
 
