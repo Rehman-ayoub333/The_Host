@@ -29,7 +29,31 @@ from difflib import SequenceMatcher
 # lemonade" is the Blue Citrus Lemonade), and the quantity words are handled by
 # the tool's own quantity field, not by the name.
 FILLER_WORDS = frozenset(
-    {"wala", "wali", "wale", "ek", "one", "a", "an", "the", "please", "plz"}
+    {
+        "wala",
+        "wali",
+        "wale",
+        "ek",
+        "one",
+        "a",
+        "an",
+        "the",
+        "please",
+        "plz",
+        # 16 section 2zn item 4(b): the number words. None of them ever names an
+        # item, and the quantity has a field of its own, so leaving them in the
+        # query only made "do patty" miss the Patty Burger -- which is how E54
+        # lost the guest's "two" on 30 Oct.
+        "do",
+        "teen",
+        "char",
+        "chaar",
+        "paanch",
+        "two",
+        "three",
+        "four",
+        "five",
+    }
 )
 
 # Item 3(d). The bar a fuzzy match has to clear, and how far ahead of the next

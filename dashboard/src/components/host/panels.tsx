@@ -1017,11 +1017,14 @@ const DEMO_EARNINGS: Earnings = {
   cancelled_orders: 1,
   refunded: 250,
   refunded_orders: 1,
+  // 16 §2zn item 4(c): real menu items at their real prices, because Demo Mode
+  // is the gala's last resort and must never show an item the stall does not
+  // sell. Each amount is the quantity times the price in backend/data/menu.json.
   by_item: [
-    { name: "Chicken Burger", quantity: 9, amount: 5850 },
-    { name: "Club Sandwich", quantity: 6, amount: 3300 },
-    { name: "Mixed Fruit Shake", quantity: 5, amount: 1750 },
-    { name: "Blue Lemonade", quantity: 6, amount: 1500 },
+    { name: "Zinger Burger", quantity: 9, amount: 3150 },
+    { name: "Blue Citrus Lemonade", quantity: 6, amount: 1080 },
+    { name: "Special Sandwich", quantity: 6, amount: 900 },
+    { name: "Mix Fruit Cup", quantity: 5, amount: 750 },
   ],
   unpriced_orders: 0,
 };

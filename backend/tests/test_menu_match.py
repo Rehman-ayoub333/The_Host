@@ -157,13 +157,51 @@ def test_an_empty_query_is_never_a_match(items):
         assert "match" not in result
 
 
-def test_an_urdu_quantity_word_is_not_filler(items):
-    """16 section 2zm item 3(a) lists the filler words, and "do" (two) is not
-    among them: the quantity belongs to the tool's own field, so the model sends
-    "patty" with quantity 2 rather than "do patty"."""
-    assert "do" not in menu_match.FILLER_WORDS
-    assert menu_match.resolve_item("do patty", items)["no_match"] is True
-    assert menu_match.resolve_item("patty", items) == {"match": "Patty Burger"}
+# 16 section 2zn item 4(b): the number words joined the filler list. On 30 Oct
+# E54 lost the guest's "do" (two) because "do patty" matched nothing, so the
+# model dropped the word rather than passing it on with a quantity of 2.
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("do patty", "Patty Burger"),
+        ("teen blue wali lemonade", "Blue Citrus Lemonade"),
+        pytest.param(
+            "de do patty",
+            "Patty Burger",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason=(
+                    "16 section 2zn item 4(b) asks for this but adds only the "
+                    "number words. With 'do' dropped the query is 'de patty'; "
+                    "'de' (Urdu: give) is not in the filler list, so "
+                    "containment fails and the best fuzzy score is 0.7692 "
+                    "against the 0.80 floor section 2zm item 3(d) sets. Passing "
+                    "it needs either 'de' added to the list or a lower floor, "
+                    "and both are Cowork's to decide."
+                ),
+            ),
+        ),
+    ],
+)
+def test_a_number_word_never_hides_the_item(items, text, expected):
+    result = menu_match.resolve_item(text, items)
+    print(f"{text!r} -> {result}")
+    assert result == {"match": expected}
+
+
+@pytest.mark.parametrize(
+    "number", ["do", "teen", "char", "chaar", "paanch", "two", "three", "four", "five"]
+)
+def test_every_number_word_the_section_lists_is_filler(number):
+    """None of them ever names an item, and the quantity has its own field."""
+    assert number in menu_match.FILLER_WORDS
+    assert menu_match.normalise(f"{number} patty") == "patty"
+
+
+def test_a_number_word_on_its_own_is_not_an_item(items):
+    """"do" alone names nothing, so it must not reach for the nearest item."""
+    for number in ("do", "teen", "two"):
+        assert "match" not in menu_match.resolve_item(number, items)
 
 
 def test_the_thresholds_are_the_ones_the_section_sets():
@@ -171,6 +209,8 @@ def test_the_thresholds_are_the_ones_the_section_sets():
     assert menu_match.FUZZY_MARGIN == 0.08
     assert sorted(menu_match.FILLER_WORDS) == sorted(
         ["wala", "wali", "wale", "ek", "one", "a", "an", "the", "please", "plz"]
+        # 16 section 2zn item 4(b).
+        + ["do", "teen", "char", "chaar", "paanch", "two", "three", "four", "five"]
     )
 
 
