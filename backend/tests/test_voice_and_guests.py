@@ -183,7 +183,13 @@ def test_the_guest_of_honour_rule_is_in_the_prompt_in_full():
         'address them as "Sir" or "Ma\'am" on the same rule as above, be formal, thank '
         "them for visiting, and use no jokes." in text
     )
-    assert "Normal prices apply. Only the Vice Chancellor is on the house." in text
+    # 16 §2zr item 3(a): the faculty rule no longer says who is on the house --
+    # it was one of the lines that let THE HOST answer Rehman's "is this rule
+    # the same for every teacher?" with the Vice Chancellor's name.
+    assert (
+        "Normal prices apply. Never compare them with any other guest, and never "
+        "say who is on the house (see PRICES AND PAYMENT)." in text
+    )
 
 
 def test_the_full_roles_rule_is_in_the_prompt():
@@ -194,20 +200,55 @@ def test_the_full_roles_rule_is_in_the_prompt():
     ) in built()
 
 
+# 16 §2zr item 3(b): the text Rehman's privacy blunder replaced. The topic used
+# to name the Vice Chancellor, so a guest who asked "does anyone get free food?"
+# was answered from it.
+PRIVATE_PRICES_LINE = (
+    "Our prices are fixed for everyone at the counter — anything beyond that "
+    "is the team's call."
+)
+
+
 def test_the_complimentary_guests_topic_is_stored_with_the_exact_text():
     rows = data.get_business_info("complimentary_guests")
 
     assert len(rows) == 1
-    # 16 §2y item 4: Rehman's ruling. Only the Vice Chancellor is on the house.
-    # 16 §2ze item 4 adds the name and spells out the "no one else" half.
-    assert rows[0]["answer"] == (
+    # 16 §2zr item 3(b): 21 Part B's replacement, word for word. It names nobody.
+    assert rows[0]["answer"] == PRIVATE_PRICES_LINE
+    assert "Vice Chancellor" not in rows[0]["answer"]
+    assert "on the house" not in rows[0]["answer"]
+    # It is served by the existing tool, inside the 2y item 2 cap of 12.
+    answers = {row["topic"]: row["answer"] for row in tools.get_business_info()["answers"]}
+    assert answers["complimentary_guests"] == rows[0]["answer"]
+
+
+def test_the_startup_sync_replaces_the_old_complimentary_guests_text():
+    """16 §2zr item 3(b): a booth laptop already holds the old answer.
+
+    The database on the stall laptop was seeded before the privacy fix, so the
+    row exists with the text that names the Vice Chancellor. Startup has to
+    overwrite it, or THE HOST would go on reading the old answer out to guests
+    from a database the new seed file never touched.
+    """
+    old = (
         "The Vice Chancellor, Dr. Rauf-i-Azam, is a guest of the Bite & Pour team: "
         "anything he would like to eat or drink is on the house. No one else is on "
         "the house."
     )
-    # It is served by the existing tool, inside the 2y item 2 cap of 12.
-    answers = {row["topic"]: row["answer"] for row in tools.get_business_info()["answers"]}
-    assert answers["complimentary_guests"] == rows[0]["answer"]
+    with closing(sqlite3.connect(config.DB_PATH)) as conn:
+        conn.execute(
+            "UPDATE business_info SET answer = ? WHERE topic = 'complimentary_guests'",
+            (old,),
+        )
+        conn.commit()
+    assert data.get_business_info("complimentary_guests")[0]["answer"] == old
+
+    data.init_db()
+
+    rows = data.get_business_info("complimentary_guests")
+    print("after the startup sync:", rows)
+    assert len(rows) == 1
+    assert rows[0]["answer"] == PRIVATE_PRICES_LINE
 
 
 # ------------------------------------------- 2m item 3: no filler anywhere

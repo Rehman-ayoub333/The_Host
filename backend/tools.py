@@ -83,7 +83,15 @@ def _flag(value) -> bool:
 
 # 16 section 2ze item 3: the exact wording the model is given back, so it can
 # tell the guest nothing and simply carry on with a paid order.
-COMPLIMENTARY_NOTE = "Only the Vice Chancellor is on the house."
+#
+# 16 section 2zr item 3(c): the old wording named the Vice Chancellor, so a
+# guest who asked for something free was handed, in a tool result, the one fact
+# that must stay private. The refusal now gives back `21` Part A's own line for
+# the question, which answers the guest without telling them who is on the house.
+COMPLIMENTARY_NOTE = (
+    "Our prices are fixed for everyone at the counter — anything beyond that "
+    "is the team's call."
+)
 
 
 # 16 section 2zf item 3(b): the two answers a guest can give to "cash or QR?".
@@ -175,6 +183,18 @@ def _is_a_title(name) -> bool:
     return _is_the_vice_chancellor(name) or _is_the_chief_guest(name)
 
 
+def _is_private_to_its_guest(order) -> bool:
+    """16 section 2zr item 3(c): an order only its own guest may ever hear about.
+
+    An order on the house, or one placed under the Vice Chancellor's name, is
+    the one thing that must never reach another guest: it would say who eats
+    free. Every other order is found by name as before.
+    """
+    return bool(order.get("complimentary")) or _is_the_vice_chancellor(
+        order.get("guest_name")
+    )
+
+
 def _note_visitor(name, announce_only_if_changed: bool = False) -> dict | None:
     """16 section 2zf item 5: the one place a name becomes a remembered guest.
 
@@ -199,7 +219,13 @@ def _note_visitor(name, announce_only_if_changed: bool = False) -> dict | None:
     None means there was no name to work with.
     """
     clean = " ".join(str(name or "").split())[:60]
-    if not clean:
+    if not clean or _is_a_title(clean):
+        # 16 section 2zr item 3(c): `build_order` already refused a title here,
+        # but `remember_visitor` did not, so a guest could create a profile
+        # under "Vice Chancellor" -- and his confirmed order would then fill it
+        # with his favourite and his last order for the next guest who said the
+        # title out loud. The code, not the prompt, now refuses it, as 2ze item 3
+        # ruled for the complimentary flag.
         return None
     c, key = _ctx(), clean.lower()
     # The same name again in this session: do not count another visit.
@@ -650,7 +676,18 @@ def get_order_status(order_number=None, guest_name=None) -> dict:
                 )
             found = [order] if (order is not None and _owns_order(order)) else []
         elif name:
-            found = data.find_orders_today(name)
+            # 16 section 2zr item 3(c): saying a name is not proof of being it.
+            # Today's orders under that name are this guest's own only when this
+            # session placed them, or when this session's guest goes by that
+            # name; anything else under the Vice Chancellor's name, or on the
+            # house under any name, is another guest's order and is dropped
+            # before the result is built. Ordinary orders are unchanged: a guest
+            # who says the name they ordered under still finds their own.
+            found = [
+                order
+                for order in data.find_orders_today(name)
+                if _owns_order(order) or not _is_private_to_its_guest(order)
+            ]
         else:
             found = data.find_orders_for(c.get("session_id"), c.get("visitor_name"))[:3]
         orders = [

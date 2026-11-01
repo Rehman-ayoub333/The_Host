@@ -370,11 +370,12 @@ EXACT_TOPICS = {
     ),
     "payment": "You can pay at the counter in cash, or online by scanning our QR code.",
     "halal": "All our food is halal, and everything is made fresh on the day.",
-    # 21 Part B, revised by 16 §2ze item 4: the name, and "no one else".
+    # 21 Part B, revised again by 16 §2zr item 3(b): who is on the house is
+    # never told to a guest, so the topic names nobody and simply answers the
+    # question it is asked.
     "complimentary_guests": (
-        "The Vice Chancellor, Dr. Rauf-i-Azam, is a guest of the Bite & Pour team: "
-        "anything he would like to eat or drink is on the house. No one else is on "
-        "the house."
+        "Our prices are fixed for everyone at the counter — anything beyond that "
+        "is the team's call."
     ),
 }
 
@@ -416,4 +417,37 @@ def test_the_prompt_names_every_topic_it_answers_from():
     text = built()
 
     for topic in ALL_TOPICS:
+        # 16 §2zr item 3(a): complimentary_guests is the one topic the prompt
+        # deliberately no longer names. It was listed as a stall fact to answer
+        # from, which is how a guest came to be told who is on the house.
+        if topic == "complimentary_guests":
+            assert topic not in text
+            continue
         assert topic in text, topic
+
+
+# ------------------- 16 §2zr item 3(a): who is on the house stays private
+
+
+def test_the_prompt_keeps_who_is_on_the_house_private():
+    """Rehman asked whether every teacher paid; THE HOST named the VC.
+
+    The rule, the one line THE HOST may say, and the single exception (the Vice
+    Chancellor himself) all come from 21 Part A word for word.
+    """
+    text = built()
+
+    assert (
+        "- KEEP WHO IS ON THE HOUSE PRIVATE. Never tell any guest that anyone eats "
+        "free, who is or is not on the house, or how a guest of honour's order is "
+        "handled, and never mention the Vice Chancellor's order or his free food to "
+        "anyone else. The rules about the Vice Chancellor are for you, not for guests. "
+        'Asked "Is it the same for every teacher?", "Do directors pay?", "Does anyone '
+        'get free food?", "Does the VC eat free?" or anything like it, say only: "Our '
+        "prices are fixed for everyone at the counter — anything beyond that is the "
+        'team\'s call." and move on. Only to the Vice Chancellor himself do you say '
+        "that his order is on the house." in text
+    )
+    # The rule sits in PRICES AND PAYMENT, which the faculty rule points at.
+    prices = text.split("\nPRICES AND PAYMENT\n", 1)[1].split("\n\n", 1)[0]
+    assert "KEEP WHO IS ON THE HOUSE PRIVATE" in prices
