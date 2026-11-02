@@ -43,7 +43,11 @@ export function readyHeadline(a: {
   order_id: number;
   order_number?: number | null | undefined;
   customer_name?: string | null | undefined;
+  announcement?: string | undefined;
 }): string {
+  // 16 §2zs item 4(c): an operator's announcement shows exactly the operator's
+  // text. Nothing is added to it and nothing is trimmed off it.
+  if (a.announcement !== undefined) return a.announcement;
   // 16 §2zi item 3(b): the room is listening for the number the guest was
   // given. An order announced before the column existed has none, and its id
   // is the only number anyone ever knew it by.
@@ -59,7 +63,9 @@ function useReadyQueue() {
 
   useEffect(() => {
     if (!head) return;
-    const t = setTimeout(() => agentStore.dispatch({ type: "@ready_done" }), READY_MS);
+    // 16 §2zs item 4(c): an announcement carries its own 20 s; a ready order
+    // keeps the 15 s of §2o item 6.
+    const t = setTimeout(() => agentStore.dispatch({ type: "@ready_done" }), head.ms ?? READY_MS);
     return () => clearTimeout(t);
   }, [head]);
 
@@ -140,13 +146,18 @@ export function displayKeyAction(event: { code?: string; key: string; targetTag?
  * re-made by a later state change.
  */
 function useOrderReadyChime(
-  head: { order_id: number; customer_name?: string | null | undefined } | null,
+  head: { order_id: number; customer_name?: string | null | undefined; announcement?: string | undefined } | null,
   port: ChimePort = chime,
 ) {
   const lastAgentState = useAgent((s) => s.lastAgentState);
   const handled = useRef(new Set<number>());
 
   useEffect(() => {
+    // 16 §2zs item 4(b): THE HOST says an announcement itself, in every case --
+    // it opens a conversation for it if it has to -- so the chime would always
+    // be talking over it. It is not an order, and it is never recorded in the
+    // set below: every announcement shares `order_id: 0`.
+    if (head?.announcement !== undefined) return;
     if (!head || handled.current.has(head.order_id)) return;
     handled.current.add(head.order_id);
     // A conversation is running, so THE HOST speaks this one (main.py's
@@ -334,6 +345,22 @@ export function SMDDisplay() {
     return () => window.removeEventListener("keydown", onKey);
   }, [started, session]);
 
+  // 16 §2zs item 4(b): the operator announced something and nobody is being
+  // served, so this screen opens the conversation THE HOST will say it in. The
+  // backend is holding the text and hands it over as the opening turn, so there
+  // is no greeting and nothing of the announcement travels through this page.
+  // An announcement that arrives mid-conversation needs none of this: the
+  // backend injects it into the conversation already running.
+  const announced = useAgent((s) => s.announcements[0]?.at ?? null);
+  const openedFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (!started || !session || announced === null) return;
+    if (openedFor.current === announced) return;
+    openedFor.current = announced;
+    if (session.isSessionActive()) return;
+    void session.startSession("announcement");
+  }, [started, session, announced]);
+
   const resting = opMode && opMode.mode !== "ONLINE" && mode !== "demo";
   // A queued announcement takes the screen even when THE HOST is back to IDLE:
   // an order usually becomes ready long after its conversation ended, so the
@@ -358,8 +385,17 @@ export function SMDDisplay() {
   if (memoryStates && focus) headline = focus.returning ? `Welcome back, ${focus.name}!` : `Nice to meet you, ${focus.name}!`;
   if (idle) headline = "Ready when you are.";
   if (ready) headline = readyHeadline(ready);
+  // 16 §2zs item 4(c): an announcement is the team's words, not THE HOST's, and
+  // the screen says so in a distinct amber.
+  const announcing = ready?.announcement !== undefined;
 
-  const toneText = meta.tone === "warn" ? "text-destructive" : meta.tone === "off" ? "text-muted-foreground" : "text-foreground";
+  const toneText = announcing
+    ? "text-amber"
+    : meta.tone === "warn"
+      ? "text-destructive"
+      : meta.tone === "off"
+        ? "text-muted-foreground"
+        : "text-foreground";
 
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-hidden bg-background">
@@ -413,7 +449,18 @@ export function SMDDisplay() {
             {/* 16 §2ze item 5: the old text menu carousel is gone from the TV.
                 With no posters this is the brand screen and one line, and the
                 menu is read from the pictures Rehman puts up. */}
-            <p key={headline} className={cn("animate-rise mt-3 text-center font-display text-4xl font-semibold leading-tight sm:text-6xl lg:text-7xl", toneText)}>
+            {/* 16 §2zs item 4(c): an announcement gets the same large banner as
+                a ready order, in its own amber, and the testid is what the
+                operator's screenshot proof looks for. */}
+            <p
+              key={headline}
+              data-testid={announcing ? "display-announcement" : undefined}
+              className={cn(
+                "animate-rise mt-3 text-center font-display text-4xl font-semibold leading-tight sm:text-6xl lg:text-7xl",
+                toneText,
+                announcing && "rounded-md border-2 border-amber bg-amber/10 px-6 py-4",
+              )}
+            >
               {headline}
             </p>
             {state === "offline" && <p className="mt-2 text-center text-[clamp(1rem,1.8vw,1.6rem)] text-muted-foreground">Please speak with a host</p>}

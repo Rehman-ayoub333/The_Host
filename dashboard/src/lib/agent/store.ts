@@ -29,6 +29,7 @@ export const initialSnapshot: AgentSnapshot = {
   recommendation: null,
   orderReady: null,
   readyQueue: [],
+  announcements: [],
   system: {
     backend: "unknown",
     ai_agent: "unknown",
@@ -161,6 +162,15 @@ export function reduce(s: AgentSnapshot, e: AgentEvent | LocalAction): AgentSnap
       return n({
         orderReady: { order_id: e.order_id, order_number: e.order_number, customer_name: e.customer_name, until: now + 8000 },
         readyQueue: [...s.readyQueue, { order_id: e.order_id, order_number: e.order_number, customer_name: e.customer_name }],
+      });
+    // 16 §2zs item 4(b) and (c): the operator announced something. It joins the
+    // ready-order queue rather than taking the screen from one, and carries its
+    // own 20 s. `order_id: 0` is how the banner knows it is not an order: no
+    // real order has that id, so the chime's "one per order" set is untouched.
+    case "display_announcement":
+      return n({
+        announcements: [{ text: e.text, at: toMs(e.timestamp) ?? now }, ...s.announcements].slice(0, 5),
+        readyQueue: [...s.readyQueue, { order_id: 0, announcement: e.text, ms: e.seconds * 1000 }],
       });
     case "operational_mode_changed":
       return n({ opMode: { mode: e.mode, reason: e.reason } });

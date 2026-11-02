@@ -12,7 +12,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Collected by the mocked service below, so the assertions are about exactly
 // what the panel asked the backend to send. Nothing is stored anywhere else.
-const { notesSent } = vi.hoisted(() => ({ notesSent: [] as string[] }));
+const { notesSent, announced } = vi.hoisted(() => ({
+  notesSent: [] as string[],
+  announced: [] as string[],
+}));
 
 vi.mock("@/lib/agent/service", () => ({
   connectAgent: () => undefined,
@@ -27,6 +30,11 @@ vi.mock("@/lib/agent/service", () => ({
   // 16 §2zf item 6: the operator's note into a live conversation.
   sendSessionNote: (text: string) => {
     notesSent.push(text);
+    return Promise.resolve(true);
+  },
+  // 16 §2zs item 4(a): the other button, which goes to a different endpoint.
+  sendAnnouncement: (text: string) => {
+    announced.push(text);
     return Promise.resolve(true);
   },
   updateVisitor: () => Promise.resolve(true),
@@ -297,26 +305,28 @@ describe("the Live panel's note box (16 §2zf item 6)", () => {
     render(<LivePanel />);
 
     expect(screen.getByPlaceholderText("Tell THE HOST…")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send private note" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "This is the Vice Chancellor" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ask them to pay at the counter" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Wrap up politely" })).toBeInTheDocument();
   });
 
-  it("disables Send and every quick note with no live conversation", () => {
+  it("disables the private note and every quick note with no live conversation", () => {
     render(<LivePanel />);
 
-    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Send private note" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Wrap up politely" })).toHaveProperty("disabled", true);
-    expect(screen.getByText("No conversation is running.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No conversation is running — a note needs one, an announcement starts one."),
+    ).toBeInTheDocument();
   });
 
-  it("disables Send while the box is empty, even with a conversation running", () => {
+  it("disables both buttons while the box is empty, even with a conversation running", () => {
     dispatchAll(listening);
 
     render(<LivePanel />);
 
-    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Send private note" })).toHaveProperty("disabled", true);
     // A quick note needs no typing, so it is live.
     expect(screen.getByRole("button", { name: "Wrap up politely" })).toHaveProperty("disabled", false);
   });
@@ -329,7 +339,7 @@ describe("the Live panel's note box (16 §2zf item 6)", () => {
     // A controlled input: React only sees the change through its own handler.
     fireEvent.change(box, { target: { value: "  They are in a hurry  " } });
     await act(async () => {
-      screen.getByRole("button", { name: "Send" }).click();
+      screen.getByRole("button", { name: "Send private note" }).click();
     });
 
     expect(notesSent.at(-1)).toBe("They are in a hurry");
@@ -353,7 +363,9 @@ describe("the Live panel's note box (16 §2zf item 6)", () => {
     render(<LivePanel />);
 
     expect(
-      screen.getByText("THE HOST acts on this at once and never reads it out. Nothing typed here is saved."),
+      screen.getByText(
+        "A note is private: THE HOST acts on it and never reads it out. An announcement is said out loud and shown on the screen. Nothing typed here is saved.",
+      ),
     ).toBeInTheDocument();
   });
 

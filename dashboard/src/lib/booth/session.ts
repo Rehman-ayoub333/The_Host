@@ -28,7 +28,9 @@ export type LocalState =
   | "speaking"
   | "error";
 
-export type Trigger = "presence" | "voice" | "button";
+// 16 §2zs item 4(b): `announcement` is the operator's, not a guest's -- nobody
+// walked up, so THE HOST opens with the announcement and never greets.
+export type Trigger = "presence" | "voice" | "button" | "announcement";
 
 /** 16 §2zk item 3: who decides when THE HOST is listening. */
 export type ListeningMode = "operator" | "automatic";

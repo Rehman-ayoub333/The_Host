@@ -196,6 +196,14 @@ export interface ReadyAnnouncement {
   /** 16 §2zi item 3(b) — the number the banner shows and THE HOST calls out. */
   order_number?: number | null | undefined;
   customer_name?: string | null | undefined;
+  /**
+   * 16 §2zs item 4(c) — an operator's announcement shares this queue, so a
+   * ready order and an announcement can never fight for the screen. The
+   * operator's exact words; absent on a ready order.
+   */
+  announcement?: string;
+  /** How long this banner stays up, in ms. Absent means the ready-order 15 s. */
+  ms?: number;
 }
 
 /**
@@ -329,6 +337,9 @@ export type AgentEvent =
   | (Envelope & { type: "error"; message: string; recoverable?: boolean })
   // 16 §2zf item 8(c): to the `smd` role only.
   | (Envelope & { type: "display_reload" })
+  // 16 §2zs item 4(b): the operator's announcement. The TV shows the words and
+  // THE HOST says them; the dashboard gets it too, for the "last 5" list.
+  | (Envelope & { type: "display_announcement"; text: string; seconds: number })
   // 16 §2zk item 3: the operator's microphone controls. The TV acts on them --
   // it is the side holding the microphone -- and the dashboard draws the badge.
   | (Envelope & { type: "listening"; on: boolean })
@@ -386,6 +397,12 @@ export interface AgentSnapshot {
   orderReady: { order_id: number; order_number?: number | null | undefined; customer_name?: string | null | undefined; until: number } | null;
   /** FIFO of announcements still to show on the display; never dropped. */
   readyQueue: ReadyAnnouncement[];
+  /**
+   * 16 §2zs item 4(a) — the last 5 announcements Rehman sent, newest first, so
+   * he can send one again with a single button. Fed by the `display_announcement`
+   * event, which is why a reloaded dashboard still shows the ones it saw.
+   */
+  announcements: { text: string; at: number }[];
   system: Record<SystemComponent, ComponentStatus>;
   lastError: string | null;
   tokenError: string | null;

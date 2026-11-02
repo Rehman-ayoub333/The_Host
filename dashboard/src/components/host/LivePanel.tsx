@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Radio } from "lucide-react";
 import { useAgent } from "@/lib/agent/store";
-import { sendSessionNote, setListening, setOrderStatus } from "@/lib/agent/service";
+import { sendAnnouncement, sendSessionNote, setListening, setOrderStatus } from "@/lib/agent/service";
 import { fmtClock, fmtElapsed, toMs, useNow } from "@/lib/agent/ui";
 import { C } from "@/lib/booth/constants";
 import type { OperationalMode, OrderStatus, PaymentMethod, TranscriptLine } from "@/lib/agent/types";
@@ -209,9 +209,12 @@ const QUICK_NOTES = [
 ] as const;
 
 const NOTE_MAX_CHARS = 300;
+/** 16 §2zs item 4(a): an announcement is one short line for the whole stall. */
+const ANNOUNCEMENT_MAX_CHARS = 140;
 
 function OperatorNote() {
   const state = useAgent((s) => s.lastAgentState);
+  const recent = useAgent((s) => s.announcements);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   // The same test the Conversation box uses: a conversation is running when
@@ -225,6 +228,23 @@ function OperatorNote() {
     const ok = await sendSessionNote(clean.slice(0, NOTE_MAX_CHARS));
     setBusy(false);
     if (ok) setText("");
+  };
+
+  /**
+   * 16 §2zs item 4(a) — the other button. Unlike a note this works whether or
+   * not a conversation is running: with nobody at the stall the backend opens
+   * one for it, so `live` is deliberately not tested here.
+   */
+  const announce = async (line: string) => {
+    const clean = line.trim();
+    if (!clean) return;
+    setBusy(true);
+    const ok = await sendAnnouncement(clean.slice(0, ANNOUNCEMENT_MAX_CHARS));
+    setBusy(false);
+    if (ok) {
+      toast.success("Announced on the screen");
+      setText("");
+    }
   };
 
   const quickBtn =
@@ -245,12 +265,24 @@ function OperatorNote() {
           aria-label="Tell THE HOST"
           className="flex-1 rounded-sm border border-line bg-input px-2 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground/50 focus:border-gold"
         />
+      </div>
+      {/* 16 §2zs item 4(a): two clearly different buttons. The private one is
+          the plain outline the box has always had; the public one is amber,
+          because pressing it puts the words on the TV and in THE HOST's mouth. */}
+      <div className="mt-2 flex flex-wrap gap-2">
         <button
           disabled={busy || !live || text.trim().length === 0}
           onClick={() => void send(text)}
           className="h-8 rounded-sm border border-line px-3 text-[0.65rem] font-semibold uppercase transition-colors hover:border-gold hover:text-gold disabled:opacity-50"
         >
-          Send
+          Send private note
+        </button>
+        <button
+          disabled={busy || text.trim().length === 0 || text.trim().length > ANNOUNCEMENT_MAX_CHARS}
+          onClick={() => void announce(text)}
+          className="h-8 rounded-sm border border-amber bg-amber/10 px-3 text-[0.65rem] font-semibold uppercase text-amber transition-colors hover:bg-amber/20 disabled:opacity-50"
+        >
+          Announce on screen
         </button>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -260,9 +292,41 @@ function OperatorNote() {
           </button>
         ))}
       </div>
-      {!live && <p className="mt-2 text-[0.68rem] text-muted-foreground">No conversation is running.</p>}
-      <p className="mt-1 text-[0.62rem] text-muted-foreground">
-        THE HOST acts on this at once and never reads it out. Nothing typed here is saved.
+      {!live && (
+        <p className="mt-2 text-[0.68rem] text-muted-foreground">
+          No conversation is running — a note needs one, an announcement starts one.
+        </p>
+      )}
+      {text.trim().length > ANNOUNCEMENT_MAX_CHARS && (
+        <p className="mt-1 text-[0.62rem] text-amber">
+          An announcement is at most {ANNOUNCEMENT_MAX_CHARS} characters.
+        </p>
+      )}
+      {/* 16 §2zs item 4(a): the last 5, each one press away from going out again. */}
+      {recent.length > 0 && (
+        <div className="mt-2.5 border-t border-line pt-2">
+          <p className="label-caps mb-1">Announced</p>
+          <ul className="flex flex-col gap-1">
+            {recent.map((entry) => (
+              <li key={`${entry.at}-${entry.text}`} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-[0.68rem] text-muted-foreground" title={entry.text}>
+                  {entry.text}
+                </span>
+                <button
+                  disabled={busy}
+                  onClick={() => void announce(entry.text)}
+                  className="h-6 shrink-0 rounded-sm border border-amber px-2 text-[0.6rem] font-semibold uppercase text-amber transition-colors hover:bg-amber/20 disabled:opacity-50"
+                >
+                  Again
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="mt-1.5 text-[0.62rem] text-muted-foreground">
+        A note is private: THE HOST acts on it and never reads it out. An announcement is said out
+        loud and shown on the screen. Nothing typed here is saved.
       </p>
     </div>
   );

@@ -230,6 +230,23 @@ export async function sendSessionNote(text: string): Promise<boolean> {
   }
 }
 
+/**
+ * 16 §2zs item 4 — the other button: everyone at the stall hears this one.
+ *
+ * A note is private and needs a conversation; an announcement is public and the
+ * backend makes a conversation for it if there is none, so this never answers
+ * 409. The text goes on the public screen and THE HOST says it out loud.
+ */
+export async function sendAnnouncement(text: string): Promise<boolean> {
+  try {
+    await request("/api/announcement", { method: "POST", body: JSON.stringify({ text }) });
+    return true;
+  } catch (err) {
+    report(err);
+    return false;
+  }
+}
+
 /** Only the changed fields are sent; an emptied favourite sends null. */
 export async function updateVisitor(nameKey: string, patch: { display_name?: string; favorite_item?: string | null }): Promise<boolean> {
   try {

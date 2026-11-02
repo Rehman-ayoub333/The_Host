@@ -46,6 +46,7 @@
   --color-champagne: var(--champagne);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-amber: var(--amber);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-line: var(--line);
@@ -68,6 +69,11 @@
   --gold-dim: #887035;
   --success: #83a184;
   --warning: #d8b85a;
+  /* 16 §2zs item 4(a) and (c): the operator's announcement. Deliberately not
+     the champagne gold of THE HOST's own identity and not the destructive red
+     of a warning -- an announcement is the team speaking, and the button that
+     sends it to the whole stall must not look like the private note beside it. */
+  --amber: #f0a52b;
 
   --line: rgb(212 175 55 / 0.18);
   --line-strong: rgb(212 175 55 / 0.34);
