@@ -338,6 +338,27 @@ PAYMENT_TEMPLATE = (
 )
 
 
+# 16 section 2zs item 4(b): Rehman types an announcement on the dashboard and
+# the same words are already on the public screen. It arrives as a user turn,
+# so the bracketed prefix is the only thing telling THE HOST it is not the
+# guest; `21` Part A's OPERATOR NOTES section carries the rule that it is said
+# once, as written, with no fact added and no mention of the dashboard.
+OPERATOR_ANNOUNCEMENT_TEMPLATE = (
+    "[Operator announcement — say this to everyone at the stall now.] {text}"
+)
+
+
+# 16 section 2zs item 3: on 1 Nov at 22:21:57 the model went quiet after a tool
+# result and never spoke again; `tool to output` had already fired, so the
+# stall watchdog's clock was clear and nothing caught it. This is the one nudge
+# the session sends before it gives up and reconnects. `21` Part A's OPERATOR
+# NOTES section is what stops THE HOST ever mentioning it.
+POST_TOOL_NUDGE = (
+    "[System note — not from the guest. You went quiet after a tool result. "
+    "Reply to the guest now in one short sentence.]"
+)
+
+
 # 16 section 2l item 7a: the approved lines, formatted once at import.
 GREETING_LINES = tuple(
     line.format(agent_name=config.AGENT_NAME, stall_name=config.STALL_NAME)

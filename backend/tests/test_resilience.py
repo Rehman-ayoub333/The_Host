@@ -1249,3 +1249,156 @@ def test_a_rebuilt_connection_does_not_report_the_old_wait(monkeypatch, caplog):
     print("pending when the rebuild started:", seen["pending"])
     assert seen["pending"] is None
     assert lines_matching(caplog, "tool to output") == []
+
+
+# ---------- 16 §2zs item 3: a nudge after a tool turn that goes quiet
+
+
+class SilentAfterTool(doubles.FakeLiveApiSession):
+    """1 Nov, 22:21:57: a tool result, a sign of life, then nothing at all.
+
+    `generation_complete` is what makes this the real bug rather than an
+    ordinary stall: it clears `awaiting_model_since`, so the 2j item 5 watchdog
+    is disarmed and the 46.8 s of silence that followed went uncaught until the
+    session timed out. One turn per `receive()`, as the SDK does it.
+    """
+
+    def __init__(self, speak_after_nudge=False):
+        super().__init__()
+        self.opened = 0
+        self.nudged = asyncio.Event()
+        self.speak_after_nudge = speak_after_nudge
+
+    async def send_realtime_input(self, **kwargs):
+        await super().send_realtime_input(**kwargs)
+        self.nudged.set()
+
+    async def receive(self):
+        self.opened += 1
+        if self.opened > 1:
+            await asyncio.sleep(30)
+            return
+        yield doubles.message(
+            tool_call=doubles.call("signal_confirmation_request", {"summary": "one burger"})
+        )
+        # The model answers the tool call with something that is not speech,
+        # and then says nothing.
+        yield doubles.message(doubles.content(generation_complete=True))
+        await self.nudged.wait()
+        if not self.speak_after_nudge:
+            await asyncio.sleep(30)
+            return
+        yield doubles.message(doubles.content(audio=b"right-you-are", agent="Of course."))
+        await asyncio.sleep(30)
+
+
+def nudges(session):
+    return [text for text in texts(session) if text == prompts.POST_TOOL_NUDGE]
+
+
+def test_a_tool_turn_that_goes_quiet_is_nudged_once(monkeypatch, caplog):
+    """8 s after the tool response, one line, and only one."""
+    monkeypatch.setattr(config, "POST_TOOL_NUDGE_S", 0.1)
+    monkeypatch.setattr(config, "POST_TOOL_SILENCE_S", 30)
+    session, _ws = doubles.new_session()
+    session.session = SilentAfterTool()
+
+    async def go():
+        pump = asyncio.create_task(session._pump())
+        await asyncio.sleep(0.6)
+        # Long past the nudge, nowhere near the silence deadline.
+        assert not pump.done(), "the nudge must not end the conversation"
+        pump.cancel()
+        await asyncio.gather(pump, return_exceptions=True)
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(go())
+
+    print("nudges sent:", len(nudges(session)))
+    assert nudges(session) == [prompts.POST_TOOL_NUDGE]
+    assert session.post_tool_nudged is True
+    # The log line carries the session and nothing of the text (2zs item 3).
+    nudge_lines = lines_matching(caplog, "post-tool nudge")
+    assert nudge_lines == [f"post-tool nudge session {session.ctx['session_id']}"]
+    for line in nudge_lines:
+        assert "System note" not in line and "quiet" not in line
+
+
+def test_the_stall_watchdog_alone_would_have_missed_it(monkeypatch):
+    """Why the tool turn needs a clock of its own.
+
+    `generation_complete` cleared the 2j item 5 clock, so on 1 Nov nothing was
+    owed to us and `_stall_deadline` had nothing to fire on.
+    """
+    monkeypatch.setattr(config, "POST_TOOL_NUDGE_S", 0.1)
+    monkeypatch.setattr(config, "POST_TOOL_SILENCE_S", 30)
+    session, _ws = doubles.new_session()
+    session.session = SilentAfterTool()
+
+    async def go():
+        pump = asyncio.create_task(session._pump())
+        await asyncio.sleep(0.5)
+        assert session._stall_deadline() is None, "the old watchdog saw nothing wrong"
+        assert session.tool_turn_silent_since is not None
+        pump.cancel()
+        await asyncio.gather(pump, return_exceptions=True)
+
+    asyncio.run(go())
+
+
+def test_speech_after_the_nudge_clears_it(monkeypatch, caplog):
+    """THE HOST answers, so there is no stall and no second nudge."""
+    monkeypatch.setattr(config, "POST_TOOL_NUDGE_S", 0.1)
+    monkeypatch.setattr(config, "POST_TOOL_SILENCE_S", 0.4)
+    session, _ws = doubles.new_session()
+    session.session = SilentAfterTool(speak_after_nudge=True)
+
+    async def go():
+        pump = asyncio.create_task(session._pump())
+        await asyncio.sleep(1.2)
+        # Well past the silence deadline, and still talking.
+        assert not pump.done(), "speech clears the clock, so nothing reconnects"
+        assert session.tool_turn_silent_since is None
+        assert session.post_tool_nudged is False
+        pump.cancel()
+        await asyncio.gather(pump, return_exceptions=True)
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        asyncio.run(go())
+
+    assert nudges(session) == [prompts.POST_TOOL_NUDGE]
+    assert lines_matching(caplog, "live stalled") == []
+
+
+def test_a_second_silence_after_the_nudge_reconnects(monkeypatch, caplog):
+    """7 s more of nothing and the existing reconnect path takes over."""
+    monkeypatch.setattr(config, "POST_TOOL_NUDGE_S", 0.1)
+    monkeypatch.setattr(config, "POST_TOOL_SILENCE_S", 0.3)
+    session, _ws = doubles.new_session()
+    session.session = SilentAfterTool()
+
+    with caplog.at_level(logging.INFO, logger="live_session"):
+        with pytest.raises(LiveDropped) as caught:
+            asyncio.run(session._pump())
+
+    assert caught.value.kind == "stall"
+    assert "live stalled session" in caplog.text
+    # Exactly one nudge was tried before giving up.
+    assert nudges(session) == [prompts.POST_TOOL_NUDGE]
+
+
+def test_the_nudge_waits_are_the_ones_2zs_item_3_asks_for():
+    assert config.POST_TOOL_NUDGE_S == 8
+    # 8 s, then 7 s more -- the same 15 s a stall has always been given.
+    assert config.POST_TOOL_SILENCE_S == 15
+    assert config.POST_TOOL_SILENCE_S - config.POST_TOOL_NUDGE_S == 7
+    assert prompts.POST_TOOL_NUDGE == (
+        "[System note — not from the guest. You went quiet after a tool result. "
+        "Reply to the guest now in one short sentence.]"
+    )
+    # 21 Part A is what stops THE HOST mentioning it.
+    assert (
+        'A message that starts with "[System note" is not from the guest. Do what '
+        "it says at once and never mention it."
+        in prompts.build_system_instruction(datetime(2026, 11, 2, 19, 30))
+    )

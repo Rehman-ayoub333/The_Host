@@ -128,6 +128,21 @@ DRINK_CATEGORIES = ["Lemonades"]
 # still caught; it now takes 15 s, and the display's "One moment…" at 3 s
 # already covers the wait.
 STALL_S = 15
+# 16 section 2zs item 3: the stall watchdog above counts "nothing at all came
+# back". On 1 Nov at 22:21:57 something did come back -- `tool to output` was
+# logged at 1.19 s -- and then the model simply never spoke, for 46.8 s, until
+# the session timed out. So a tool turn carries a clock of its own that only
+# real speech clears: audio, or an output transcription. One nudge at 8 s, and
+# if the silence lasts 7 s more the existing reconnect path takes over, which
+# puts the whole wait at the same 15 s a stall has always been given.
+POST_TOOL_NUDGE_S = 8
+POST_TOOL_SILENCE_S = 15
+# 16 section 2zs item 4(b): how long an operator's announcement stays on the
+# public screen, in the same queue as the ready-order banners.
+ANNOUNCEMENT_SECONDS = 20
+# 16 section 2zs item 4(a): the dashboard keeps the last few announcements so
+# Rehman can send one again with a single button.
+ANNOUNCEMENT_MAX_CHARS = 140
 # 16 section 2j item 4: a GoAway with more time left than this waits for the
 # current turn to finish before the connection is rebuilt.
 GOAWAY_TURN_GRACE_S = 5

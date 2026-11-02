@@ -554,6 +554,14 @@ class LiveSession:
         # output" line measures, and it carries a name and a number, nothing
         # else. None means no tool response is waiting on an answer.
         self.tool_response_pending = None
+        # 16 section 2zs item 3: a tool turn's own clock. `tool_response_pending`
+        # above stops at the first sign of life, which on 1 Nov was a `tool to
+        # output` at 1.19 s followed by 46.8 s of nothing. This one stops only
+        # when THE HOST really speaks -- audio, or an output transcription -- so
+        # a model that answers the tool call and then goes quiet is caught.
+        # `post_tool_nudged` is what makes it once per tool turn.
+        self.tool_turn_silent_since = None
+        self.post_tool_nudged = False
         # 16 section 2j item 9: one latency line per turn, and no words in it.
         self.turn_latency_logged = False
         # 16 section 2l item 4: how this conversation ended decides what happens
@@ -1286,6 +1294,36 @@ class LiveSession:
             deadlines.append(self.last_audio_chunk_at + config.STALL_S)
         return min(deadlines) if deadlines else None
 
+    def _next_deadline(self) -> tuple[float | None, str]:
+        """16 section 2zs item 3: when to wake, and what to do when we get there.
+
+        "nudge" is the one client turn a silent tool turn is given at 8 s;
+        "stall" is the watchdog above, plus the same tool turn 7 s later. The
+        earlier of the two wins, and a nudge already sent leaves only the stall.
+        """
+        stall = self._stall_deadline()
+        nudge = None
+        if self.tool_turn_silent_since is not None:
+            if self.post_tool_nudged:
+                silent = self.tool_turn_silent_since + config.POST_TOOL_SILENCE_S
+                stall = silent if stall is None else min(stall, silent)
+            else:
+                nudge = self.tool_turn_silent_since + config.POST_TOOL_NUDGE_S
+        if nudge is not None and (stall is None or nudge <= stall):
+            return nudge, "nudge"
+        return stall, "stall"
+
+    async def _send_post_tool_nudge(self) -> None:
+        """One line, once per tool turn, and not a word of it in the log."""
+        self.post_tool_nudged = True
+        log.info("post-tool nudge session %s", self.ctx["session_id"])
+        try:
+            await self.session.send_realtime_input(text=prompts.POST_TOOL_NUDGE)
+        except Exception:
+            # A nudge that cannot be sent must never end the conversation: the
+            # silence clock runs on, and the reconnect path takes it from here.
+            log.exception("the post-tool nudge could not be sent")
+
     async def _pump(self) -> None:
         """Read one connection until it drops, stalls or is told to go away.
 
@@ -1300,12 +1338,20 @@ class LiveSession:
         while True:
             stream = self.session.receive().__aiter__()
             got_any = False
+            nxt = None
             while True:
-                nxt = asyncio.ensure_future(stream.__anext__())
-                deadline = self._stall_deadline()
+                if nxt is None:
+                    nxt = asyncio.ensure_future(stream.__anext__())
+                deadline, on_timeout = self._next_deadline()
                 timeout = None if deadline is None else max(0.0, deadline - _now())
                 done, _pending = await asyncio.wait({nxt}, timeout=timeout)
                 if not done:
+                    # 16 section 2zs item 3: a silent tool turn gets one nudge
+                    # first, and `nxt` is deliberately left pending -- cancelling
+                    # a read we mean to carry on from would break the stream.
+                    if on_timeout == "nudge":
+                        await self._send_post_tool_nudge()
+                        continue
                     # Nothing arrived inside STALL_S of output being owed.
                     # Nothing can have changed the clocks either: they only move
                     # when a message is handled, which is this loop's own work.
@@ -1317,7 +1363,9 @@ class LiveSession:
                     message = nxt.result()
                 except StopAsyncIteration:
                     # The end of this turn. The conversation carries on.
+                    nxt = None
                     break
+                nxt = None
                 got_any = True
                 await self._handle_message(message)
                 if self.recover_pending is not None:
@@ -1492,6 +1540,15 @@ class LiveSession:
                 _now() - sent_at,
             )
 
+    def _model_spoke(self) -> None:
+        """16 section 2zs item 3: THE HOST really said something, so the nudge
+        clock stops. Only audio and an output transcription call this: a further
+        tool call, a thought part or `generation_complete` are the model working,
+        not the guest being answered, and 1 Nov's 46.8 s of silence began after
+        exactly that kind of output."""
+        self.tool_turn_silent_since = None
+        self.post_tool_nudged = False
+
     def _log_turn_latency(self) -> None:
         """16 section 2j item 9: the first output of a turn, timed from the guest.
 
@@ -1571,6 +1628,7 @@ class LiveSession:
                         if self.drop_turn_audio:
                             continue
                         self._model_output()
+                        self._model_spoke()
                         self._log_turn_latency()
                         self.last_audio_chunk_at = _now()
                         if not self.first_audio_sent:
@@ -1602,6 +1660,7 @@ class LiveSession:
             ):
                 self.turn_in_progress = True
                 self._model_output()
+                self._model_spoke()
                 self._log_turn_latency()
                 await self._on_transcript_fragment(
                     "agent", server_content.output_transcription.text
@@ -1671,6 +1730,9 @@ class LiveSession:
         # a tool response still unanswered. That wait is over with the turn, and
         # measuring it against the next turn's output would invent a long gap.
         self.tool_response_pending = None
+        # 16 section 2zs item 3: likewise the nudge clock -- a turn that has
+        # ended is not a model gone quiet.
+        self._model_spoke()
         self.turn_latency_logged = False
         if self.go_away_waiting:
             # 2j item 4: the server gave us time to finish the turn, and we have.
@@ -2232,6 +2294,10 @@ class LiveSession:
         await self.session.send_tool_response(function_responses=function_responses)
         # 16 section 2j item 5: Gemini has its result; something must come back.
         self.awaiting_model_since = _now()
+        # 16 section 2zs item 3: and THE HOST must actually speak, not merely
+        # emit something. A fresh tool turn gets a fresh nudge.
+        self.tool_turn_silent_since = self.awaiting_model_since
+        self.post_tool_nudged = False
         # 16 section 2s item 2: the clock for "tool to output" starts when the
         # response really leaves. One response carries the whole batch, so the
         # name recorded is the last tool in it -- the one the response waited on.
