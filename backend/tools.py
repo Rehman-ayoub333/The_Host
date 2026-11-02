@@ -994,9 +994,10 @@ TOOL_DECLARATIONS = [
             "complimentary": {
                 "type": "boolean",
                 "description": (
-                    "True only for a guest of honour listed in the "
-                    "complimentary_guests topic, whose order is on the house. "
-                    "Leave it out for every ordinary order."
+                    # 16 section 2zs item 6: the old wording pointed at the
+                    # complimentary_guests topic, which since 2zr lists nobody.
+                    "True only for the Vice Chancellor, Dr. Rauf-i-Azam; the "
+                    "code decides from the order's name."
                 ),
             },
         },
