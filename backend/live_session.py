@@ -448,6 +448,10 @@ class LiveSession:
         # 16 section 2zk item 3(c): kept on the session, so a connection rebuilt
         # mid-conversation asks for the same sensitivity the guest started with.
         self.listen = listen if listen in LISTEN_MODES else "auto"
+        # 16 section 2zs item 4(b): the operator's announcement this conversation
+        # was opened to say. Set by main.py before `run` for the `announcement`
+        # trigger only; None for every ordinary conversation.
+        self.announcement = None
         self.session = None
         self.stack = None
         self.tasks = []
@@ -816,6 +820,14 @@ class LiveSession:
         draft orphaned less than `config.ORPHAN_DRAFT_S` ago is offered back,
         and this conversation takes it over so the ordinary order rules apply.
         """
+        # 16 section 2zs item 4(b): an announcement opens the conversation, so
+        # there is no greeting at all -- nobody walked up, and the first turn
+        # THE HOST gets is the announcement itself. An orphaned draft belongs to
+        # a guest who was being served; it waits for a conversation that has one.
+        if self.trigger == "announcement":
+            return prompts.OPERATOR_ANNOUNCEMENT_TEMPLATE.format(
+                text=self.announcement or ""
+            )
         # 16 section 2l item 7a: the greeting line is chosen here, per session,
         # and is never the one the previous session was given.
         text = prompts.opening_instruction(self.trigger)

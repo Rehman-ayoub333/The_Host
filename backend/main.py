@@ -1037,6 +1037,81 @@ async def post_listening(request: Request):
     return {"on": LISTENING["on"], "mode": LISTENING["mode"]}
 
 
+# 16 section 2zs item 4(b): the announcement this conversation-to-be was asked
+# for. Module level beside ACTIVE and LISTENING for the same reason: one stall,
+# one conversation at a time. It is picked up by the session `/display` opens
+# with trigger `announcement`, and cleared the moment it is taken.
+PENDING_ANNOUNCEMENT: str | None = None
+
+
+class AnnouncementRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=config.ANNOUNCEMENT_MAX_CHARS)
+
+
+@app.post("/api/announcement", dependencies=[Depends(require_operator_token)])
+async def post_announcement(request: Request):
+    """16 section 2zs item 4(b): Rehman announces something to the whole stall.
+
+    Two things happen at once: the words go on the public screen for
+    `ANNOUNCEMENT_SECONDS`, and THE HOST says them out loud. Unlike a note --
+    which is private and needs a conversation -- an announcement never fails for
+    want of one: with nobody at the stall it asks `/display` to open a
+    conversation with trigger `announcement`, which skips the greeting entirely.
+
+    The text is never logged and never stored: the log line counts its
+    characters and the activity row says only that an announcement was shown.
+    Listening is not touched (item 4(b)): an announcement is THE HOST talking,
+    not the microphone opening.
+    """
+    global PENDING_ANNOUNCEMENT
+    try:
+        body = AnnouncementRequest.model_validate(await request.json())
+    except (ValidationError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid announcement.")
+    text = " ".join(body.text.split())
+    if not text or len(text) > config.ANNOUNCEMENT_MAX_CHARS:
+        raise HTTPException(status_code=400, detail="Invalid announcement.")
+
+    log.info("operator announcement chars=%s", len(text))
+    # The screen first, so the room is already reading it as THE HOST speaks.
+    event_bus.publish(
+        {
+            "type": "display_announcement",
+            "text": text,
+            "seconds": config.ANNOUNCEMENT_SECONDS,
+            "session_id": None,
+        }
+    )
+
+    session = ACTIVE
+    started = False
+    if session is None:
+        # Nobody is being served: the display opens a conversation on the event
+        # above and the turn below is waiting for it when it connects.
+        PENDING_ANNOUNCEMENT = text
+        started = True
+    else:
+        try:
+            await session.inject(
+                "announcement",
+                prompts.OPERATOR_ANNOUNCEMENT_TEMPLATE.format(text=text),
+            )
+        except Exception:
+            log.exception("the operator announcement could not be sent")
+            raise HTTPException(
+                status_code=503, detail="The announcement could not be spoken."
+            )
+
+    summaries.emit_activity(
+        "operator",
+        "Announcement shown",
+        None,
+        None if session is None else session.ctx["session_id"],
+    )
+    await _log_operator_action("announcement", chars=len(text))
+    return {"shown": True, "seconds": config.ANNOUNCEMENT_SECONDS, "started": started}
+
+
 @app.post("/api/display/reload", dependencies=[Depends(require_operator_token)])
 async def post_display_reload():
     """16 section 2zf item 8(c): Rehman's own control for the TV.
@@ -1189,8 +1264,10 @@ async def websocket_session(websocket: WebSocket):
     await websocket.accept()
     # 16 section 2h item 3: `voice` joins the triggers the page may ask for --
     # the guest started speaking while the booth sat idle.
+    # 16 section 2zs item 4(b): `announcement` joins them -- nobody walked up,
+    # the operator did, and THE HOST opens with the announcement, not a greeting.
     trigger = websocket.query_params.get("trigger", "button")
-    if trigger not in ("presence", "voice"):
+    if trigger not in ("presence", "voice", "announcement"):
         trigger = "button"
     # 16 section 2zk item 3(c): which listening mode the page is in, which is
     # what picks the start-of-speech sensitivity. Anything unrecognised, and a
@@ -1230,7 +1307,16 @@ async def websocket_session(websocket: WebSocket):
         await refuse("Another conversation is already active.")
         return
 
+    global PENDING_ANNOUNCEMENT
     session = LiveSession(websocket, trigger, listen)
+    if trigger == "announcement":
+        # 16 section 2zs item 4(b): the announcement that asked for this
+        # conversation, taken exactly once. If it has gone -- a second display,
+        # a reload, a conversation that started while the event was in flight --
+        # this opens as an ordinary one rather than saying nothing at all.
+        session.announcement, PENDING_ANNOUNCEMENT = PENDING_ANNOUNCEMENT, None
+        if session.announcement is None:
+            trigger = session.trigger = "button"
     ACTIVE = session
     session_id = session.ctx["session_id"]
     started_at = monotonic()

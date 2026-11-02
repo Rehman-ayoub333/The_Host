@@ -66,6 +66,10 @@ SMD_ALLOWED = frozenset(
         # Both are for the TV: it is the page that holds the microphone.
         "listening",
         "listening_mode",
+        # 16 section 2zs item 4(b): the operator's announcement. The TV is the
+        # whole point of it -- the same words the room hears are on the screen --
+        # so this is the one thing from the note box that is ever public.
+        "display_announcement",
     }
 )
 
