@@ -460,7 +460,13 @@ def test_the_tool_declaration_offers_the_complimentary_argument():
     argument = declaration["parameters"]["properties"]["complimentary"]
 
     assert argument["type"] == "boolean"
-    assert "complimentary_guests" in argument["description"]
+    # 16 section 2zs item 6: the description used to point at the
+    # complimentary_guests topic, which since 2zr lists nobody. It now names the
+    # one guest it is for, and says the code is what decides.
+    assert argument["description"] == (
+        "True only for the Vice Chancellor, Dr. Rauf-i-Azam; the code decides "
+        "from the order's name."
+    )
     # It is optional: only the items are ever required.
     assert declaration["parameters"]["required"] == ["items"]
 
