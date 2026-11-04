@@ -159,11 +159,17 @@ def test_the_operator_notes_section_is_in_the_prompt():
     text = built()
 
     assert "\nOPERATOR NOTES\n" in text
+    # 16 §2zt item 3(a): a note is silent guidance, so the bullet now bans the
+    # acknowledgement itself, not only the mention of the note.
     assert (
         'A message that starts with "[Operator note" comes from the team\'s '
-        "dashboard, not from the guest. Follow it naturally and at once, as if you "
-        "had thought of it yourself. Never read it out, never quote it, and never "
-        "mention that you received a note." in text
+        "dashboard, not from the guest. It is silent guidance, never something to "
+        "answer. Follow it at once in what you say next to the guest, as if you had "
+        "thought of it yourself. Never acknowledge it in any way: never say "
+        '"okay", "sure", "understood", "noted", "got it", "will do", "I will now…", '
+        '"as instructed" or anything that announces what you are about to do. Never '
+        "read it out, never quote it, and never mention a note, an instruction, the "
+        "team's dashboard or the operator." in text
     )
     # A note is not a way round the rules that protect money and honesty.
     assert (
