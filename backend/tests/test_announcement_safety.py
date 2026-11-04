@@ -18,6 +18,13 @@ import live_session
 import prompts
 
 
+# 16 §2zt item 4: how long a test waits for the announce watcher to get its
+# slice. The watcher ticks every 0.01 s here, so this is tens of ticks of slack.
+# It was 0.05 s, which a machine 1142 tests deep into the 7s full run lost: the
+# wait expired before the watcher ran and the announcement looked lost. Test
+# only -- no production timing changes.
+SETTLE_S = 0.5
+
 ORDER_27 = {"id": 27, "guest_name": "Ahmed"}
 ORDER_28 = {"id": 28, "guest_name": None}
 ANNOUNCEMENT_27 = prompts.ANNOUNCE_TEMPLATE.format(order_number=27, name=" for Ahmed")
@@ -162,7 +169,7 @@ def test_the_cap_releases_an_announcement_after_twenty_seconds(clock, monkeypatc
         # 10 s in, still talking for real: the flag is believed, nothing is sent.
         clock.advance(10)
         session.last_input_transcript_at = clock()
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(SETTLE_S)
         print("Gemini inputs at 10 s:", session.session.inputs)
         assert session.session.inputs == []
 
@@ -170,14 +177,14 @@ def test_the_cap_releases_an_announcement_after_twenty_seconds(clock, monkeypatc
         clock.advance(11)
         session.last_input_transcript_at = clock()
         session.turn_in_progress = True
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(SETTLE_S)
         print("Gemini inputs past the cap, mid-turn:", session.session.inputs)
         assert session.session.inputs == []
         assert [order["id"] for order in session.pending_announcements] == [27]
 
         # The turn ends. The cap now wins over the guest's noise.
         session.turn_in_progress = False
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(SETTLE_S)
         print("Gemini inputs after the turn ended:", session.session.inputs)
         assert session.session.inputs == [{"text": ANNOUNCEMENT_27}]
         # 16 section 2v item 4: it leaves the list when THE HOST has said it.
@@ -187,7 +194,7 @@ def test_the_cap_releases_an_announcement_after_twenty_seconds(clock, monkeypatc
         assert session.announced == {27}
 
         # The list is empty, so the watcher is finished.
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(SETTLE_S)
         print("watcher after the list emptied:", session.announce_watcher)
         assert session.announce_watcher is None
         return session, ws
