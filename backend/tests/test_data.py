@@ -57,8 +57,8 @@ def test_seeds_menu_and_business_info_and_keeps_the_sold_out_toggle():
     assert data.load_menu() == 5
     # 16 section 2k item 7 added the four identity topics to the seed file,
     # 2m item 5 the guest-of-honour one, and 21 Part B privacy, technical,
-    # payment and halal.
-    assert len(data.get_business_info()) == 11
+    # payment and halal, and 16 §2zv item 4 the challenges one.
+    assert len(data.get_business_info()) == 12
     data.set_menu_availability("Blue Lemonade", False)
     data.init_db()
     assert data.get_menu_item("Blue Lemonade")["available"] == 0
@@ -741,8 +741,8 @@ def test_memory_event_shape():
 
 def test_get_business_info_substring_and_all():
     assert [row["topic"] for row in data.get_business_info()] == [
-        "about_the_host", "complimentary_guests", "halal", "hours", "how_it_works",
-        "payment", "privacy", "project", "stall", "team", "technical",
+        "about_the_host", "challenges", "complimentary_guests", "halal", "hours",
+        "how_it_works", "payment", "privacy", "project", "stall", "team", "technical",
     ]
     assert data.get_business_info("HOUR")[0]["answer"].startswith("We're open")
     assert data.get_business_info("parking") == []

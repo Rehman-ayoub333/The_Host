@@ -9,5 +9,8 @@
   {"name": "Strawberry Lemonade", "category": "Lemonades", "price": "Rs. 160", "description": "", "available": true, "prep_seconds": 900, "aliases": ["strawberry"]},
   {"name": "Blue Citrus Lemonade", "category": "Lemonades", "price": "Rs. 180", "description": "", "available": true, "prep_seconds": 900, "aliases": ["blue lemonade", "blue citrus", "blue"]},
   {"name": "Zinger Shawarma", "category": "Shawarma", "price": "Rs. 200", "description": "", "available": true, "prep_seconds": 900, "aliases": ["shawarma", "shwarma", "chicken shawarma"]},
-  {"name": "Mix Fruit Cup", "category": "Fruit", "price": "Rs. 150", "description": "", "available": true, "prep_seconds": 900, "aliases": ["fruit cup", "mixed fruit cup", "mix fruit"]}
+  {"name": "Mix Fruit Cup", "category": "Fruit", "price": "Rs. 150", "description": "", "available": true, "prep_seconds": 900, "aliases": ["fruit cup", "mixed fruit cup", "mix fruit"]},
+  {"name": "Deal 1", "category": "Deals", "price": "Rs. 550", "description": "1 Fire Burger, 1 Blue Citrus Lemonade and 1 fries pack", "available": true, "prep_seconds": 900, "aliases": ["first deal", "pehli deal", "deal number 1"]},
+  {"name": "Deal 2", "category": "Deals", "price": "Rs. 450", "description": "1 Zinger Burger, 1 Blue Citrus Lemonade and 1 fries pack", "available": true, "prep_seconds": 900, "aliases": ["second deal", "doosri deal", "deal number 2"]},
+  {"name": "Deal 3", "category": "Deals", "price": "Rs. 400", "description": "1 Patty Burger, 1 Blue Citrus Lemonade and 1 fries pack", "available": true, "prep_seconds": 900, "aliases": ["third deal", "teesri deal", "deal number 3"]}
 ]

@@ -33,7 +33,7 @@ def items(monkeypatch):
     monkeypatch.setattr(config, "MENU_JSON_PATH", real)
     data.init_db()
     rows = data.get_menu()
-    assert len(rows) == 11, f"the real menu has 11 items, found {len(rows)}"
+    assert len(rows) == 14, f"the real menu has 14 items, found {len(rows)}"
     return rows
 
 
@@ -49,6 +49,10 @@ REAL_NAMES = [
     "Blue Citrus Lemonade",
     "Zinger Shawarma",
     "Mix Fruit Cup",
+    # 16 section 2zv item 3: the three deals.
+    "Deal 1",
+    "Deal 2",
+    "Deal 3",
 ]
 
 # (input, expected name) -- item 3(g)'s single matches, plus the aliases.
@@ -99,6 +103,15 @@ MATCHES = [
     ("ZINGER BURGER", "Zinger Burger"),
     ("mix-fruit cup!", "Mix Fruit Cup"),
     ("  blue   citrus  ", "Blue Citrus Lemonade"),
+    # 16 section 2zv item 3: a deal is named by its number, in either language,
+    # and the deal names carry none of the burger words on purpose.
+    ("deal 1", "Deal 1"),
+    ("doosri deal", "Deal 2"),
+    ("deal 3", "Deal 3"),
+    ("pehli deal", "Deal 1"),
+    ("teesri deal", "Deal 3"),
+    ("first deal", "Deal 1"),
+    ("deal number 2", "Deal 2"),
 ]
 
 # (input, the names it must come back as) -- item 3(c)'s four ambiguous cases.
@@ -115,6 +128,8 @@ AMBIGUOUS = [
     ),
     ("sandwich", ["Regular Sandwich", "Special Sandwich"]),
     ("burger", ["Fire Burger", "Patty Burger", "Zinger Burger"]),
+    # 16 section 2zv item 3: "deal" alone is three deals, so it is a question.
+    ("deal", ["Deal 1", "Deal 2", "Deal 3"]),
 ]
 
 NO_MATCH = ["pizza", "biryani", "tea", "coffee", "shawaya zinger pizza roll"]

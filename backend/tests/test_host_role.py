@@ -383,10 +383,20 @@ EXACT_TOPICS = {
         "Our prices are fixed for everyone at the counter — anything beyond that "
         "is the team's call."
     ),
+    # 21 Part B, added by 16 §2zv item 4: the two table challenges.
+    "challenges": (
+        "We have two challenges at our table, and Umair from our team will help you. "
+        "The timer challenge: stop the timer at exactly 10.0 seconds and you get 50% "
+        "off your entire order — even 10.1 seconds doesn't count. The candle "
+        "challenge: light all the candles within the time you're given and you get 20% "
+        "off your entire order. The team applies the discount at the counter when you "
+        "pay."
+    ),
 }
 
 ALL_TOPICS = (
     "about_the_host",
+    "challenges",
     "complimentary_guests",
     "halal",
     "hours",
@@ -408,11 +418,15 @@ def test_each_new_topic_is_stored_with_the_exact_text(topic):
     assert rows[0]["answer"] == EXACT_TOPICS[topic]
 
 
-def test_the_listing_covers_all_eleven_topics(ctx):
-    """16 section 2y item 2: the cap is 12, so nothing is silently dropped."""
+def test_the_listing_covers_all_twelve_topics(ctx):
+    """16 section 2y item 2: the cap is 12, so nothing is silently dropped.
+
+    16 §2zv item 4 added the twelfth topic, `challenges`, which is exactly the
+    cap -- one more would be dropped silently, so this count is the guard.
+    """
     listed = tools.get_business_info()["answers"]
 
-    assert len(listed) == 11
+    assert len(listed) == 12
     assert tuple(row["topic"] for row in listed) == ALL_TOPICS
     answers = {row["topic"]: row["answer"] for row in listed}
     for topic, text in EXACT_TOPICS.items():

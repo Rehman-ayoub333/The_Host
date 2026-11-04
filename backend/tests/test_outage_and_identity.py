@@ -1102,7 +1102,8 @@ def test_the_accepted_decisions_from_the_5f_report_still_hold(ctx):
     built = prompts.build_system_instruction(datetime.now())
     # 21 Part A says it in one line, and names the stall's own topics too.
     assert "all come from get_business_info" in built
-    # The listing cap is 12 (16 section 2y item 2), so all eleven topics come
+    # The listing cap is 12 (16 section 2y item 2), so all twelve topics come
     # back (six after 2k item 7, seven once 2m item 5 added
-    # complimentary_guests, eleven with 21 Part B's four).
-    assert len(tools.get_business_info()["answers"]) == 11
+    # complimentary_guests, eleven with 21 Part B's four, twelve with the
+    # challenges topic of 16 §2zv item 4).
+    assert len(tools.get_business_info()["answers"]) == 12
