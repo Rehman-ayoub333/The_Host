@@ -18,6 +18,7 @@ import data
 import event_bus
 import health
 import language_guard
+import note_guard
 import prompts
 import schemas
 import summaries
@@ -468,6 +469,12 @@ class LiveSession:
         # after the start of it has already been cut off.
         self.language_guard_fired = False
         self.drop_turn_audio = False
+        # 16 section 2zt item 3(b): armed the moment an operator's note reaches
+        # Gemini and disarmed at the end of the one turn that follows it, which
+        # is the turn that would answer the note out loud. An announcement is
+        # meant to be spoken, so it never arms this.
+        self.note_guard_armed = False
+        self.note_guard_hits = 0
         # 16 section 2e item 1: true from the first piece of model output of a
         # turn until that turn ends. Unlike first_audio_sent it survives a tool
         # response, so an announcement cannot be injected into the gap between a
@@ -677,6 +684,44 @@ class LiveSession:
         self.transcripts["agent"] = ""
         await self._to_live(
             self.session.send_realtime_input(text=prompts.LANGUAGE_GUARD_PROMPT)
+        )
+
+    async def _check_note_ack(self, line: str) -> None:
+        """16 section 2zt item 3(b): stop THE HOST answering an operator's note.
+
+        A note is silent guidance. It arrives as a user turn, so the model's
+        next turn is a reply to it -- "Okay, I will wrap up" -- which the guest
+        hears and which gives away that the team is steering the conversation.
+
+        The first violation of the turn is handled exactly as a language
+        violation: the page flushes its queued audio so the room stops hearing
+        the acknowledgement at once, the rest of the turn's audio is dropped,
+        the words leave the TV, and one client turn asks for the guest's answer
+        on its own.
+
+        A second violation in the same turn gets none of that. The model has
+        been told once; telling it again mid-turn is what would turn one bad
+        answer into a loop, so the turn is simply dropped in silence.
+
+        The log carries the session and nothing else: not the line, not the
+        word that tripped it, and never the note (12 section 1).
+        """
+        if not self.note_guard_armed:
+            return
+        if note_guard.violation(line) is None:
+            return
+        self.note_guard_hits += 1
+        self.drop_turn_audio = True
+        if self.note_guard_hits > 1:
+            # Already handled once this turn: stay silent and keep dropping.
+            return
+        log.info("note guard session %s", self.ctx["session_id"])
+        # The page's own interrupt path: queued audio goes immediately.
+        await self._send_control({"type": "interrupted"})
+        # The acknowledgement must not stay on the TV either.
+        self.transcripts["agent"] = ""
+        await self._to_live(
+            self.session.send_realtime_input(text=prompts.NOTE_GUARD_PROMPT)
         )
 
     async def _on_transcript_fragment(self, role: str, fragment: str) -> None:
@@ -1422,6 +1467,10 @@ class LiveSession:
         self.first_audio_sent = False
         self.language_guard_fired = False
         self.drop_turn_audio = False
+        # 16 section 2zt item 3(b): the turn the note was owed died with the
+        # connection, so the turn that replaces it gets its own first chance.
+        # The arming survives: the note was sent and is still unanswered.
+        self.note_guard_hits = 0
         self.awaiting_model_since = None
         self.last_audio_chunk_at = None
         # 2s item 2: the connection that owed the answer is gone with it.
@@ -1681,6 +1730,9 @@ class LiveSession:
                 # actually speaking, as it arrives, and stops a turn that is not
                 # in English or Urdu.
                 await self._check_language(self.transcripts["agent"])
+                # 16 section 2zt item 3(b): and on the one turn after a note,
+                # stops a turn that answers the note instead of the guest.
+                await self._check_note_ack(self.transcripts["agent"])
 
             if server_content.generation_complete:
                 # 16 section 2j item 5: the model has finished producing this
@@ -1734,6 +1786,13 @@ class LiveSession:
         # A new turn may speak, and may be judged again (2zk item 4b).
         self.language_guard_fired = False
         self.drop_turn_audio = False
+        # 16 section 2zt item 3(b): the guard watches the first turn after a
+        # note and no further, so a note never casts a shadow over the rest of
+        # the conversation. Both violations the section allows happen inside
+        # that one turn: the interrupt does not end the turn server-side, so the
+        # model can carry on acknowledging after the first has been cut off.
+        self.note_guard_armed = False
+        self.note_guard_hits = 0
         # 16 section 2j items 5 and 9: the turn is over, so nothing is owed and
         # the next turn gets its own latency line.
         self.awaiting_model_since = None
@@ -1938,6 +1997,13 @@ class LiveSession:
 
     async def _send_injection(self, kind: str, text: str) -> None:
         log.info("%s sent session %s", kind, self.ctx["session_id"])
+        # 16 section 2zt item 3(b): every note reaches Gemini through here,
+        # immediate or deferred, so this is the one place the guard is armed.
+        # Only a note: an announcement is meant to be spoken, and a payment line
+        # asks for words the guest is waiting to hear.
+        if kind == "note":
+            self.note_guard_armed = True
+            self.note_guard_hits = 0
         await self.session.send_realtime_input(text=text)
 
     async def _send_pending_injection(self) -> None:

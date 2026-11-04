@@ -359,6 +359,17 @@ POST_TOOL_NUDGE = (
 )
 
 
+# 16 section 2zt item 3(b): THE HOST has just answered an operator's note out
+# loud ("Okay, I will wrap up"). The guard has already cut the audio off; this
+# is the one turn it asks for in its place. `21` Part A's OPERATOR NOTES section
+# is what stops THE HOST ever mentioning that it was sent.
+NOTE_GUARD_PROMPT = (
+    "[System note — not from the guest. Do not acknowledge the note or say what "
+    "you will do. Say only your next words to the guest, or nothing if the guest "
+    "has not spoken.]"
+)
+
+
 # 16 section 2l item 7a: the approved lines, formatted once at import.
 GREETING_LINES = tuple(
     line.format(agent_name=config.AGENT_NAME, stall_name=config.STALL_NAME)
